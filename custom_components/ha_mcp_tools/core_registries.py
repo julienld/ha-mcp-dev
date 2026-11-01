@@ -182,12 +182,10 @@ def _category_registry(hass: HomeAssistant) -> Any:
 
 def _list_categories(registry: Any, scope: str) -> list[Any]:
     """``registry.async_list_categories(scope=...)`` guarded (scope is keyword-only)."""
-    if registry is None:
-        return []
     lister = getattr(registry, "async_list_categories", None)
     if not callable(lister):
-        return []
+        raise _substrate_unavailable("category registry")
     try:
         return list(lister(scope=scope))
-    except Exception:  # pragma: no cover - defensive  # noqa: BLE001
-        return []
+    except Exception as error:
+        raise _substrate_unavailable("category registry") from error
