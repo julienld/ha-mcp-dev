@@ -15,11 +15,9 @@ async def await_owned_io[T](operation: Awaitable[T]) -> T:
         # must not release the lock while that thread can still mutate data.
         while not worker.done():
             try:
-                await asyncio.shield(worker)
+                await asyncio.wait({worker})
             except asyncio.CancelledError:
                 continue
-            except Exception:  # noqa: BLE001 - observe the failure, preserve cancellation
-                break
         if not worker.cancelled():
             worker.exception()
         raise
