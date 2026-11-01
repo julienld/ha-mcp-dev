@@ -152,6 +152,43 @@ async def test_native_backup_list_preserves_provider_fields_and_sorts_dates(
     assert result["backups"][0]["future_field"] == {"complete": True}
 
 
+@pytest.mark.parametrize("failed_agent", ["cloud.remote", "backup.local"])
+async def test_creation_confirmation_depends_on_its_local_agent_read(
+    backups: Any, failed_agent: str
+) -> None:
+    async def inventory() -> Any:
+        return copy.deepcopy(backups.rows), {failed_agent: RuntimeError("offline")}
+
+    backups.owner.async_get_backups.side_effect = inventory
+    if failed_agent == "backup.local":
+        with pytest.raises(ToolFailure) as raised:
+            await backups.service.create(None)
+        assert raised.value.code == "OUTCOME_UNKNOWN"
+        assert raised.value.status == "outcome_unknown"
+    else:
+        result = await backups.service.create(None)
+        assert result["success"] and result["backup_id"] == "created"
+        assert set(result["backup"]["agents"]) == {"backup.local"}
+    assert "created" in backups.rows
+    backups.owner.async_create_backup.assert_awaited_once()
+
+
+async def test_delete_refuses_an_incomplete_inventory_even_for_a_remote_agent(
+    backups: Any,
+) -> None:
+    backups.owner.async_get_backups.return_value = (
+        copy.deepcopy(backups.rows),
+        {"cloud.remote": RuntimeError("offline")},
+    )
+    backups.owner.async_get_backups.side_effect = None
+    with pytest.raises(ToolFailure) as raised:
+        await backups.service.delete("old", True)
+    assert raised.value.code == "SERVICE_CALL_FAILED"
+    assert raised.value.status == "not_started"
+    backups.owner.async_delete_backup.assert_not_awaited()
+    assert set(backups.rows) == {"old", "newest"}
+
+
 async def test_snapshot_controls_block_list_and_changes_before_core_io(
     backups: Any,
 ) -> None:

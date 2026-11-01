@@ -303,7 +303,7 @@ class NativeFullBackups:
                         == nonce
                     ]
                     if (
-                        errors
+                        agent_id in errors
                         or len(matches) != 1
                         or agent_id not in matches[0].get("agents", {})
                     ):
