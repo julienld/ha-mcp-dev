@@ -17,6 +17,17 @@ from .test_capture_and_restore import (
 )
 
 
+async def _registry_id(ha_client, entity_id: str) -> str:
+    # ha_get_entity projects user-facing fields; the backup key is Core's UUID.
+    response = await ha_client.send_websocket_message(
+        {"type": "config/entity_registry/get", "entity_id": entity_id}
+    )
+    assert response["success"], response
+    identity = response["result"]["id"]
+    assert isinstance(identity, str) and identity, response
+    return identity
+
+
 @pytest.mark.convenience
 @pytest.mark.cleanup
 @pytest.mark.external_only
@@ -30,7 +41,7 @@ class TestEntityCaptureRestore:
     for a restart."""
 
     async def test_restore_renames_back_and_unhides(
-        self, mcp_client, monkeypatch: pytest.MonkeyPatch
+        self, mcp_client, ha_client, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         _enable_auto_backup(monkeypatch)
         helper_id = f"e2e_bk_ent_{uuid.uuid4().hex[:8]}"
@@ -43,14 +54,14 @@ class TestEntityCaptureRestore:
                 {"helper_type": "input_boolean", "name": helper_id},
             )
             try:
-                registered = await wait_for_tool_result(
+                await wait_for_tool_result(
                     mcp_client,
                     tool_name="ha_get_entity",
                     arguments={"entity_id": entity_id},
                     predicate=lambda d: d["entity_entry"]["hidden"] is False,
                     description=f"{entity_id} in the entity registry",
                 )
-                registry_id = registered["entity_entry"]["id"]
+                registry_id = await _registry_id(ha_client, entity_id)
                 exposure = await mcp.call_tool_success(
                     "ha_get_entity_exposure", {"entity_id": entity_id}
                 )
@@ -95,7 +106,7 @@ class TestEntityCaptureRestore:
                     "ha_get_entity", {"entity_id": entity_id}
                 )
                 assert restored["entity_entry"]["hidden"] is False
-                assert restored["entity_entry"]["id"] == registry_id
+                assert await _registry_id(ha_client, entity_id) == registry_id
                 exposure = await mcp.call_tool_success(
                     "ha_get_entity_exposure", {"entity_id": entity_id}
                 )
@@ -110,7 +121,7 @@ class TestEntityCaptureRestore:
                 await _delete_leftover_backup(mcp_client, backup_name)
 
     async def test_a_removed_entity_says_what_core_keeps(
-        self, mcp_client, monkeypatch: pytest.MonkeyPatch
+        self, mcp_client, ha_client, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Core keeps a removed helper entity's registry settings for 30 days.
         The component reads that from Core's deleted entries; without it the
@@ -125,14 +136,14 @@ class TestEntityCaptureRestore:
                 {"helper_type": "input_boolean", "name": helper_id},
             )
             try:
-                registered = await wait_for_tool_result(
+                await wait_for_tool_result(
                     mcp_client,
                     tool_name="ha_get_entity",
                     arguments={"entity_id": entity_id},
                     predicate=lambda d: d["entity_entry"]["hidden"] is False,
                     description=f"{entity_id} in the entity registry",
                 )
-                registry_id = registered["entity_entry"]["id"]
+                registry_id = await _registry_id(ha_client, entity_id)
                 await mcp.call_tool_success(
                     "ha_set_entity", {"entity_id": entity_id, "icon": "mdi:test-tube"}
                 )

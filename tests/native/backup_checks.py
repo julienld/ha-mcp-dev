@@ -9,7 +9,13 @@ async def exercise_backups(checks: Any) -> None:
     await _exercise_edit_backup(checks, seeded["state_entity"])
     first = await checks.call(
         "ha_manage_backup",
-        {"scope": "snapshot", "action": "create", "name": seeded["prefix"] + "first"},
+        {
+            "scope": "snapshot",
+            "action": "create",
+            "name": seeded["prefix"] + "first",
+            "include_homeassistant": True,
+            "include_database": False,
+        },
     )
     first_id = first["backup_id"]
     first_probe = await checks.control("backup_probe", {"backup_id": first_id})
@@ -45,6 +51,8 @@ async def exercise_backups(checks: Any) -> None:
                 "scope": "snapshot",
                 "action": "create",
                 "name": seeded["prefix"] + "second",
+                "include_homeassistant": True,
+                "include_database": False,
             },
         )
         second_id = second["backup_id"]
