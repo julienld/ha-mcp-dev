@@ -222,6 +222,7 @@ class SavedToolsPersistence:
             "saved_at": datetime.now(UTC).isoformat(),
             "saved_tools": tools,
         }
+        tmp_path: Path | None = None
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
             # Write to a temp file in the same directory so os.replace is
@@ -235,10 +236,11 @@ class SavedToolsPersistence:
                 suffix=".tmp",
                 delete=False,
             ) as tmp:
-                json.dump(payload, tmp, indent=2, sort_keys=True)
                 tmp_path = Path(tmp.name)
+                json.dump(payload, tmp, indent=2, sort_keys=True)
             tmp_path.replace(path)
-        except OSError as exc:
+            tmp_path = None
+        except (OSError, TypeError) as exc:
             logger.error(
                 "Failed to persist saved tools to %s (%s); the in-memory "
                 "cache holds the latest change but it will be lost on restart "
@@ -248,4 +250,14 @@ class SavedToolsPersistence:
                 exc_info=True,
             )
             return False
+        finally:
+            if tmp_path is not None:
+                try:
+                    tmp_path.unlink(missing_ok=True)
+                except OSError:
+                    logger.warning(
+                        "Could not remove saved-tools temporary file %s",
+                        tmp_path,
+                        exc_info=True,
+                    )
         return True

@@ -1,6 +1,7 @@
 """Describing custom cards shares the explicit resource initialization effect."""
 
 import importlib
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
@@ -29,6 +30,23 @@ def describe_runtime(resources, monkeypatch):
     )
     monkeypatch.setattr(module, "async_describe_card", producer)
     return Engine(manager.backend, build_dashboard_tools(manager)), owner, producer
+
+
+def test_dashboard_reads_do_not_advertise_destructive_effects(resources: Any) -> None:
+    from custom_components.ha_mcp_tools.native_dashboard_tools import (
+        build_dashboard_tools,
+    )
+
+    manager, *_ = resources
+    definitions = {tool.name: tool for tool in build_dashboard_tools(manager)}
+    assert (
+        definitions["ha_config_get_dashboard"].annotations["destructiveHint"] is False
+    )
+    assert definitions["ha_config_get_dashboard"].annotations["readOnlyHint"] is False
+    assert definitions["ha_config_set_dashboard"].annotations["destructiveHint"] is True
+    assert (
+        definitions["ha_config_delete_dashboard"].annotations["destructiveHint"] is True
+    )
 
 
 async def test_builtin_card_describe_is_readonly_without_resource_initialization(

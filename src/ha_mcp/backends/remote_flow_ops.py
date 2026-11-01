@@ -109,9 +109,12 @@ class RemoteFlows:
             "subentry": "config_subentry",
         }
         if operation == "config.flow.abort":
-            result = await getattr(self.client, f"abort_{prefixes[kind]}_flow")(flow_id)
-            self.owned.pop(flow_id, None)
-            return result
+            try:
+                return await getattr(self.client, f"abort_{prefixes[kind]}_flow")(
+                    flow_id
+                )
+            finally:
+                self.owned.pop(flow_id, None)
         if operation != "config.flow.configure" or "user_input" not in arguments:
             raise UnsupportedOperation(operation)
         result = await getattr(self.client, f"submit_{prefixes[kind]}_flow_step")(

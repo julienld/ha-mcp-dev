@@ -52,6 +52,15 @@ async def call(edits: Any, action: str, **kwargs: Any) -> Any:
     )
 
 
+def test_native_backup_schema_does_not_accept_transport_context(edits: Any) -> None:
+    definition = edits.engine.tools["ha_manage_backup"]
+    assert "ctx" not in definition.input_schema["properties"]
+    with pytest.raises(ToolFailure, match="Extra inputs"):
+        definition.validate(
+            {"scope": "edits", "action": "list", "ctx": {"caller": "fake"}}
+        )
+
+
 async def test_edit_list_view_diff_restore_and_delete_use_the_same_real_store(
     edits: Any,
 ) -> None:

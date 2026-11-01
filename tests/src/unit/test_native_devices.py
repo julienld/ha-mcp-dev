@@ -37,6 +37,7 @@ class _Composite(_Device):
 
 class _Disabler(StrEnum):
     USER = "user"
+    DEVICE = "device"
 
 
 class _Devices:
@@ -164,6 +165,28 @@ def august_registry(devices: Any, monkeypatch: pytest.MonkeyPatch) -> None:
     )
     monkeypatch.delattr(
         sys.modules["homeassistant.helpers.device_registry"], "ChildDeviceEntry"
+    )
+
+
+async def test_enable_reports_when_core_keeps_child_disabled_by_parent(
+    native: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    engine, _, devices, *_ = _setup(native, monkeypatch)
+    devices.rows["child"].disabled_by = _Disabler.DEVICE
+    update = devices.async_update_child_device
+
+    def keep_disabled(device_id: str, **data: Any) -> Any:
+        assert data["disabled_by"] is None
+        return update(device_id, **{**data, "disabled_by": _Disabler.DEVICE})
+
+    monkeypatch.setattr(devices, "async_update_child_device", keep_disabled)
+    result = await engine.call(
+        "ha_set_device", {"device_id": "child", "disabled_by": ""}, CallContext("actor")
+    )
+    assert not result.is_error, result.data
+    assert result.data["device_entry"]["disabled_by"] == "device"
+    assert any(
+        "disabled" in warning.lower() for warning in result.data.get("warnings", [])
     )
 
 

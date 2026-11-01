@@ -24,7 +24,6 @@ def core_image(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     (checkout / "pyproject.toml").write_text(
         '[project]\nrequires-python = ">=3.13,<3.15"\n'
         '[tool.uv]\nexclude-newer = "7 days"\n'
-        'exclude-newer-package = {certifi = "2026-10-21T00:00:00Z"}\n'
     )
     monkeypatch.setattr(minimal_qualification, "ROOT", checkout)
     package = tmp_path / "image/homeassistant"
@@ -185,7 +184,7 @@ def test_missing_runtime_receipt_stops_before_bootstrap(
     assert not json.loads(core_image.output.read_text())["complete"]
 
 
-def test_security_exception_reaches_native_install_but_not_old_certifi_bootstrap(
+def test_native_install_keeps_global_cooldown_without_a_package_exception(
     core_image: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setenv("UV_EXCLUDE_NEWER", "7 days")
@@ -196,10 +195,10 @@ def test_security_exception_reaches_native_install_but_not_old_certifi_bootstrap
     assert "UV_CONFIG_FILE" not in bootstrap.kwargs["env"]
     assert "certifi==2026.7.22" in seed.args[0]
     assert "UV_CONFIG_FILE" not in seed.kwargs["env"]
-    assert Path(native.kwargs["env"]["UV_CONFIG_FILE"]).is_file()
+    assert "UV_CONFIG_FILE" not in native.kwargs["env"]
     assert native.kwargs["env"]["UV_EXCLUDE_NEWER"] == "7 days"
     proof = json.loads(core_image.output.read_text())
-    assert proof["native_install_policy"]["exception_active"]
+    assert not proof["native_install_policy"]["exception_active"]
 
 
 def test_core_worker_does_not_discover_checkout_uv_policy(tmp_path, monkeypatch):

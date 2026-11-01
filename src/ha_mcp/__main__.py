@@ -1434,14 +1434,12 @@ def main_oauth() -> None:
     Note: HOMEASSISTANT_TOKEN is NOT required in this mode.
     Per-user tokens are collected via the OAuth consent form.
     """
-    # In OAuth mode, per-user tokens come from the consent form — no
-    # server-level HOMEASSISTANT_TOKEN is needed.  Set the sentinel so
-    # Settings validation passes even when the env var is empty (e.g.
-    # Dockerfile sets HOMEASSISTANT_TOKEN="").  Fixes #886.
-    if not os.getenv("HOMEASSISTANT_TOKEN"):
-        from ha_mcp.config import OAUTH_MODE_TOKEN
+    # OAuth uses per-user tokens; validate settings with a placeholder (#886).
+    from ha_mcp.config import OAUTH_MODE_TOKEN, get_settings
 
+    if not os.getenv("HOMEASSISTANT_TOKEN"):
         os.environ["HOMEASSISTANT_TOKEN"] = OAUTH_MODE_TOKEN
+    get_settings()
 
     # Configure logging for OAuth mode
     log_level = os.getenv("LOG_LEVEL", "INFO").upper()

@@ -39,7 +39,7 @@ def build_dashboard_tools(manager: Any) -> list[ToolDefinition]:
                 tags=frozenset({"Dashboards"}),
                 annotations=write_hints(
                     title,
-                    destructive=True,
+                    destructive=not reading,
                     idempotent=idempotent,
                     open_world=not name.endswith("delete_dashboard"),
                 ),

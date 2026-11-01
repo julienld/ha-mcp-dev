@@ -237,7 +237,7 @@ class TestSetIntegrationModes:
                 return_value="sha256:current",
             ),
             patch(
-                "ha_mcp.tools.auto_backup.get_global_settings",
+                "ha_mcp.config.get_global_settings",
                 return_value=SimpleNamespace(enable_auto_backup=True),
             ),
             patch(

@@ -308,7 +308,9 @@ class IntegrationReadTools(IntegrationListReads):
         (``DEBUG``/``INFO``/``WARNING``/``ERROR``/``CRITICAL``) when the
         integration has a log-level override (set one with
         ``ha_set_integration(log_level=...)``), or ``"DEFAULT"``
-        (uppercase sentinel) when no override is set; and ``log_level_raw``: the
+        when no override is set, or ``"UNKNOWN"`` when the logger read fails
+        (a ``warnings`` entry explains why). Both are uppercase sentinels.
+        ``log_level_raw`` is the
         original numeric level (e.g. ``10`` for DEBUG) when HA returned an int,
         ``None`` otherwise. This is distinct from the app side, where
         ``ha_get_app`` returns Supervisor's lowercase ``"default"`` literal — do

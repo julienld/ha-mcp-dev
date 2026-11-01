@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from ha_mcp.errors import HomeAssistantAPIError
 from ha_mcp.tool_api import CallContext, ToolFailure
 from ha_mcp.utils.registry_update_lock import registry_update_lock
 
@@ -229,6 +230,137 @@ def manager() -> Any:
         ),
         async_abort=Mock(),
     )
+
+
+async def test_abandoned_options_flow_expires_without_another_request(
+    flows: Any,
+) -> None:
+    owner = manager()
+    expired = asyncio.Event()
+    owner.async_abort.side_effect = lambda _flow: expired.set()
+    backend = flows.NativeFlows(
+        SimpleNamespace(config_entries=SimpleNamespace(options=owner)),
+        AsyncMock(),
+        ttl=0,
+    )
+    try:
+        await backend.execute(
+            "config.flow.start",
+            {"kind": "options", "handler": "expiry-entry"},
+            CallContext("actor"),
+        )
+        await asyncio.wait_for(expired.wait(), timeout=1)
+        owner.async_abort.assert_called_once_with("owned")
+        assert not backend.owned
+        assert not registry_update_lock("config_entry", "expiry-entry").locked()
+    finally:
+        await backend.stop()
+
+
+@pytest.mark.parametrize("finish", ["create_entry", "abort", "explicit_abort"])
+async def test_flow_completion_cancels_expiry_timer(
+    flows: Any, monkeypatch: pytest.MonkeyPatch, finish: str
+) -> None:
+    owner = manager()
+    timer = Mock()
+    monkeypatch.setattr(
+        flows,
+        "asyncio",
+        SimpleNamespace(
+            get_running_loop=lambda: SimpleNamespace(
+                call_later=Mock(return_value=timer)
+            )
+        ),
+    )
+    backend = flows.NativeFlows(
+        SimpleNamespace(config_entries=SimpleNamespace(flow=owner)), AsyncMock()
+    )
+    actor = CallContext("actor")
+    await backend.execute("config.flow.start", {"handler": "demo"}, actor)
+    if finish == "explicit_abort":
+        await backend.abort_owned("owned", actor)
+    else:
+        owner.async_configure.return_value = {"flow_id": "owned", "type": finish}
+        await backend.execute("config.flow.configure", {"flow_id": "owned"}, actor)
+    timer.cancel.assert_called_once()
+    assert not backend.owned
+
+
+async def test_expiry_does_not_abort_an_inflight_core_step(
+    flows: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    owner = manager()
+    scheduled = Mock(side_effect=lambda *_args: Mock())
+    monkeypatch.setattr(
+        flows,
+        "asyncio",
+        SimpleNamespace(get_running_loop=lambda: SimpleNamespace(call_later=scheduled)),
+    )
+    backend = flows.NativeFlows(
+        SimpleNamespace(config_entries=SimpleNamespace(options=owner)), AsyncMock()
+    )
+    actor = CallContext("actor")
+    await backend.execute(
+        "config.flow.start", {"kind": "options", "handler": "busy-entry"}, actor
+    )
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def finish(*_args: Any) -> dict[str, str]:
+        entered.set()
+        await release.wait()
+        return {"flow_id": "owned", "type": "create_entry"}
+
+    owner.async_configure.side_effect = finish
+    step = asyncio.create_task(
+        backend.execute("config.flow.configure", {"flow_id": "owned"}, actor)
+    )
+    try:
+        await entered.wait()
+        backend.owned["owned"].touched -= backend.ttl + 1
+        _delay, callback, *args = scheduled.call_args.args
+        callback(*args)
+        owner.async_abort.assert_not_called()
+        assert registry_update_lock("config_entry", "busy-entry").locked()
+        assert scheduled.call_count == 2
+    finally:
+        release.set()
+        await step
+        await backend.stop()
+    assert not registry_update_lock("config_entry", "busy-entry").locked()
+
+
+async def test_expiry_respects_recent_invalid_input_without_aborting_early(
+    flows: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    owner = manager()
+    now = [0.0]
+    scheduled = Mock(side_effect=lambda *_args: Mock())
+    monkeypatch.setattr(flows, "time", SimpleNamespace(monotonic=lambda: now[0]))
+    monkeypatch.setattr(
+        flows,
+        "asyncio",
+        SimpleNamespace(get_running_loop=lambda: SimpleNamespace(call_later=scheduled)),
+    )
+    backend = flows.NativeFlows(
+        SimpleNamespace(config_entries=SimpleNamespace(flow=owner)), AsyncMock(), ttl=60
+    )
+    actor = CallContext("actor")
+    try:
+        await backend.execute("config.flow.start", {"handler": "demo"}, actor)
+        owner.async_configure.side_effect = InvalidData()
+        now[0] = 30
+        with pytest.raises(HomeAssistantAPIError, match="Invalid flow input"):
+            await backend.execute("config.flow.configure", {"flow_id": "owned"}, actor)
+        now[0] = 60
+        _delay, callback, *args = scheduled.call_args.args
+        callback(*args)
+        owner.async_abort.assert_not_called()
+        delay, callback, *args = scheduled.call_args.args
+        now[0] += delay
+        callback(*args)
+        owner.async_abort.assert_called_once_with("owned")
+    finally:
+        await backend.stop()
 
 
 async def test_flow_uses_real_managers_and_public_serializer(flows: Any) -> None:

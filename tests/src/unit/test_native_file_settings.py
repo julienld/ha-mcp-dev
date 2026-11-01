@@ -5,6 +5,7 @@ import importlib
 import json
 import sys
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
@@ -93,6 +94,27 @@ async def test_panel_paths_revalidate_administrator_after_path_resolution(
     assert response.status == 403
     saved.assert_not_awaited()
     assert owner.hass.data["ha_mcp_tools"]["allowed_paths"] == []
+
+
+@pytest.mark.parametrize("invalid", ["malformed_json", "wrong_paths", "wrong_body"])
+async def test_panel_rejects_invalid_json_input_without_starting_a_write(
+    panel: Any, monkeypatch: pytest.MonkeyPatch, invalid: str
+) -> None:
+    settings, owner = panel
+    saved = AsyncMock()
+    component = importlib.import_module("custom_components.ha_mcp_tools")
+    monkeypatch.setattr(component, "_save_allowed_paths", saved)
+    read = AsyncMock(
+        return_value={"paths": "notes"} if invalid == "wrong_paths" else []
+    )
+    if invalid == "malformed_json":
+        read.side_effect = json.JSONDecodeError("Invalid JSON", "{", 1)
+    response = await settings.handle(
+        SimpleNamespace(method="POST", json=read), "api/settings/fs-custom-paths"
+    )
+    assert response.status == 400 and response.json_body["error"]
+    saved.assert_not_awaited()
+    assert not owner.pending
 
 
 def test_panel_file_yaml_controls_preserve_environment_precedence(panel, monkeypatch):

@@ -127,13 +127,15 @@ async def execute_registry_operation(
         "devices.list_snapshot",
     }:
         return await _device_read(client, operation, arguments)
-    if operation == "registries.snapshot" and arguments == {
-        "registries": ["area", "floor"]
-    }:
+    if operation == "registries.snapshot" and arguments in (
+        {"registries": ["area", "floor"]},
+        {"registries": ["area"]},
+    ):
         from ha_mcp.tools.tools_areas import AreaTools
 
         areas, floors = await AreaTools(client)._fetch_area_floor_registries({})
-        return {"areas": areas, "floors": floors}
+        rows = {"area": areas, "floor": floors}
+        return {f"{name}s": rows[name] for name in arguments["registries"]}
     if operation == "registries.snapshot" and arguments == {"registries": ["label"]}:
         from ha_mcp.backends.legacy_labels import LegacyLabels
 

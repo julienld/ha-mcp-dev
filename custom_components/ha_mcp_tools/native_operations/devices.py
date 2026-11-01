@@ -111,6 +111,14 @@ class NativeDevices:
                 device_id, name, area_id, disabled_by, labels
             )
             row, warnings = await self._update(payload)
+            if (
+                "disabled_by" in payload
+                and payload["disabled_by"] is None
+                and row.get("disabled_by") is not None
+            ):
+                warnings.append(
+                    "Core kept the device disabled. Its parent device or config entry may still be disabled."
+                )
             return device_update_result(device_id, row, updates, warnings)
         except Exception as error:
             raise registry_failure(error, {"device_id": device_id}) from error

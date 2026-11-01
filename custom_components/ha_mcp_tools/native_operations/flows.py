@@ -39,6 +39,7 @@ class OwnedFlow:
     touched: float = field(default_factory=time.monotonic)
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     entry_lock: asyncio.Lock | None = None
+    expiry: asyncio.TimerHandle | None = None
 
 
 def _prepare_flow_result(
@@ -307,6 +308,8 @@ class NativeFlows:
             self._release_entry(owned)
         elif flow_id:
             self.owned[flow_id] = owned
+            owned.touched = time.monotonic()
+            self._schedule_expiry(flow_id, owned)
         else:
             self._release_entry(owned)
             raise ToolFailure(
@@ -331,9 +334,40 @@ class NativeFlows:
 
     @staticmethod
     def _release_entry(owned: OwnedFlow) -> None:
+        if owned.expiry is not None:
+            owned.expiry.cancel()
+            owned.expiry = None
         if owned.entry_lock is not None:
             owned.entry_lock.release()
             owned.entry_lock = None
+
+    def _schedule_expiry(
+        self, flow_id: str, owned: OwnedFlow, delay: float | None = None
+    ) -> None:
+        if owned.expiry is not None:
+            owned.expiry.cancel()
+        owned.expiry = asyncio.get_running_loop().call_later(
+            self.ttl if delay is None else delay, self._expire_owned, flow_id, owned
+        )
+
+    def _expire_owned(self, flow_id: str, owned: OwnedFlow) -> None:
+        owned.expiry = None
+        if self.owned.get(flow_id) is not owned:
+            return
+        remaining = self.ttl - (time.monotonic() - owned.touched)
+        if remaining > 0:
+            self._schedule_expiry(flow_id, owned, remaining)
+            return
+        if not owned.lock.locked():
+            try:
+                self._abort(flow_id, owned)
+                return
+            except Exception:
+                _LOGGER.exception(
+                    "Could not expire owned configuration flow %s", flow_id
+                )
+        # Never abort a Core step while its effects are still being determined.
+        self._schedule_expiry(flow_id, owned)
 
     def _expire(self) -> None:
         now = time.monotonic()
