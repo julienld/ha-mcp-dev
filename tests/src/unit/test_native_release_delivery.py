@@ -89,7 +89,7 @@ class Github:
     def api(self, endpoint, *, missing=False):
         if "/commits/" in endpoint:
             return {"sha": "a" * 40}
-        pytest.fail(f"Unexpected API read: {endpoint}")
+        raise AssertionError(f"Unexpected API read: {endpoint}")
 
     def command(self, *args):
         if args[:2] == ("api", "--paginate"):

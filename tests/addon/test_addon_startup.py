@@ -528,15 +528,15 @@ class TestWidenFastmcpLogConsole:
         import logging
 
         if private_sdk:
+            import ha_mcp._vendor.rich.logging as rich_logging
             from ha_mcp._vendor.rich.console import Console
-            from ha_mcp._vendor.rich.logging import RichHandler
         else:
+            import rich.logging as rich_logging
             from rich.console import Console
-            from rich.logging import RichHandler
 
         stream = io.StringIO()
         # Explicit width=80 mirrors rich's non-TTY default in the container.
-        handler = RichHandler(console=Console(file=stream, width=80))
+        handler = rich_logging.RichHandler(console=Console(file=stream, width=80))
         logger = logging.getLogger("fastmcp")
         # Detach any real fastmcp handlers so the widen only touches the
         # test's handler (and the fake URL line stays out of stderr).
@@ -564,12 +564,14 @@ class TestWidenFastmcpLogConsole:
         import io
         import logging
 
+        import rich.logging as rich_logging
         from rich.console import Console
-        from rich.logging import RichHandler
 
         logger = logging.getLogger("fastmcp")
         plain = logging.StreamHandler()
-        rich_handler = RichHandler(console=Console(file=io.StringIO(), width=80))
+        rich_handler = rich_logging.RichHandler(
+            console=Console(file=io.StringIO(), width=80)
+        )
         saved = logger.handlers[:]
         for pre_existing in saved:
             logger.removeHandler(pre_existing)
