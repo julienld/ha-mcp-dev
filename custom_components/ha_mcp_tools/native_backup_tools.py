@@ -1,6 +1,5 @@
 """Bind the single backup contract to Core and native snapshot owners."""
 
-import os
 from dataclasses import replace
 from typing import Any
 
@@ -49,9 +48,8 @@ def backup_definition(manager: Any) -> ToolDefinition:
             }
         },
     )
-    hint = os.getenv("BACKUP_HINT", "normal").lower()
     return replace(
         definition,
-        description=backup_description(BACKUP_HINTS.get(hint, BACKUP_HINTS["normal"])),
+        description=backup_description(BACKUP_HINTS["normal"]),
         operation_timeout=_operation_timeout,
     )

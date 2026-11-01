@@ -5,7 +5,6 @@ This module provides tools for retrieving, creating, updating, and removing
 Home Assistant script configurations.
 """
 
-import logging
 from typing import Any, Literal, NoReturn
 
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
@@ -54,9 +53,6 @@ from .reference_validator import validate_config_references
 from .tool_hints import read_only_hints, write_hints
 from .util_helpers import list_visible_registry_ids
 from .ws_waiters import verify_entity_removed, wait_for_entity_registered
-
-logger = logging.getLogger(__name__)
-
 
 # Scripts attach the same files as automations: a script sequence uses
 # actions, conditions and ``wait_for_trigger``. The actions file comes first

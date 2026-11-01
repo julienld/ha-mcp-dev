@@ -35,6 +35,20 @@ from .helpers import extract_tool_error_message, raise_tool_error
 # unknown-identifier substring, so any other read failure stays a failure.
 DASHBOARD_FETCH_FAILED_PREFIX = "Dashboard fetch failed: "
 
+__all__ = [
+    "CONFIG_NOT_FOUND_CODE",
+    "DASHBOARD_FETCH_FAILED_PREFIX",
+    "DASHBOARD_LIST_SUGGESTION",
+    "NO_STORED_CONFIG_MESSAGES",
+    "NO_STORED_CONFIG_NOTE",
+    "UNKNOWN_CONFIG_PREFIX",
+    "is_unknown_dashboard",
+    "is_no_stored_config_error",
+    "read_failure_code",
+    "raise_registry_read_error",
+    "raise_unresolved_delete",
+]
+
 
 def is_unknown_dashboard(error_msg: str) -> bool:
     """Whether Core rejected the identifier itself (the lazy-resolve trigger)."""

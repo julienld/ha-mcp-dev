@@ -118,11 +118,25 @@ async def test_marketplace_cached_info_preserves_core_fields_without_mutation(
 
 
 async def test_marketplace_search_keeps_native_catalog_metadata(marketplace):
+    marketplace.owner.common.categories.add("core-category")
+    marketplace.owner.warning_accepted.side_effect = lambda user_id: (
+        user_id == marketplace.actor.user_id
+    )
     result = await call(marketplace, "search")
     assert not result.is_error, result.data
     row = result.data["data"]["results"][0]
     assert row["future_core_field"] == {"kept": True}
     assert row["can_install"] and row["integration_categories"] == ["hub"]
+    store = result.data["data"]["store"]
+    assert store["api"] == "marketplace"
+    assert store["version"] == marketplace.entry.runtime_data.version
+    assert set(store["categories"]) == marketplace.entry.runtime_data.common.categories
+    assert store["github_connected"] is marketplace.owner.github_connected
+    assert store["warning_accepted"] is True
+    assert marketplace.actor.user_id in {
+        args.args[0] for args in marketplace.owner.warning_accepted.call_args_list
+    }
+    assert "country" not in store
 
 
 @pytest.mark.parametrize("action", ["download", "add_repository"])

@@ -5,11 +5,13 @@ Selection probes are read-only; no mutation ever switches provider or retries.
 """
 
 import asyncio
+import re
 from typing import Any
 from urllib.parse import urlsplit
 
 from ha_mcp.client.rest_client import HomeAssistantCommandError
 from ha_mcp.tool_api import ToolFailure
+from ha_mcp.tools.hacs_backend import StoreApi
 
 from .hacs_results import (
     added_data,
@@ -30,13 +32,36 @@ def unknown_command(error: Any) -> bool:
 def _repository_full_name(repository: str | None) -> str | None:
     if repository is None:
         return None
-    value = repository.strip()
-    if value.lower().startswith("github.com/"):
-        value = "https://" + value
-    parsed = urlsplit(value)
-    if parsed.hostname and parsed.hostname.lower() == "github.com":
-        value = "/".join(parsed.path.strip("/").split("/")[:2])
-    return value.rstrip("/").removesuffix(".git").lower()
+    try:
+        value = repository.strip()
+        parsed = urlsplit(value)
+        if not parsed.scheme and not parsed.netloc:
+            host_path = urlsplit(f"//{value}")
+            if host_path.hostname == "github.com":
+                parsed = host_path
+        if parsed.scheme or parsed.netloc:
+            if (
+                parsed.scheme not in {"", "http", "https"}
+                or parsed.hostname != "github.com"
+                or parsed.username is not None
+                or parsed.password is not None
+                or parsed.port is not None
+            ):
+                raise ValueError("Not a GitHub repository URL")
+        elif parsed.query or parsed.fragment:
+            raise ValueError("Not a bare repository name")
+        name = parsed.path.strip("/").lower().removesuffix(".git")
+        if re.fullmatch(r"[a-z0-9-]+/[a-z0-9_.-]+", name) is None or name.split("/")[
+            1
+        ] in {".", ".."}:
+            raise ValueError("Not an owner/repository pair")
+        return name
+    except ValueError as error:
+        raise ToolFailure(
+            "VALIDATION_INVALID_PARAMETER",
+            "repository must be an owner/repo name or a GitHub HTTP(S) repository URL",
+            status="not_started",
+        ) from error
 
 
 async def command(ws: Any, name: str, **values: Any) -> Any:
@@ -211,11 +236,19 @@ class MarketplaceRemote:
         installed_only: bool,
         max_results: int,
         offset: int,
+        *,
+        store_info: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        self.category(category)
-        values = (
-            {"categories": [CATEGORY_MAP.get(category, category)]} if category else {}
-        )
+        native_category = category
+        if category:
+            state = (
+                store_info
+                if store_info is not None
+                else await command(self.ws, "marketplace/info")
+            )
+            native_category = StoreApi("marketplace", state).native_category(category)
+        self.category(native_category)
+        values = {"categories": [native_category]} if native_category else {}
         rows = await command(self.ws, "marketplace/repositories/list", **values)
         return {
             **search_data(
@@ -230,7 +263,7 @@ class MarketplaceRemote:
             "cache": {"source": "marketplace_catalog", "refreshed_from_github": False},
         }
 
-    async def _admit(self, action: str) -> None:
+    async def _admit(self, action: str) -> StoreApi:
         state = await command(self.ws, "marketplace/info")
         if state.get("startup"):
             raise ToolFailure(
@@ -243,7 +276,7 @@ class MarketplaceRemote:
         ):
             raise ToolFailure(
                 "AUTH_FORBIDDEN",
-                "Marketplace warning_not_accepted: this administrator must accept the warning in the Marketplace UI.",
+                "Marketplace warning_not_accepted: this administrator must accept the warning in the Marketplace UI. The agent cannot accept it on the user's behalf.",
                 status="not_started",
             )
         if action == "add_repository" and not state.get("github_connected"):
@@ -252,6 +285,7 @@ class MarketplaceRemote:
                 "Marketplace github_not_connected: connect GitHub before adding a repository.",
                 status="not_started",
             )
+        return StoreApi("marketplace", state)
 
     async def write(
         self,
@@ -264,9 +298,10 @@ class MarketplaceRemote:
         confirm_replace_built_in: bool = False,
     ) -> dict[str, Any]:
         self.category(category)
-        await self._admit(action)
+        api = await self._admit(action)
+        native_category = api.native_category(category) if category else None
         before, name, values, target = await self._prepare(
-            action, identifier, version, repository, category
+            action, identifier, version, repository, native_category
         )
         if action == "download" and confirm_replace_built_in and target is None:
             values["confirm_replace_built_in"] = True
@@ -278,7 +313,9 @@ class MarketplaceRemote:
         assert lookup is not None  # _prepare validates add_repository's identifier
         # Core authenticates every command; recheck the per-user consent just
         # before dispatch. Core's WS handler or UpdateEntity also enforces it.
-        await self._admit(action)
+        current_api = await self._admit(action)
+        if native_category:
+            current_api.native_category(native_category)
         if target is not None:
             await pin_remote_update(self.ws, "marketplace", lookup, target)
         try:
@@ -298,9 +335,15 @@ class MarketplaceRemote:
                 result,
             )
         except (Exception, asyncio.CancelledError) as error:
+            confirmation_hint = (
+                " If the user confirms replacing the built-in integration, use confirm_replace_built_in=True."
+                if isinstance(error, HomeAssistantCommandError)
+                and error.code == "replaces_built_in"
+                else ""
+            )
             raise ToolFailure(
                 "OUTCOME_UNKNOWN",
-                f"Marketplace operation was dispatched; metadata or files may have changed. Inspect before another change; no retry was performed. Provider: {error}",
+                f"Marketplace operation was dispatched; metadata or files may have changed. Inspect before another change; no retry was performed. Provider: {error}{confirmation_hint}",
                 status="outcome_unknown",
             ) from error
 

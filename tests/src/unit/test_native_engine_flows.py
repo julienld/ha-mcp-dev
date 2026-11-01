@@ -324,7 +324,7 @@ async def test_expiry_does_not_abort_an_inflight_core_step(
         assert scheduled.call_count == 2
     finally:
         release.set()
-        await step
+        await asyncio.wait_for(step, 1)
         await backend.stop()
     assert not registry_update_lock("config_entry", "busy-entry").locked()
 

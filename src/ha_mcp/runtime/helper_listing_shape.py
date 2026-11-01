@@ -292,6 +292,7 @@ async def shape_all_helpers_response(
     legacy_list: Callable[[str], Awaitable[dict[str, Any]]],
     *,
     flow_types: frozenset[str],
+    storage_types: frozenset[str] = SIMPLE_HELPER_TYPES,
 ) -> dict[str, Any]:
     """Map an all-types ``helpers_list`` result into the merged listing envelope.
 
@@ -305,6 +306,8 @@ async def shape_all_helpers_response(
 
     ``flow_types`` is Core's current set of helper flow types; one the component
     did not cover raises instead of being left out.
+    Native callers restrict ``storage_types`` to registered Core collections;
+    an integration without a create command has no editable storage to list.
     """
     raw = result.get("helpers")
     records = raw if isinstance(raw, list) else []
@@ -344,7 +347,7 @@ async def shape_all_helpers_response(
             )
         )
     merge_warnings = _component_warnings(result)
-    for helper_type in sorted(SIMPLE_HELPER_TYPES - covered_set):
+    for helper_type in sorted(storage_types - covered_set):
         legacy = await legacy_list(helper_type)
         # legacy_list joins the registry (issue #1945) and, degrade-
         # open, flags a failed registry read in warnings[]; surface those here

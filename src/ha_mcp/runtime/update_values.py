@@ -181,9 +181,6 @@ def categorize_update(
     return "other"
 
 
-_categorize_update = categorize_update
-
-
 def update_listing(
     states: list[dict[str, Any]],
     include_skipped: bool,

@@ -66,6 +66,31 @@ async def test_native_tags_are_complete_paginated_and_available_readonly(
     assert {row["helper_type"] for row in all_types.data["helpers"]} == {"tag"}
 
 
+async def test_native_all_helpers_reads_an_uncovered_storage_owner(
+    native: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
+    collection = FakeCollection({"count": {"id": "count", "name": "Counter"}})
+    hass = _hass(collection, "counter")
+    hass.config = SimpleNamespace(path=lambda name: str(tmp_path / name))
+    authorize(hass)
+    monkeypatch.setattr(wsapi.er, "async_get", lambda hass: FakeRegistry())
+    monkeypatch.setattr(wsapi, "_resolve_registries", lambda hass: make_view())
+    monkeypatch.setitem(
+        sys.modules,
+        "homeassistant.loader",
+        SimpleNamespace(async_get_config_flows=AsyncMock(return_value=set())),
+    )
+    result = await _engine(native.NativeBackend(hass)).call(
+        "ha_config_list_helpers",
+        {"helper_type": "all"},
+        CallContext("actor", read_only=True),
+    )
+    assert not result.is_error, result.data
+    assert result.data["helpers"] == [
+        {"helper_type": "counter", "id": "count", "name": "Counter"}
+    ]
+
+
 async def test_tag_names_after_restart_come_from_registry_without_changing_cas_data(
     native: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:

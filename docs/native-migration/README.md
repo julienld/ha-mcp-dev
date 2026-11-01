@@ -40,6 +40,24 @@ They allow additive tools and optional parameters. Keep real behavioral tests
 alongside these schema checks: aliases, search proxies, nested calls and Assist
 must preserve the same restrictions and observable effects.
 
+Reviewed upstream changes from `1c4b4edfc` remain explicit exceptions to
+that historical capture: HACS categories accept the store's strings; Todo
+status filters and removals also accept lists, and Core validates status
+strings. `ha_manage_backup.inputSchema.properties.restore_database` now has
+the upstream nullable boolean default `null`: an omitted value restores the
+database only when the archive contains one. Explicit `false` still preserves
+the running database. `test_native_catalog_contract.py` recognizes only these
+reviewed schema paths and shapes, rejects other drift, and exercises the
+public backup default with archives both with and without a database. Neither
+catalog capture is regenerated for these changes.
+
+`entity-backup-test-migration.json` maps every retired entity-registry adapter
+scenario to the canonical owner tests. UUID history tests exercise the actual
+legacy registry handler or `NativeEntityRegistry`; historical `entity` files
+retain their separate StateMachine semantics. Obsolete transport warnings and
+lock-hook assertions are identified separately from transferred safety and
+identity assertions.
+
 ## Updating generated metadata
 
 Regenerate only the current source inventory:

@@ -32,16 +32,16 @@ def describe_runtime(resources, monkeypatch):
     return Engine(manager.backend, build_dashboard_tools(manager)), owner, producer
 
 
-def test_dashboard_reads_do_not_advertise_destructive_effects(resources: Any) -> None:
+def test_dashboard_tool_metadata_covers_screenshot_and_resource_side_effects(
+    resources: Any,
+) -> None:
     from custom_components.ha_mcp_tools.native_dashboard_tools import (
         build_dashboard_tools,
     )
 
     manager, *_ = resources
     definitions = {tool.name: tool for tool in build_dashboard_tools(manager)}
-    assert (
-        definitions["ha_config_get_dashboard"].annotations["destructiveHint"] is False
-    )
+    assert definitions["ha_config_get_dashboard"].annotations["destructiveHint"] is True
     assert definitions["ha_config_get_dashboard"].annotations["readOnlyHint"] is False
     assert definitions["ha_config_set_dashboard"].annotations["destructiveHint"] is True
     assert (

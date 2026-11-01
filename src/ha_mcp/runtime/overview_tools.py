@@ -110,7 +110,7 @@ class OverviewTools:
                     "service_availability, system_info, notification_count, notifications, "
                     "repair_count, dismissed_repair_count, repairs, repairs_error, "
                     "tool_discovery, settings_url, settings_url_hint, read_only_mode, "
-                    "read_only_mode_hint, ha_mcp_update. Note: ``settings_url`` (stdio "
+                    "read_only_mode_hint, ha_mcp_update, mcp_client. Note: ``settings_url`` (stdio "
                     "mode), ``settings_url_hint`` (standalone HTTP/Docker mode), the "
                     "``read_only_mode`` / ``read_only_mode_hint`` pair (only while Read "
                     "Only Mode is on), and ``ha_mcp_update`` (when an update check applies)"

@@ -98,7 +98,6 @@ from .backup_integrations import fetch_integration, restore_integration
 from .backup_tags import restore_tag, tag_snapshot
 from .backup_todo import current_key as todo_current_key
 from .backup_todo import fetch_todo_item
-from .backup_todo import restore_todo_item as restore_todo_item
 from .backup_zones import fetch_zone, restore_zone
 from .client.rest_client import (
     HomeAssistantAuthError,
@@ -2791,6 +2790,7 @@ class _LegacyRestoreOperations:
 
 
 __all__ = [
+    "restore_error_code",
     "BackupManager",
     "DomainHandler",
     "SCHEMA_VERSION",

@@ -17,7 +17,7 @@ from ha_mcp.runtime.hacs_remote import (
     try_hacs_update,
 )
 from ha_mcp.tool_api import ToolFailure
-from ha_mcp.tools.tools_hacs import _assert_hacs_available
+from ha_mcp.tools.tools_hacs import HacsTools, _assert_hacs_available
 
 
 @pytest.fixture
@@ -105,6 +105,50 @@ async def test_multiple_remote_store_owners_refuse_selection(remote):
     remote.ws.send_command.return_value = {"success": True, "result": {}}
     with pytest.raises(ToolFailure, match="Both HACS and Marketplace"):
         await _assert_hacs_available(remote.ws)
+
+
+@pytest.mark.parametrize("domain", ["hacs", "marketplace"])
+async def test_search_keeps_selected_store_info_and_filtered_catalog(
+    remote, monkeypatch, domain
+):
+    """The selected owner's info reply survives, including unknown fields."""
+    info = {
+        "version": "selected-owner-build",
+        "categories": ["plugin", "future-category"],
+        "startup": False,
+        "future_status": {"kept": True},
+    }
+    if domain == "marketplace":
+        info.update(github_connected=False, warning_accepted=False)
+    remote.row.update(category="plugin", future_catalog={"kept": True})
+
+    async def send(name, **values):
+        if name.endswith("/info"):
+            if name == f"{domain}/info":
+                return {"success": True, "result": copy.deepcopy(info)}
+            raise HomeAssistantCommandError("Unknown command", "unknown_command")
+        assert name == f"{domain}/repositories/list"
+        assert values == {"categories": ["plugin"]}
+        return {"success": True, "result": [copy.deepcopy(remote.row)]}
+
+    remote.ws.send_command.side_effect = send
+    monkeypatch.setattr(
+        "ha_mcp.client.websocket_client.get_websocket_client",
+        AsyncMock(return_value=remote.ws),
+    )
+
+    async def timezone(_client, data):
+        return data
+
+    monkeypatch.setattr("ha_mcp.tools.tools_hacs.add_timezone_metadata", timezone)
+    client = SimpleNamespace(base_url="http://ha.test", token="test", verify_ssl=True)
+    result = await HacsTools(client).ha_get_hacs_info(
+        action="search", category="lovelace", installed_only=True
+    )
+    assert result["store"] == {"api": domain, **info}
+    assert result["results"][0]["category"] == "lovelace"
+    assert result["results"][0]["future_catalog"] == {"kept": True}
+    assert result["count"] == 1 and result["category_filter"] == "lovelace"
 
 
 async def test_remote_info_never_calls_mutating_info_endpoint(remote):

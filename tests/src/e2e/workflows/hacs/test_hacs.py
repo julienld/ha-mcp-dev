@@ -311,10 +311,10 @@ class TestHacsSearch:
             "Category filter should be lovelace"
         )
 
-        # Results carry the store's own name for the lovelace category
+        # Search presents the established user-facing category on both stores.
         for result_item in data["results"]:
-            assert result_item["category"] == "plugin", (
-                "Result category should be plugin"
+            assert result_item["category"] == "lovelace", (
+                "Result category should be lovelace"
             )
 
         logger.info(f"Search 'card' in lovelace: {data['total_matches']} matches")
@@ -668,6 +668,16 @@ class TestHacsWriteOperations:
         assert search.get("success"), f"Store search failed: {search.get('error')}"
         expected = "marketplace" if marketplace.get("success") else "hacs"
         assert search["store"]["api"] == expected
+        owner_info = (
+            marketplace
+            if expected == "marketplace"
+            else (await ha_client.send_websocket_message({"type": "hacs/info"}))
+        )
+        assert owner_info.get("success"), owner_info
+        assert search["store"]["version"] == owner_info["result"]["version"]
+        assert sorted(search["store"]["categories"]) == sorted(
+            owner_info["result"]["categories"]
+        )
 
         if expected == "hacs" or marketplace["result"]["warning_accepted"]:
             return

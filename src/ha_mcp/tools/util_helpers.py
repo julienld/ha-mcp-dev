@@ -123,6 +123,11 @@ def is_connection_error_message(error_msg: Any) -> bool:
 
 
 __all__ = [
+    "is_credential_ws_command",
+    "normalized_path",
+    "raw_ws_refusal",
+    "supervisor_path",
+    "list_visible_registry_ids",
     "BLOCKED_WS_WRITE_COMMANDS",
     "_SERVICE_TO_STATE",
     "filter_active_repairs",

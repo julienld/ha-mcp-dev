@@ -503,7 +503,7 @@ async def test_component_catalog_has_one_label_getter_and_preserves_immutable_co
         assert all(
             previous["annotations"].get(key) == definition.annotations.get(key)
             for key in _ANNOTATIONS
-        )
+        ), (definition.name, previous["annotations"], definition.annotations)
         assert _structural_schema(previous.get("outputSchema")) == _structural_schema(
             definition.output_schema
         )

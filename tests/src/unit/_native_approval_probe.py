@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import sys
+from contextlib import AsyncExitStack
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from typing import Any
 
 from aiohttp import web
 from aiohttp.test_utils import TestServer
+
+from ha_mcp._vendor.mcp import MCPError
+from ha_mcp._vendor.mcp_types import InputRequiredResult
 
 
 def _component_imports() -> Any:
@@ -37,18 +42,30 @@ def _client(url: str, identity: str, through_proxy: bool) -> Any:
     from ha_mcp._vendor.fastmcp import Client
     from ha_mcp._vendor.fastmcp.client.transports import StreamableHttpTransport
 
+    async def elicit(*_args: Any) -> dict[str, bool]:
+        return {"decided": True}
+
     if through_proxy:
         from ha_mcp.native_proxy import create_native_component_proxy
 
-        return Client(create_native_component_proxy(url, auth=identity))
-    return Client(StreamableHttpTransport(url, headers={"X-Test-Client": identity}))
+        return Client(
+            create_native_component_proxy(url, auth=identity),
+            elicitation_handler=elicit,
+        )
+    return Client(
+        StreamableHttpTransport(url, headers={"X-Test-Client": identity}),
+        elicitation_handler=elicit,
+    )
 
 
 async def run(*, through_proxy: bool = False) -> None:
+    async with asyncio.timeout(30):
+        await _run(through_proxy=through_proxy)
+
+
+async def _run(*, through_proxy: bool) -> None:
     from ha_mcp._vendor.fastmcp import FastMCP
-    from ha_mcp._vendor.mcp import MCPError
     from ha_mcp._vendor.mcp.server.request_state import RequestStateSecurity
-    from ha_mcp._vendor.mcp_types import InputRequiredResult
     from ha_mcp.policy import mrtr
     from ha_mcp.policy.model import Policy, Rule
     from ha_mcp.runtime import Engine
@@ -106,7 +123,9 @@ async def run(*, through_proxy: bool = False) -> None:
     app = mcp.http_app(
         path="/api/webhook/test", stateless_http=True, host_origin_protection=False
     )
-    async with app.lifespan(app) as state:
+    async with AsyncExitStack() as cleanup, app.lifespan(app) as state:
+        cleanup.push_async_callback(manager.engine.stop)
+        cleanup.push_async_callback(gate.stop)
 
         async def handle(request: web.Request) -> web.StreamResponse:
             actor = CallContext(
@@ -133,6 +152,7 @@ async def run(*, through_proxy: bool = False) -> None:
                     "native_write", {"value": "once"}, allow_input_required=True
                 )
                 assert isinstance(first, InputRequiredResult), first
+                assert "ha_mcp_approval" in first.input_requests
                 assert first.request_state and not executed
                 pending = gate.queue.list_pending()[0]
                 assert pending.token not in first.request_state

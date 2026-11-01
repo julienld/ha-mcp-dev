@@ -82,7 +82,15 @@ async def test_full_backup_job_outlives_default_engine_deadline(
     try:
         result = await engine.call(
             "ha_manage_backup",
-            {"scope": "snapshot", "action": action, "backup_id": "old"},
+            {
+                "scope": "snapshot",
+                "action": action,
+                **(
+                    {"backup_id": "old", "safety_backup": True}
+                    if action == "restore"
+                    else {}
+                ),
+            },
             CallContext("actor"),
         )
         restore.owner.async_create_backup.assert_awaited_once()

@@ -7,6 +7,8 @@ from ha_mcp.runtime.update_values import categorize_update as categorize_update
 
 logger = logging.getLogger(__name__)
 
+__all__ = ["categorize_update", "update_platforms"]
+
 
 async def update_platforms(client: Any) -> dict[str, str]:
     """Map each registered update entity to the integration that owns it."""

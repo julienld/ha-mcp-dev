@@ -23,7 +23,6 @@ from ..errors import ErrorCode, create_error_response, is_service_outcome_unknow
 from ..runtime.update_plans import repair_items, single_update_id, update_targets
 from ..runtime.update_tools import UpdateToolsFacade
 from ..runtime.update_values import (
-    _categorize_update,
     _extract_blog_content,
     _get_monthly_versions_between,
     _parse_breaking_changes_html,
@@ -35,6 +34,7 @@ from ..runtime.update_values import (
     update_details,
     update_listing,
 )
+from ..runtime.update_values import categorize_update as _categorize_update
 from ..tool_api import ToolFailure
 from ..utils.release_notes import (
     _fetch_core_release_notes,

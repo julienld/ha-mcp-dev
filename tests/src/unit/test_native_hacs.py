@@ -128,12 +128,17 @@ def hacs(native, monkeypatch):
     )
     owner = SimpleNamespace(
         version="2.0.5",
-        configuration=SimpleNamespace(config_entry=entry),
+        configuration=SimpleNamespace(
+            config_entry=entry, country="CA", debug=False, dev=False
+        ),
         status=SimpleNamespace(startup=False),
         system=SimpleNamespace(running=True, disabled=False, disabled_reason=None),
         data=SimpleNamespace(async_write=AsyncMock()),
         github=object(),
         githubapi=object(),
+        queue=SimpleNamespace(has_pending_tasks=True),
+        core=SimpleNamespace(lovelace_mode="storage"),
+        stage="running",
         common=SimpleNamespace(
             categories={"integration", "plugin", "theme"},
             skip=set(),
@@ -257,6 +262,8 @@ async def test_info_never_refreshes_clears_new_or_saves_even_on_unfetched_reposi
 
 
 async def test_search_keeps_scoring_pagination_and_metadata_without_network(hacs):
+    hacs.owner.version = "2.0.5-owner-build"
+    hacs.owner.common.categories.add("owner-category")
     result = await call(hacs, "search", query="fixture", max_results=1)
     assert not result.is_error, result
     data = result.data["data"]
@@ -265,6 +272,12 @@ async def test_search_keeps_scoring_pagination_and_metadata_without_network(hacs
         data["results"][0]["pending_update"] and data["cache"]["source"] == "hacs_cache"
     )
     assert result.data["metadata"]["home_assistant_timezone"] == "UTC"
+    assert data["store"]["api"] == "hacs"
+    assert data["store"]["version"] == hacs.owner.version
+    assert set(data["store"]["categories"]) == hacs.owner.common.categories
+    assert data["store"]["country"] == hacs.owner.configuration.country
+    assert data["store"]["has_pending_tasks"] is True
+    assert "github_connected" not in data["store"]
 
 
 async def test_search_omits_cached_readme_while_info_keeps_it(hacs: Any) -> None:

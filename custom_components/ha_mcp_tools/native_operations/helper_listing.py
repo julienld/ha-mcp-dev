@@ -22,34 +22,31 @@ from ..websocket_api.overview import _do_helpers_list, _helpers_list_prep
 from .helpers import list_storage_items
 
 
-async def _tag_listing(hass: HomeAssistant, helper_type: str) -> dict[str, Any]:
-    # Tags are the sole storage type helpers_list does not enumerate. Core's
-    # tag/list already supplies their registry names; the shared enrichment
-    # adds the same current entity IDs as the existing remote list path.
-    if helper_type != "tag":
-        raise UnsupportedOperation(f"helpers.catalog.{helper_type}")
-    items = list_storage_items(hass, "tag")["items"]
+async def _storage_listing(hass: HomeAssistant, helper_type: str) -> dict[str, Any]:
+    # The overview may omit a collection whose items have no registry entry.
+    # Read its actual storage owner, as well as tag/person's separate catalogs.
+    items = list_storage_items(hass, helper_type)["items"]
     registry = er.async_get(hass)
     rows = []
     for item in items:
-        entity_id = registry.async_get_entity_id("tag", "tag", item["id"])
+        entity_id = registry.async_get_entity_id(helper_type, helper_type, item["id"])
         if entity_id and (entry := registry.async_get(entity_id)) is not None:
             rows.append(
                 {
                     "unique_id": item["id"],
-                    "platform": "tag",
+                    "platform": helper_type,
                     "entity_id": entity_id,
                     "name": entry.name,
                     "original_name": entry.original_name,
                 }
             )
-    enrich_helper_records("tag", items, rows)
+    enrich_helper_records(helper_type, items, rows)
     return {
         "success": True,
-        "helper_type": "tag",
+        "helper_type": helper_type,
         "count": len(items),
         "helpers": items,
-        "message": f"Found {len(items)} tag helper(s)",
+        "message": f"Found {len(items)} {helper_type} helper(s)",
     }
 
 
@@ -65,16 +62,21 @@ async def catalog(hass: HomeAssistant, arguments: dict[str, Any]) -> dict[str, A
 
         return await shape_all_helpers_response(
             result,
-            lambda kind: _tag_listing(hass, kind),
+            lambda kind: _storage_listing(hass, kind),
             flow_types=frozenset(
                 await async_get_config_flows(hass, type_filter="helper")
+            ),
+            storage_types=frozenset(
+                kind
+                for kind in SIMPLE_HELPER_TYPES
+                if f"{kind}/create" in hass.data.get("websocket_api", {})
             ),
         )
     if not _component_covers(result, helper_type):
         if is_flow:
             raise_if_helper_flows_degraded(result, [helper_type])
             _raise_flow_requires_component(helper_type)
-        return await _tag_listing(hass, helper_type)
+        return await _storage_listing(hass, helper_type)
     return _shape_component_helpers_response(helper_type, result)
 
 

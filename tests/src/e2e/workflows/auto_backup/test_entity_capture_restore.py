@@ -43,13 +43,14 @@ class TestEntityCaptureRestore:
                 {"helper_type": "input_boolean", "name": helper_id},
             )
             try:
-                await wait_for_tool_result(
+                registered = await wait_for_tool_result(
                     mcp_client,
                     tool_name="ha_get_entity",
                     arguments={"entity_id": entity_id},
                     predicate=lambda d: d["entity_entry"]["hidden"] is False,
                     description=f"{entity_id} in the entity registry",
                 )
+                registry_id = registered["entity_entry"]["id"]
                 exposure = await mcp.call_tool_success(
                     "ha_get_entity_exposure", {"entity_id": entity_id}
                 )
@@ -66,7 +67,7 @@ class TestEntityCaptureRestore:
                     },
                 )
                 backup_name = await _wait_for_backup(
-                    mcp_client, domain="entity", entity_id=entity_id
+                    mcp_client, domain="entity_registry", entity_id=registry_id
                 )
                 # The edit took, so each read-back below tests the restore.
                 edited = await mcp.call_tool_success(
@@ -94,6 +95,7 @@ class TestEntityCaptureRestore:
                     "ha_get_entity", {"entity_id": entity_id}
                 )
                 assert restored["entity_entry"]["hidden"] is False
+                assert restored["entity_entry"]["id"] == registry_id
                 exposure = await mcp.call_tool_success(
                     "ha_get_entity_exposure", {"entity_id": entity_id}
                 )
@@ -123,18 +125,19 @@ class TestEntityCaptureRestore:
                 {"helper_type": "input_boolean", "name": helper_id},
             )
             try:
-                await wait_for_tool_result(
+                registered = await wait_for_tool_result(
                     mcp_client,
                     tool_name="ha_get_entity",
                     arguments={"entity_id": entity_id},
                     predicate=lambda d: d["entity_entry"]["hidden"] is False,
                     description=f"{entity_id} in the entity registry",
                 )
+                registry_id = registered["entity_entry"]["id"]
                 await mcp.call_tool_success(
                     "ha_set_entity", {"entity_id": entity_id, "icon": "mdi:test-tube"}
                 )
                 backup_name = await _wait_for_backup(
-                    mcp_client, domain="entity", entity_id=entity_id
+                    mcp_client, domain="entity_registry", entity_id=registry_id
                 )
                 await mcp.call_tool_success(
                     "ha_remove_helpers_integrations",

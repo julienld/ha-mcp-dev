@@ -9,6 +9,21 @@ from ha_mcp.errors import ErrorCode, create_error_response
 from .errors import raise_failure as raise_tool_error
 from .errors import ws_failure_code
 
+__all__ = [
+    "_NEW_ITEM_UNCLEAR",
+    "_not_read_back",
+    "_json_names",
+    "_raise_core_failure",
+    "_removed",
+    "_refuse_namesake",
+    "_require_todo_entity",
+    "find_item",
+    "unbacked_removals",
+    "service_message",
+]
+
+_NEW_ITEM_UNCLEAR = "Could not tell the new item apart from other changes to the list; read it with ha_get_todo()"
+
 
 def _not_read_back(item: str) -> str:
     return (
@@ -81,9 +96,6 @@ def _require_todo_entity(entity_id: str) -> None:
                 suggestions=["Use ha_get_todo() to find valid todo list entity IDs"],
             )
         )
-
-
-_NEW_ITEM_UNCLEAR = "Could not tell the new item apart from other changes to the list; read it with ha_get_todo()"
 
 
 def find_item(items: list[dict[str, Any]], ref: str) -> dict[str, Any] | None:

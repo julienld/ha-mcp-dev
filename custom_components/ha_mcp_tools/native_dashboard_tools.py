@@ -39,7 +39,8 @@ def build_dashboard_tools(manager: Any) -> list[ToolDefinition]:
                 tags=frozenset({"Dashboards"}),
                 annotations=write_hints(
                     title,
-                    destructive=not reading,
+                    # GET can render a screenshot and persist the renderer's profile.
+                    destructive=True,
                     idempotent=idempotent,
                     open_world=not name.endswith("delete_dashboard"),
                 ),

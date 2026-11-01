@@ -10,6 +10,8 @@ def search_data(
     max_results: int,
     offset: int,
     matches: list[dict[str, Any]],
+    *,
+    store: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     limited_matches = matches[offset : offset + max_results]
     has_more = (offset + len(limited_matches)) < len(matches)
@@ -24,6 +26,7 @@ def search_data(
         "has_more": has_more,
         "next_offset": offset + max_results if has_more else None,
         "results": limited_matches,
+        **({"store": store} if store is not None else {}),
     }
 
 

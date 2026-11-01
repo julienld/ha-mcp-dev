@@ -22,7 +22,10 @@ from ha_mcp.tools.config_helpers.update import _apply_update_icon_area_labels
 from ha_mcp.tools.tools_areas import AreaTools
 from ha_mcp.tools.tools_entities import EntityTools
 from ha_mcp.tools.tools_labels import LabelTools
-from ha_mcp.utils.registry_update_lock import registry_update_lock
+from ha_mcp.utils.registry_update_lock import (
+    registry_update_lock,
+    registry_update_locks,
+)
 
 
 class Registry:
@@ -482,9 +485,9 @@ async def test_template_restore_rereads_after_lock_wait(
     writes: list[dict[str, Any]] = []
 
     @asynccontextmanager
-    async def observed_lock(registry: str, resource_id: str) -> AsyncIterator[None]:
+    async def observed_locks(registry: str, *resource_ids: str) -> AsyncIterator[None]:
         waiting.set()
-        async with registry_update_lock(registry, resource_id):
+        async with registry_update_locks(registry, *resource_ids):
             yield
 
     async def created(client: Any, entry_id: str, unique_id: str) -> dict[str, Any]:
@@ -500,7 +503,7 @@ async def test_template_restore_rereads_after_lock_wait(
         return dict(row)
 
     monkeypatch.setattr(
-        "ha_mcp.runtime.snapshot_entity_restore.registry_update_lock", observed_lock
+        "ha_mcp.runtime.snapshot_entity_restore.registry_update_locks", observed_locks
     )
     monkeypatch.setattr("ha_mcp.backup_manager._created_entity", created)
     monkeypatch.setattr("ha_mcp.backup_manager._check_entity_collision", collision)

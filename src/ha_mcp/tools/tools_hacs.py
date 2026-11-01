@@ -186,16 +186,23 @@ class HacsTools:
         ws_client = await self._get_hacs_client()
 
         if isinstance(ws_client, MarketplaceRemote):
+            store_info = await command(ws_client.ws, "marketplace/info")
+            data = await ws_client.search(
+                query,
+                category,
+                installed_only,
+                max_results,
+                offset,
+                store_info=store_info,
+            )
             return await self._store_result(
-                await ws_client.search(
-                    query, category, installed_only, max_results, offset
-                )
+                {**data, "store": {**store_info, "api": "marketplace"}}
             )
 
-        # Build command parameters - map user-friendly category to HACS internal name
+        store_info = await command(ws_client, "hacs/info")
         kwargs_cmd: dict[str, Any] = {}
         if category:
-            hacs_category = CATEGORY_MAP.get(category, category)
+            hacs_category = StoreApi("hacs", store_info).native_category(category)
             kwargs_cmd["categories"] = [hacs_category]
 
         await safe_progress(
@@ -229,7 +236,15 @@ class HacsTools:
 
         wrapped = await add_timezone_metadata(
             self._client,
-            search_data(query, category, installed_only, max_results, offset, matches),
+            search_data(
+                query,
+                category,
+                installed_only,
+                max_results,
+                offset,
+                matches,
+                store={**store_info, "api": "hacs"},
+            ),
         )
         return {"success": True, **wrapped}
 
@@ -646,6 +661,7 @@ async def _resolve_hacs_repo_id(ws_client: Any, repository_id: str) -> tuple[str
     waiter so that a caller running immediately after
     ``ha_manage_hacs(action="add_repository")`` doesn't race against
     HACS' internal registration.
+    Marketplace uses its own catalog adapter instead of this HACS-only waiter.
     """
     if "/" not in repository_id:
         return repository_id, repository_id

@@ -35,6 +35,36 @@ class HacsReads:
             self.manager.hass, self.actor, self.manager.backend.authorize, writes=writes
         )
 
+    def store_metadata(self, access: HacsAccess) -> dict[str, Any]:
+        """Project the selected owner's read-only HACS/Marketplace info fields."""
+        # Mirrors websocket/__init__.py::hacs_info (HACS 2.0.5) and
+        # ::marketplace_info (Core 7f6df9f7), without a synthetic WS connection.
+        owner = access.owner
+        result = {
+            "api": access.domain,
+            "categories": list(owner.common.categories),
+            "disabled_reason": owner.system.disabled_reason,
+            "has_pending_tasks": owner.queue.has_pending_tasks,
+            "lovelace_mode": owner.core.lovelace_mode,
+            "stage": owner.stage,
+            "startup": owner.status.startup,
+            "version": owner.version,
+        }
+        if access.domain == "marketplace":
+            result.update(
+                github_connected=owner.github_connected,
+                warning_accepted=bool(
+                    self.actor.user_id and owner.warning_accepted(self.actor.user_id)
+                ),
+            )
+        else:
+            result.update(
+                country=owner.configuration.country,
+                debug=owner.configuration.debug,
+                dev=owner.configuration.dev,
+            )
+        return result
+
     async def _hacs_search(
         self,
         query: str,
@@ -94,7 +124,13 @@ class HacsReads:
         return self.wrapped(
             {
                 **search_data(
-                    query, category, installed_only, max_results, offset, matches
+                    query,
+                    category,
+                    installed_only,
+                    max_results,
+                    offset,
+                    matches,
+                    store=self.store_metadata(access),
                 ),
                 "cache": access.cache(),
             }

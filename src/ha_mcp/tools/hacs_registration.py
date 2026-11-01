@@ -78,10 +78,10 @@ HACS_REFRESH_TIMEOUT = 60.0
 
 
 async def _find_repo_in_list_by_full_name(
-    ws_client: Any, full_name_lower: str
+    ws_client: Any, full_name_lower: str, api: StoreApi = HACS_API
 ) -> dict[str, Any] | None:
     """Return the HACS repo entry matching ``full_name_lower``, or None."""
-    list_response = await ws_client.send_command("hacs/repositories/list")
+    list_response = await ws_client.send_command(api.command("list"))
     for repo in list_response.get("result", []):
         if (repo.get("full_name") or "").lower() == full_name_lower:
             # ``ws_client`` is ``Any`` so mypy can't narrow the result
@@ -187,9 +187,13 @@ async def _poll_queue_for_registration(
             return await _last_chance_lookup_after_shutdown(ws_client, full_name_lower)
 
         if event is not None:
-            repo = await _repo_from_matching_dispatch(
-                ws_client, event, full_name, full_name_lower
-            )
+            try:
+                repo = await _repo_from_matching_dispatch(
+                    ws_client, event, full_name, full_name_lower
+                )
+            except (HomeAssistantConnectionError, HomeAssistantCommandTimeout, OSError):
+                logger.debug("Registration lookup lost its WebSocket connection")
+                return None
             if repo is not None:
                 return repo
             # Unrelated dispatch, no-payload nudge, or a lookup that
@@ -223,8 +227,12 @@ async def wait_for_repo_registration(
     *,
     timeout: float,
     backstop_poll_interval: float = HACS_REPO_BACKSTOP_POLL_INTERVAL,
+    api: StoreApi = HACS_API,
 ) -> dict[str, Any] | None:
-    """Wait for a HACS repo to register, using HACS' dispatch signal.
+    """Resolve a registered store repository, waiting on HACS' dispatch signal.
+
+    Marketplace registers before its add reply, so it needs one catalog read
+    and never subscribes or repeats a write.
 
     Replaces the previous fixed 10x1s blind poll of
     ``hacs/repositories/list``. HACS dispatches
@@ -241,10 +249,13 @@ async def wait_for_repo_registration(
         timeout: Wall-clock budget before giving up.
         backstop_poll_interval: Between dispatch nudges, re-check the
             list at this cadence to recover from a missed/lossy dispatch.
+        api: Selected store's command contract; defaults to HACS.
 
     Returns the HACS repo dict if found, or ``None`` on timeout.
     """
     full_name_lower = full_name.lower()
+    if api.is_marketplace:
+        return await _find_repo_in_list_by_full_name(ws_client, full_name_lower, api)
 
     # Narrow exception list: transport / command / timeout / socket
     # errors degrade to the polling fallback; programming bugs

@@ -67,32 +67,8 @@ logger = logging.getLogger(__name__)
 
 
 def _get_backup_hint_text() -> str:
-    """
-    Generate dynamic backup hint text based on BACKUP_HINT config.
-
-    Returns:
-        Backup hint text appropriate for the configured hint level.
-    """
-    import os
-
-    # Get hint from environment directly to avoid requiring full settings
-    hint = os.getenv("BACKUP_HINT", "normal").lower()
-
-    hints = BACKUP_HINTS
-    if hint not in hints:
-        # Silent fallback used to be harmless; it isn't now. This value is
-        # interpolated into BOTH the full and the lite ha_manage_backup
-        # description, so a typo ("medium", "high", a stray trailing space)
-        # quietly ships the wrong guidance in two places while the docs say
-        # the setting is honoured. Env-var deployments only — the app UI is
-        # a dropdown.
-        logger.warning(
-            "BACKUP_HINT=%r is not one of %s — falling back to 'normal'.",
-            hint,
-            sorted(hints),
-        )
-        hint = "normal"
-    return hints[hint]
+    """Return the fixed guidance after upstream removed BACKUP_HINT."""
+    return BACKUP_HINTS["normal"]
 
 
 class BackupTools(BackupFacade):

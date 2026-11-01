@@ -59,12 +59,12 @@ def read_server(monkeypatch: pytest.MonkeyPatch) -> tuple[FastMCP, MagicMock]:
 async def test_bulk_tool_failure_keeps_requested_ids_through_sdk(
     read_server: tuple[FastMCP, MagicMock], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A malformed component reply fails the whole read, outside per-item handling."""
+    """A failure before bulk dispatch keeps the original requested IDs."""
     server, client = read_server
     monkeypatch.setattr(
         search_state,
         "get_component_caps",
-        AsyncMock(return_value=ComponentCaps(1, "test", frozenset({"states"}), {})),
+        AsyncMock(side_effect=RuntimeError("capability lookup failed")),
     )
     ws = MagicMock(send_command=AsyncMock(return_value={"result": ["malformed"]}))
     monkeypatch.setattr(
@@ -83,10 +83,43 @@ async def test_bulk_tool_failure_keeps_requested_ids_through_sdk(
     assert payload["error"]["code"] == "INTERNAL_ERROR"
     assert payload["entity_ids"] == entity_ids
     assert "metadata" not in payload
-    ws.send_command.assert_awaited_once_with(
-        "ha_mcp_tools/states", entity_ids=["light.one", "sensor.two"]
-    )
+    ws.send_command.assert_not_awaited()
     client.get_entity_state.assert_not_awaited()
+
+
+async def test_malformed_optional_component_states_use_the_legacy_read(
+    read_server: tuple[FastMCP, MagicMock], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    server, client = read_server
+    monkeypatch.setattr(
+        "ha_mcp.tools.response_helpers.get_component_caps", AsyncMock(return_value=None)
+    )
+    monkeypatch.setattr(
+        search_state,
+        "get_component_caps",
+        AsyncMock(return_value=ComponentCaps(1, "test", frozenset({"states"}), {})),
+    )
+    ws = MagicMock(send_command=AsyncMock(return_value={"result": ["malformed"]}))
+    monkeypatch.setattr(
+        search_state, "get_websocket_client", AsyncMock(return_value=ws)
+    )
+    client.get_entity_state.side_effect = lambda eid: {
+        "entity_id": eid,
+        "state": "on",
+        "attributes": {},
+    }
+    async with Client(server) as sdk:
+        result = await sdk.call_tool(
+            "ha_get_state",
+            {"entity_id": json.dumps(["light.one", "sensor.two", "light.one"])},
+            raise_on_error=False,
+        )
+    assert not result.is_error
+    payload = json.loads(result.content[0].text)["data"]
+    assert payload["success"] is True and payload["count"] == 2
+    assert set(payload["states"]) == {"light.one", "sensor.two"}
+    assert client.get_entity_state.await_count == 2
+    ws.send_command.assert_awaited_once()
 
 
 @pytest.mark.parametrize(

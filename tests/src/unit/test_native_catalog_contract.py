@@ -63,6 +63,46 @@ def _adds_error_log_cursor(before: Any, after: Any) -> bool:
     }
 
 
+def _upstream_string_extension(
+    tool_name: str | None, name: str, before: Any, after: Any
+) -> bool:
+    """Recognize only the string-input extensions shipped by upstream 1c4b4edfc.
+
+    The captured baseline stays immutable. These exact additions retain every
+    old input; a changed default, bound or another parameter still fails.
+    """
+    targets = {
+        ("ha_get_hacs_info", "category"): False,
+        ("ha_manage_hacs", "category"): False,
+        ("ha_get_todo", "status"): True,
+        ("ha_set_todo_item", "status"): False,
+        ("ha_remove_todo_item", "item"): True,
+    }
+    key = (tool_name, name)
+    if key not in targets:
+        return False
+    old, new = _structural_schema(before), _structural_schema(after)
+    if key == ("ha_remove_todo_item", "item"):
+        if old != {"type": "string"}:
+            return False
+    else:
+        branches = old.get("anyOf", [])
+        if (
+            set(old) != {"anyOf", "default"}
+            or old["default"] is not None
+            or len(branches) != 2
+            or branches[1] != {"type": "null"}
+            or set(branches[0]) != {"enum", "type"}
+            or branches[0]["type"] != "string"
+        ):
+            return False
+    alternatives = [{"type": "string"}]
+    if targets[key]:
+        alternatives.append({"items": {"type": "string"}, "type": "array"})
+    alternatives.append({"type": "null"})
+    return new == {"anyOf": alternatives, "default": None}
+
+
 def _changed_inputs(
     before: dict[str, Any],
     after: dict[str, Any],
@@ -77,9 +117,25 @@ def _changed_inputs(
             changes.append(f"removed parameter {name}")
         elif _structural_schema(schema) != _structural_schema(new_properties[name]):
             if not (
-                tool_name == "ha_get_logs"
-                and name == "offset"
-                and _adds_error_log_cursor(schema, new_properties[name])
+                (
+                    tool_name == "ha_get_logs"
+                    and name == "offset"
+                    and _adds_error_log_cursor(schema, new_properties[name])
+                )
+                or _upstream_string_extension(
+                    tool_name, name, schema, new_properties[name]
+                )
+                or (
+                    tool_name == "ha_manage_backup"
+                    and name == "restore_database"
+                    and _structural_schema(schema)
+                    == {"default": False, "type": "boolean"}
+                    and _structural_schema(new_properties[name])
+                    == {
+                        "default": None,
+                        "anyOf": [{"type": "boolean"}, {"type": "null"}],
+                    }
+                )
             ):
                 changes.append(f"changed parameter {name}")
     if set(after.get("required", [])) - set(before.get("required", [])):
@@ -90,6 +146,84 @@ def _changed_inputs(
         if _structural_schema(before.get(key)) != _structural_schema(after.get(key))
     )
     return changes
+
+
+@pytest.mark.parametrize("database_included", [False, True])
+async def test_public_backup_default_restores_the_database_only_when_the_archive_has_it(
+    database_included: bool,
+) -> None:
+    from ha_mcp.runtime.backup_tools import BackupFacade
+    from ha_mcp.tools.backup_snapshot_restore import restore_backup
+
+    from ._backup_snapshot_fakes import FakeWS, _client, _entry, _run
+
+    ws = FakeWS(details=_entry("b1", database_included=database_included))
+
+    async def manage_backups(**arguments):
+        return await _run(
+            restore_backup,
+            ws,
+            _client(),
+            arguments["backup_id"],
+            restore_database=arguments["restore_database"],
+        )
+
+    await BackupFacade(manage_backups).ha_manage_backup(
+        scope="snapshot", action="restore", backup_id="b1"
+    )
+    assert ws.sent("backup/restore")[0]["restore_database"] is database_included
+
+
+@pytest.mark.parametrize("mutation", [None, "default", "type", "other_parameter"])
+def test_archive_database_exception_is_limited_to_its_reviewed_schema_path(mutation):
+    name = "other_parameter" if mutation == "other_parameter" else "restore_database"
+    new = {"default": None, "anyOf": [{"type": "boolean"}, {"type": "null"}]}
+    if mutation == "default":
+        new["default"] = True
+    elif mutation == "type":
+        new["anyOf"][0] = {"type": "integer"}
+    changes = _changed_inputs(
+        {"properties": {name: {"default": False, "type": "boolean"}}},
+        {"properties": {name: new}},
+        tool_name="ha_manage_backup",
+    )
+    assert changes == ([] if mutation is None else [f"changed parameter {name}"])
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [None, "default", "bound", "item_type", "other_tool"],
+)
+def test_upstream_todo_status_extension_keeps_prior_values_without_waiving_other_drift(
+    mutation: str | None,
+) -> None:
+    old = {
+        "anyOf": [
+            {"enum": ["needs_action", "completed"], "type": "string"},
+            {"type": "null"},
+        ],
+        "default": None,
+    }
+    new = {
+        "anyOf": [
+            {"type": "string"},
+            {"items": {"type": "string"}, "type": "array"},
+            {"type": "null"},
+        ],
+        "default": None,
+    }
+    if mutation == "default":
+        new["default"] = "completed"
+    elif mutation == "bound":
+        new["anyOf"][0]["minLength"] = 20
+    elif mutation == "item_type":
+        new["anyOf"][1]["items"] = {"type": "integer"}
+    changes = _changed_inputs(
+        {"properties": {"status": old}},
+        {"properties": {"status": new}},
+        tool_name="ha_other_tool" if mutation == "other_tool" else "ha_get_todo",
+    )
+    assert changes == ([] if mutation is None else ["changed parameter status"])
 
 
 def test_unstructured_return_does_not_advertise_a_schema_but_dict_return_keeps_one() -> (

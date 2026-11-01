@@ -141,6 +141,7 @@ class NativeApprovalGate:
             }
         )
         pending, continuation = self._resume(name, digest, policy)
+        resumed = continuation is not None
         if evaluate(name, args, policy) != Verdict.REQUIRE_APPROVAL:
             return None
         dynamic = has_dynamic_selector_targets(name, args)
@@ -161,7 +162,7 @@ class NativeApprovalGate:
             continuation = self._continuation(pending, policy, dynamic)
         self._announce(pending, name, args, policy, actor, dynamic)
         wait = (
-            continuation.wait_seconds()
+            continuation.wait_seconds(confirmed=resumed)
             if continuation is not None
             else policy.wait_seconds
         )
@@ -231,11 +232,11 @@ class NativeApprovalGate:
             if result is not None:
                 # The neutral engine never imports an SDK type. Its caller
                 # projects this sealed-reference payload onto MCP MRTR.
-                state = continuation.model_copy(
-                    update={"rounds": continuation.rounds + 1}
-                ).model_dump_json()
                 return _result(
-                    "pending", "Awaiting administrator approval", pending.token, state
+                    "pending",
+                    "Awaiting administrator approval",
+                    pending.token,
+                    result.input_required.model_dump_json(),
                 )
         if dynamic:
             self.queue.remove(pending.token)
@@ -308,7 +309,7 @@ def project_continuation(result: ToolResult) -> Any | None:
     from ha_mcp._vendor.fastmcp.tools.base import InputRequiredToolResult
     from ha_mcp._vendor.mcp_types import InputRequiredResult
 
-    return InputRequiredToolResult(InputRequiredResult(request_state=state))
+    return InputRequiredToolResult(InputRequiredResult.model_validate_json(state))
 
 
 def approval_context_middleware() -> Any:

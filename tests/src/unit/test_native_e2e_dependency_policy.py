@@ -11,6 +11,7 @@ from unittest.mock import Mock
 
 import pytest
 from packaging.markers import default_environment
+from packaging.specifiers import SpecifierSet
 
 from tests.src.e2e import _conftest_native_runtime as harness
 from tests.src.e2e.workflows.embedded import test_embedded_no_stomp as guard
@@ -153,7 +154,14 @@ def test_core_manifest_can_apply_the_required_certifi_security_upgrade(
     # Keep the old guard's real input, so reverting only the E2E dispatch
     # reproduces the observed certifi refusal instead of a missing-file error.
     _legacy_freezes(installation)
-    monkeypatch.setattr(guard, "_governed_names", lambda _: {"certifi", "websockets"})
+    monkeypatch.setattr(
+        guard,
+        "_governed_specs",
+        lambda _: {
+            "certifi": SpecifierSet(">=2026.7.22"),
+            "websockets": SpecifierSet("==15.0.1"),
+        },
+    )
     proof = _preinstall_guard(installation)
     wheel, setup = proof["observations"]
     assert not wheel["changed_preinstalled"]
@@ -333,7 +341,9 @@ def test_legacy_profile_keeps_its_strict_governed_package_guard(
     installation: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.setattr(guard, "native_runtime_selected", lambda: False)
-    monkeypatch.setattr(guard, "_governed_names", lambda _: {"certifi"})
+    monkeypatch.setattr(
+        guard, "_governed_specs", lambda _: {"certifi": SpecifierSet(">=2026.7.22")}
+    )
     _legacy_freezes(installation)
     with pytest.raises(AssertionError, match="HA GOVERNS"):
         guard.test_embedded_preinstall_replaces_nothing_ha_governs(installation.info)

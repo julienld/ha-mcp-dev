@@ -62,13 +62,13 @@ def download_asset(repository: str, asset: dict, destination: Path) -> None:
 @overload
 def release_by_tag(
     repository: str, tag: str, *, missing: Literal[False] = False
-) -> dict: ...
+) -> dict:
+    pass
 
 
 @overload
-def release_by_tag(
-    repository: str, tag: str, *, missing: Literal[True]
-) -> dict | None: ...
+def release_by_tag(repository: str, tag: str, *, missing: Literal[True]) -> dict | None:
+    pass
 
 
 def release_by_tag(repository: str, tag: str, *, missing: bool = False) -> dict | None:

@@ -63,7 +63,9 @@ def test_composed_bulk_keeps_schemas_tags_and_annotations(native: object) -> Non
     ):
         definition = actual[name]
         old = baseline[name]
-        assert not _changed_inputs(old["inputSchema"], definition.input_schema)
+        assert not _changed_inputs(
+            old["inputSchema"], definition.input_schema, tool_name=name
+        )
         assert _structural_schema(old.get("outputSchema")) == _structural_schema(
             definition.output_schema
         )

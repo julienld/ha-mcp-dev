@@ -98,6 +98,10 @@ class HomeAssistantCommandNotSent(HomeAssistantConnectionError):
     """
 
 
+class HomeAssistantAuthNotSent(HomeAssistantCommandNotSent, HomeAssistantAuthError):
+    """A local acquisition refusal preserves both auth and no-dispatch evidence."""
+
+
 @dataclass(frozen=True)
 class SceneResolution:
     """Outcome of resolving a scene identifier via the entity registry.
@@ -1902,6 +1906,8 @@ class HomeAssistantClient:
                 return result
 
             except Exception as e:
+                if acquiring and isinstance(e, HomeAssistantAuthError):
+                    raise HomeAssistantAuthNotSent(str(e)) from e
                 error_str = str(e)
                 is_403 = "403" in error_str and "Forbidden" in error_str
 

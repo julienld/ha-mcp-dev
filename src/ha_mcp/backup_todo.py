@@ -36,6 +36,18 @@ from .tools.component_todo import todo_item
 
 _LIST = "todo/item/list"
 
+__all__ = [
+    "TodoListNotLoaded",
+    "list_items",
+    "fetch_todo_item",
+    "back_up_items",
+    "current_key",
+    "safety_target",
+    "snapshot_item",
+    "restore_todo_item",
+    "unbacked_removals",
+]
+
 logger = logging.getLogger(__name__)
 
 

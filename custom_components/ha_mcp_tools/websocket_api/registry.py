@@ -35,6 +35,7 @@ from ..core_registry import (
 )
 
 __all__ = [
+    "_reg_entity_id",
     "_RegistryView",
     "_all_area_entries",
     "_all_device_entries",
