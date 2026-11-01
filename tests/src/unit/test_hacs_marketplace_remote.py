@@ -248,7 +248,7 @@ async def test_remote_update_uses_renamed_entity_and_core_service(remote):
 @pytest.mark.parametrize("action", ["download", "add_repository"])
 async def test_remote_consent_refusal_precedes_mutation(remote, action):
     remote.state["warning_accepted"] = False
-    with pytest.raises(ToolFailure, match="warning_not_accepted"):
+    with pytest.raises(ToolFailure, match=r"warning_not_accepted.*first-run warning"):
         await remote.store.write(
             action, "1", repository="example/new", category="integration"
         )

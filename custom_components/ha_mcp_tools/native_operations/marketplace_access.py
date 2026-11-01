@@ -87,7 +87,7 @@ class MarketplaceAccess(HacsAccess):
         ):
             raise ToolFailure(
                 "AUTH_FORBIDDEN",
-                "Marketplace warning_not_accepted: this administrator must accept the warning in the Marketplace UI.",
+                "Marketplace warning_not_accepted: this administrator must accept the Marketplace first-run warning in the Marketplace UI.",
                 status="not_started",
             )
         if action == "add_repository" and not self.owner.github_connected:

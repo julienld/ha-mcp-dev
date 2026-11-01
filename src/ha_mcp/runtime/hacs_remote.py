@@ -276,7 +276,7 @@ class MarketplaceRemote:
         ):
             raise ToolFailure(
                 "AUTH_FORBIDDEN",
-                "Marketplace warning_not_accepted: this administrator must accept the warning in the Marketplace UI. The agent cannot accept it on the user's behalf.",
+                "Marketplace warning_not_accepted: this administrator must accept the Marketplace first-run warning in the Marketplace UI. The agent cannot accept it on the user's behalf.",
                 status="not_started",
             )
         if action == "add_repository" and not state.get("github_connected"):
