@@ -236,7 +236,7 @@ async def test_backup_newest_protection_rechecks_inventory_after_preparation(
     "failure", [RuntimeError("private details"), asyncio.CancelledError()]
 )
 async def test_core_backup_failure_after_effect_is_unknown_without_replay(
-    backups: Any, failure: BaseException
+    backups: Any, failure: BaseException, caplog: pytest.LogCaptureFixture
 ) -> None:
     async def create(**kwargs: Any) -> Any:
         backups.rows["changed"] = row("changed", "2026-01-03T00:00:00Z")
@@ -250,6 +250,36 @@ async def test_core_backup_failure_after_effect_is_unknown_without_replay(
     )
     assert "changed" in backups.rows
     backups.owner.async_create_backup.assert_awaited_once()
+    assert any(
+        record.name.endswith(".full_backups")
+        and record.exc_info
+        and record.exc_info[1] is failure
+        for record in caplog.records
+    )
+
+
+async def test_deleted_archive_failure_is_logged_without_replay(
+    backups: Any, caplog: pytest.LogCaptureFixture
+) -> None:
+    failure = RuntimeError("private deletion details")
+
+    async def delete(identifier: str) -> Any:
+        backups.rows.pop(identifier)
+        raise failure
+
+    backups.owner.async_delete_backup.side_effect = delete
+    with pytest.raises(ToolFailure) as raised:
+        await backups.service.delete("old", True)
+    assert raised.value.status == "outcome_unknown"
+    assert "private deletion details" not in str(raised.value)
+    assert "old" not in backups.rows
+    backups.owner.async_delete_backup.assert_awaited_once_with("old")
+    assert any(
+        record.name.endswith(".full_backups")
+        and record.exc_info
+        and record.exc_info[1] is failure
+        for record in caplog.records
+    )
 
 
 async def test_cancellation_drains_core_finish_before_releasing_backup_lock(

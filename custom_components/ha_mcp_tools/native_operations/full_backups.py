@@ -6,6 +6,7 @@ import asyncio
 import builtins
 import copy
 import json
+import logging
 import time
 from datetime import UTC, datetime
 from importlib import import_module
@@ -29,6 +30,8 @@ from ha_mcp.utils.registry_update_lock import registry_update_lock
 
 from .registry_access import admit_registry_write, authorize_actor
 from .supervisor_access import SupervisorAccess
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class NativeFullBackups:
@@ -329,7 +332,8 @@ class NativeFullBackups:
                         "note": "Backup uses your Home Assistant's default backup password",
                         "backup": backup,
                     }
-                except (Exception, asyncio.CancelledError) as error:  # noqa: BLE001 - Core/agents can fail after creating an archive
+                except (Exception, asyncio.CancelledError) as error:
+                    _LOGGER.exception("Core backup creation failed after dispatch")
                     raise ToolFailure(
                         "OUTCOME_UNKNOWN",
                         f"Core backup creation was dispatched ({type(error).__name__}); inspect backups before another create. No retry was performed.",
@@ -437,7 +441,8 @@ class NativeFullBackups:
                         "name": match.get("name"),
                         "status": "Backup deleted successfully",
                     }
-                except (Exception, asyncio.CancelledError) as error:  # noqa: BLE001 - an agent may have already deleted its archive
+                except (Exception, asyncio.CancelledError) as error:
+                    _LOGGER.exception("Core backup deletion failed after dispatch")
                     raise ToolFailure(
                         "OUTCOME_UNKNOWN",
                         f"Backup deletion was dispatched ({type(error).__name__}); inspect the inventory before retrying",
