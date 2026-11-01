@@ -120,7 +120,7 @@ async def test_cancelled_shutdown_finishes_issued_aborts_without_replay() -> Non
         if not stopping.done():
             stopping.cancel()
         with pytest.raises(asyncio.CancelledError):
-            await stopping
+            _ = await stopping
     backend._reload_watches.stop.assert_awaited_once()
     backend._entry_watches.stop.assert_awaited_once()
     await backend.stop()
