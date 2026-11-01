@@ -82,7 +82,8 @@ def _client(
         and "config/entity_registry/get" in replies
         and "config/entity_registry/list" not in replies
     ):
-        row = replies["config/entity_registry/get"].get("result")
+        reply = replies["config/entity_registry/get"]
+        row = reply.get("result") if isinstance(reply, dict) else None
         if isinstance(row, dict) and row.get("platform") != "zone":
             answers["config/entity_registry/list"] = {
                 "success": True,
@@ -116,6 +117,23 @@ def _sent(client: MagicMock, kind: str) -> list[dict[str, Any]]:
         for c in client.send_websocket_message.call_args_list
         if c.args[0]["type"] == kind
     ]
+
+
+@pytest.mark.parametrize(
+    "reply", [HomeAssistantConnectionError("lookup failed"), None, []]
+)
+async def test_registry_lookup_failure_is_preserved_until_the_command_runs(
+    reply: Any,
+) -> None:
+    client = _client({"config/entity_registry/get": reply})
+    command = {"type": "config/entity_registry/get", "entity_id": "zone.office"}
+    if isinstance(reply, Exception):
+        with pytest.raises(type(reply)) as error:
+            await client.send_websocket_message(command)
+        assert error.value is reply
+    else:
+        assert await client.send_websocket_message(command) == reply
+    client.send_websocket_message.assert_awaited_once_with(command)
 
 
 def _error(exc_info: pytest.ExceptionInfo[ToolError]) -> dict[str, Any]:

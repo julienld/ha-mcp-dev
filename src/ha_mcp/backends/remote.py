@@ -132,6 +132,8 @@ class RemoteBackend:
         return await read_flow_operation(self.client, operation, arguments)
 
     async def stop(self) -> None:
+        if self._flows is not None:
+            await self._flows.stop()
         if self._reload_watches is not None:
             await self._reload_watches.stop()
         if self._entry_watches is not None:

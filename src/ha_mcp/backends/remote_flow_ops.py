@@ -1,10 +1,16 @@
 """Configuration-flow ports on the existing remote client."""
 
+import asyncio
+import logging
 from typing import Any
 
 from ha_mcp.errors import ErrorCode, create_error_response
 from ha_mcp.runtime.errors import raise_failure, websocket_error_message
 from ha_mcp.tool_api import CallContext, ToolFailure, UnsupportedOperation
+from ha_mcp.utils.owned_executor import await_owned_io
+
+_LOGGER = logging.getLogger(__name__)
+_PREFIXES = {"config": "config", "options": "options", "subentry": "config_subentry"}
 
 
 async def read_flow_operation(
@@ -103,26 +109,42 @@ class RemoteFlows:
                 status="not_started",
             )
         kind = owner[0]
-        prefixes = {
-            "config": "config",
-            "options": "options",
-            "subentry": "config_subentry",
-        }
         if operation == "config.flow.abort":
             try:
                 response: dict[str, Any] = await getattr(
-                    self.client, f"abort_{prefixes[kind]}_flow"
+                    self.client, f"abort_{_PREFIXES[kind]}_flow"
                 )(flow_id)
                 return response
             finally:
                 self.owned.pop(flow_id, None)
         if operation != "config.flow.configure" or "user_input" not in arguments:
             raise UnsupportedOperation(operation)
-        result = await getattr(self.client, f"submit_{prefixes[kind]}_flow_step")(
+        result = await getattr(self.client, f"submit_{_PREFIXES[kind]}_flow_step")(
             flow_id, arguments["user_input"]
         )
         self._record(result, kind, context)
         return result
+
+    async def stop(self) -> None:
+        owned = list(self.owned.items())
+        # Forget issued aborts before yielding so repeated shutdown cannot replay them.
+        self.owned.clear()
+        results = await await_owned_io(
+            asyncio.gather(
+                *(
+                    getattr(self.client, f"abort_{_PREFIXES[owner[0]]}_flow")(flow_id)
+                    for flow_id, owner in owned
+                ),
+                return_exceptions=True,
+            )
+        )
+        for (flow_id, _), error in zip(owned, results, strict=True):
+            if isinstance(error, BaseException):
+                _LOGGER.error(
+                    "Could not abort owned remote flow %s during shutdown",
+                    flow_id,
+                    exc_info=(type(error), error, error.__traceback__),
+                )
 
     async def _start(self, kind: str, arguments: dict[str, Any]) -> dict[str, Any]:
         if kind == "config":
