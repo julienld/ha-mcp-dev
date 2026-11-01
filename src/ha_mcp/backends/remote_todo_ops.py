@@ -104,11 +104,13 @@ async def _execute_todo_bridge(client: Any, arguments: dict[str, Any]) -> Any:
     expected_items = arguments.pop("expected_items", None)
     entity_id = arguments["entity_id"]
     if expected is not None:
-        check_todo_target(await _items(client, entity_id), arguments["uid"], expected)
+        _bridge_selector(await _items(client, entity_id), arguments["uid"], expected)
     if expected_items is not None:
         items = await _items(client, entity_id)
-        for ref, row in zip(arguments["refs"], expected_items, strict=True):
-            check_todo_target(items, ref, row)
+        arguments["refs"] = [
+            _bridge_selector(items, ref, row)
+            for ref, row in zip(arguments["refs"], expected_items, strict=True)
+        ]
     try:
         return await todo_call(client, **arguments)
     except ToolError as exc:
@@ -116,6 +118,28 @@ async def _execute_todo_bridge(client: Any, arguments: dict[str, Any]) -> Any:
         raise ToolFailure(
             data["error"]["code"], data["error"]["message"], data=data
         ) from exc
+
+
+def _bridge_selector(
+    items: list[dict[str, Any]], ref: str, expected: dict[str, Any]
+) -> str:
+    from ha_mcp.runtime.todo_values import find_item
+    from ha_mcp.utils.config_hash import json_values_equal
+
+    selector = expected.get("uid") or ref
+    stored = next((item for item in items if item.get("uid") == selector), None)
+    if (
+        stored is not None
+        and json_values_equal(stored, expected)
+        and find_item(items, selector) is not stored
+    ):
+        raise ToolFailure(
+            "VALIDATION_INVALID_PARAMETER",
+            f"Another item is named {selector!r}, so Core would change that one; nothing was changed",
+            status="not_started",
+        )
+    check_todo_target(items, selector, expected)
+    return str(selector)
 
 
 async def _items(client: Any, entity_id: str) -> list[dict[str, Any]]:
@@ -131,7 +155,11 @@ async def _items(client: Any, entity_id: str) -> list[dict[str, Any]]:
 
 
 async def _capture_backup(client: Any, arguments: dict[str, Any]) -> dict[str, Any]:
-    from ha_mcp.backup_manager import get_backup_manager
+    from ha_mcp.backup_manager import (
+        _CAPTURE_TRANSIENT_ERRORS,
+        MandatoryBackupError,
+        get_backup_manager,
+    )
     from ha_mcp.config import get_global_settings
 
     settings = get_global_settings()
@@ -140,11 +168,24 @@ async def _capture_backup(client: Any, arguments: dict[str, Any]) -> dict[str, A
     source = arguments["source_tool"]
     if source not in {"ha_set_todo_item", "ha_remove_todo_item"}:
         raise ValueError("Unsupported todo snapshot source")
-    manager = get_backup_manager(client, settings)
-    await manager.maybe_snapshot_known(
-        "todo_item",
-        f"{arguments['entity_id']}::{arguments['item']}",
-        {"todo_entity_id": arguments["entity_id"], **arguments["current_item"]},
-        tool_name=source,
-    )
+    key = f"{arguments['entity_id']}::{arguments['item']}"
+    try:
+        manager = get_backup_manager(client, settings)
+        await manager.maybe_snapshot_known(
+            "todo_item",
+            key,
+            {"todo_entity_id": arguments["entity_id"], **arguments["current_item"]},
+            tool_name=source,
+            mandatory=True,
+        )
+    except MandatoryBackupError as error:
+        return {
+            "warnings": [f"No pre-write backup of {key} was taken: {error.safe_cause}"]
+        }
+    except _CAPTURE_TRANSIENT_ERRORS as error:
+        return {
+            "warnings": [
+                f"No pre-write backup of {key} was taken: {type(error).__name__}"
+            ]
+        }
     return {}

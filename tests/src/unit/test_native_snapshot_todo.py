@@ -13,6 +13,10 @@ def todos(runtime):
     items, writes = [], []
 
     async def execute(op, args, actor):
+        if op == "states.read":
+            return {"states": {"todo.list": {"state": "1"}}}
+        if op == "todo.bridge":
+            return None  # Exercise the component-absent fallback's snapshot contract.
         if op == "todo.items":
             return {"success": True, "result": {"items": copy.deepcopy(items)}}
         data = args["data"]

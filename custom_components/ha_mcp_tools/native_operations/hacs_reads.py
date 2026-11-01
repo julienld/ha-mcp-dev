@@ -1,4 +1,4 @@
-"""HACS search and info read only the integration's loaded cache."""
+"""Cached HACS search/info, with explicit opt-in release reads."""
 
 from typing import Any
 
@@ -96,7 +96,9 @@ class HacsReads:
             }
         )
 
-    async def _hacs_info(self, repository_id: str) -> dict[str, Any]:
+    async def _hacs_info(
+        self, repository_id: str, include_releases: bool = False
+    ) -> dict[str, Any]:
         access = await self.access()
         repository = access.find(repository_id)
         _payload, registration = access.validate(
@@ -107,10 +109,20 @@ class HacsReads:
         freshness = access.cache(repository)
         await access.observe(repository, before)
         access.pin_validator(access.command("info"), registration)
+        extra: dict[str, Any] = {}
+        if include_releases:
+            from .hacs_releases import release_details
+
+            extra = await release_details(access, repository, before)
         return self.wrapped(
             {
                 **info_data(repository_id, data),
                 "cache": freshness,
-                "note": "Cached store metadata only. Use ha_manage_hacs(action='update_information') to refresh GitHub metadata explicitly.",
+                "note": (
+                    "Repository metadata remains cached; releases and release notes were requested separately."
+                    if include_releases
+                    else "Cached store metadata only. Use ha_manage_hacs(action='update_information') to refresh GitHub metadata explicitly."
+                ),
+                **extra,
             }
         )

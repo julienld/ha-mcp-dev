@@ -36,9 +36,17 @@ class NativeHacs(HacsReads):
         self.actor = actor
 
     async def _hacs_download(
-        self, repository_id: str | None, version: str | None
+        self,
+        repository_id: str | None,
+        version: str | None,
+        confirm_replace_built_in: bool = False,
     ) -> dict[str, Any]:
-        return await self._repository_write("download", repository_id, version)
+        return await self._repository_write(
+            "download",
+            repository_id,
+            version,
+            confirm_replace_built_in=confirm_replace_built_in,
+        )
 
     async def _hacs_remove(self, repository_id: str | None) -> dict[str, Any]:
         return await self._repository_write("remove", repository_id, None)
@@ -49,7 +57,12 @@ class NativeHacs(HacsReads):
         return await self._repository_write("update_information", repository_id, None)
 
     async def _repository_write(
-        self, action: str, identifier: str | None, version: str | None
+        self,
+        action: str,
+        identifier: str | None,
+        version: str | None,
+        *,
+        confirm_replace_built_in: bool = False,
     ) -> dict[str, Any]:
         identifier = validate_identifier_not_empty(identifier, "repository_id")
         async with registry_update_lock("hacs", "repositories"):
@@ -67,13 +80,26 @@ class NativeHacs(HacsReads):
                 and repo.data.category == "integration"
                 and repo.data.domain in {"ha_mcp_tools", "hacs"}
             )
+            requires_confirmation = (
+                access.domain == "marketplace"
+                and confirm_replace_built_in
+                and not repo.data.installed
+            )
             prepared = (
-                install_service(access, repo, version) if action == "download" else None
+                install_service(access, repo, version)
+                if action == "download" and not requires_confirmation
+                else None
             )
             command = access.command(action)
             proposal = {"repository": str(repo.data.id)}
             if action == "download" and version:
                 proposal["version"] = version
+            if (
+                action == "download"
+                and access.domain == "marketplace"
+                and confirm_replace_built_in
+            ):
+                proposal["confirm_replace_built_in"] = True
             payload, registration = (
                 access.validate(command, proposal)
                 if prepared is None
@@ -94,6 +120,10 @@ class NativeHacs(HacsReads):
                     else {}
                 )
             )
+            if prepared is None and payload.get("confirm_replace_built_in"):
+                # Core 2026.11.0b2 Repository.async_install_repository owns the
+                # replacement guard under its install/filesystem locks.
+                parameters["confirm_replace_built_in"] = True
             if prepared is None:
                 if not callable(method):
                     raise ToolFailure(
