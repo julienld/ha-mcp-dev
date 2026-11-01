@@ -72,6 +72,24 @@ async def _finish(world: Any) -> None:
         await asyncio.wait_for(asyncio.gather(*world.tasks), 1)
 
 
+async def test_handoff_error_after_effect_does_not_log_a_definite_refusal(
+    lifecycle: Any, caplog: Any
+) -> None:
+    effects = []
+
+    async def effect_then_error(*args: Any, **kwargs: Any) -> None:
+        effects.append(args)
+        raise RuntimeError("Core failed after accepting the request")
+
+    lifecycle.manager.hass.services.async_call.side_effect = effect_then_error
+    lifecycle.owner.schedule("restart", CallContext("actor"))
+    with pytest.raises(RuntimeError, match="after accepting"):
+        await _finish(lifecycle)
+    assert len(effects) == 1
+    assert "completion is unconfirmed" in caplog.text
+    assert "did not accept" not in caplog.text
+
+
 async def test_restart_reply_precedes_core_handoff_and_clears_private_execution_context(
     lifecycle: Any,
 ) -> None:

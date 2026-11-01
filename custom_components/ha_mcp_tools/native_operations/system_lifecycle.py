@@ -216,7 +216,8 @@ def _completed_handoff(task: asyncio.Task[Any], *, action: str) -> None:
         return
     if error := task.exception():
         _LOGGER.warning(
-            "Core did not accept the deferred %s request (%s).",
+            "The deferred %s request failed (%s); completion is unconfirmed. "
+            "Inspect Core state before retrying.",
             action,
             type(error).__name__,
         )
