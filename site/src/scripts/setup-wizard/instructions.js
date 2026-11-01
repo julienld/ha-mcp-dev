@@ -268,7 +268,8 @@ sudo apt update && sudo apt install cloudflared
 # Or use Docker
 docker run cloudflare/cloudflared:latest tunnel --url http://host.docker.internal:${serverPort}</code></pre>
           <p class="text-xs text-slate-500 mt-2 mb-3">More options: <a href="https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/" target="_blank" rel="noopener noreferrer" class="text-blue-400 hover:underline">Cloudflare Downloads</a></p>
-          <p class="text-slate-300 mb-2">Quick tunnel (temporary URL - changes on restart):</p>
+          ${isComponent ? '<p class="text-amber-200 text-sm mb-3"><strong>Home Assistant shares this listener.</strong> This quick tunnel publishes all Home Assistant routes, including its UI and API. Keeping the webhook path in your MCP URL does not restrict tunnel routing. Use it only when you intend to expose the full Home Assistant web service; use the MCP-only named-tunnel example below for a restricted secret-URL or bearer endpoint.</p>' : ''}
+          <p class="text-slate-300 mb-2">${isComponent ? 'Full Home Assistant quick tunnel' : 'Quick tunnel'} (temporary URL - changes on restart):</p>
           <pre class="code-block"><code>cloudflared tunnel --url http://localhost:${serverPort}</code></pre>
           <p class="text-sm text-slate-400 mt-2">This gives you a URL like <code>https://random-words.trycloudflare.com</code></p>
           <p class="text-sm text-brand font-medium">Your MCP URL: <code>https://random-words.trycloudflare.com/${isComponent ? 'api/webhook/&lt;webhook-id&gt;' : hasOwnPath ? '&lt;your-secret-path&gt;' : 'private_{{RANDOM_STRING}}'}</code></p>
@@ -279,11 +280,11 @@ docker run cloudflare/cloudflared:latest tunnel --url http://host.docker.interna
             <pre class="code-block mt-2 text-xs"><code># One-time setup (requires Cloudflare account)
 cloudflared tunnel login
 cloudflared tunnel create ha-mcp
-cloudflared tunnel route dns ha-mcp mcp.yourdomain.com
+cloudflared tunnel route dns ha-mcp ha-mcp.yourdomain.com
 
 # Run with permanent URL
 cloudflared tunnel run ha-mcp</code></pre>
-            <p class="text-blue-200/80 text-xs mt-3">Persistent tunnels also need a config file at <code class="bg-slate-800 px-1 rounded">~/.cloudflared/config.yml</code> mapping the hostname to the local port:</p>
+            <p class="text-blue-200/80 text-xs mt-3">Persistent tunnels also need a config file at <code class="bg-slate-800 px-1 rounded">~/.cloudflared/config.yml</code> mapping the hostname to the local port.${isComponent ? ' This unrestricted example publishes the full Home Assistant web service; it can serve the discovery and login routes required by OAuth.' : ''}</p>
             <pre class="code-block mt-2 text-xs"><code>tunnel: ha-mcp
 credentials-file: /path/to/.cloudflared/&lt;tunnel-id&gt;.json
 
@@ -291,6 +292,22 @@ ingress:
   - hostname: ha-mcp.yourdomain.com
     service: http://localhost:${serverPort}
   - service: http_status:404</code></pre>
+            ${isComponent ? `<h4 class="text-blue-300 text-sm font-medium mt-4">MCP-only named tunnel: secret URL or bearer mode</h4>
+            <p class="text-blue-200/80 text-xs mt-2">For an MCP-only hostname, use this ingress instead. Replace <code>WEBHOOK_ID</code> with this server entry's webhook identifier, and use your actual Home Assistant port and TLS configuration. Only that exact endpoint reaches Home Assistant; all other paths receive a 404.</p>
+            <pre class="code-block mt-2 text-xs"><code>tunnel: ha-mcp
+credentials-file: /path/to/.cloudflared/&lt;tunnel-id&gt;.json
+
+ingress:
+  - hostname: ha-mcp.yourdomain.com
+    path: ^/api/webhook/WEBHOOK_ID$
+    service: http://localhost:${serverPort}
+  - service: http_status:404</code></pre>
+            <p class="text-blue-200/80 text-xs mt-2">This restricted example does not provide OAuth discovery, client registration or Home Assistant login. For OAuth, use an existing Home Assistant remote origin or deliberately choose the full Home Assistant tunnel above. Verify the selected authentication flow; a webhook-only rule cannot serve those additional routes.</p>
+            <p class="text-blue-200/80 text-xs mt-2">Before starting the named tunnel, check its routing locally:</p>
+            <pre class="code-block mt-2 text-xs"><code>cloudflared tunnel ingress validate
+cloudflared tunnel ingress rule https://ha-mcp.yourdomain.com/api/webhook/WEBHOOK_ID
+cloudflared tunnel ingress rule https://ha-mcp.yourdomain.com/api/states</code></pre>
+            <p class="text-blue-200/80 text-xs mt-2">The webhook must match the local service, while <code>/api/states</code> and other Home Assistant routes must match <code>http_status:404</code>. <a href="https://developers.cloudflare.com/tunnel/features/locally-managed-tunnels/configuration-file/" target="_blank" rel="noopener noreferrer" class="text-blue-400 hover:underline">Cloudflare ingress routing reference</a>.</p>` : ''}
           </div>
           <details class="mt-4">
             <summary class="cursor-pointer text-sm text-slate-300 font-medium hover:text-slate-100">Running on Home Assistant OS? Use the Cloudflared app</summary>

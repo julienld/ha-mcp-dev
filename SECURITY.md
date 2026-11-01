@@ -92,6 +92,22 @@ addresses, the host's directly connected networks and the operator's
 server's authentication mode applies to its webhook, not to this direct port,
 which is protected by the secret path as on IPv4.
 
+### Native tunnel routing shares Home Assistant's HTTP surface
+
+The Native component uses Home Assistant's existing HTTP listener. A tunnel
+that forwards this origin without a path restriction publishes its other
+routes too. The secret MCP webhook path authenticates that endpoint; it does
+not filter the tunnel. Those other routes retain Home Assistant's own gates.
+
+For an MCP-only hostname in secret-URL or bearer mode, forward only the exact
+entry webhook path and deny unmatched paths. The setup wizard includes a
+named-tunnel example and local routing checks. Its unrestricted quick-tunnel
+and named-tunnel examples intentionally expose the full HA web service.
+OAuth can require discovery, registration and login routes beyond the webhook;
+the webhook-only example does not support that flow. Use an existing remote
+HA origin or deliberately configure full-HA access for it, then verify the
+chosen flow. No proxy configuration is applied automatically by the wizard.
+
 ### Host/Origin validation (DNS-rebinding guard) is off by default
 
 fastmcp ships a Host/Origin guard — a DNS-rebinding defense that only accepts
