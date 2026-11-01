@@ -105,6 +105,8 @@ async def test_cancelled_shutdown_finishes_issued_aborts_without_replay() -> Non
 
     client = SimpleNamespace(abort_config_flow=AsyncMock(side_effect=abort))
     backend = RemoteBackend(client)
+    backend._reload_watches = SimpleNamespace(stop=AsyncMock())
+    backend._entry_watches = SimpleNamespace(stop=AsyncMock())
     backend._flows = RemoteFlows(client)
     backend._flows.owned["owned"] = ("config", "actor", "client")
     stopping = asyncio.create_task(backend.stop())
@@ -119,6 +121,41 @@ async def test_cancelled_shutdown_finishes_issued_aborts_without_replay() -> Non
             stopping.cancel()
         with pytest.raises(asyncio.CancelledError):
             await stopping
+    backend._reload_watches.stop.assert_awaited_once()
+    backend._entry_watches.stop.assert_awaited_once()
     await backend.stop()
     assert not backend._flows.owned
     client.abort_config_flow.assert_awaited_once_with("owned")
+
+
+@pytest.mark.parametrize(
+    "failures",
+    [
+        (RuntimeError("flow cleanup"), None, None),
+        (None, RuntimeError("reload cleanup"), None),
+        (asyncio.CancelledError(), RuntimeError("reload cleanup"), None),
+    ],
+)
+async def test_shutdown_attempts_every_owner_before_reraising_cleanup_failures(
+    failures: tuple[BaseException | None, ...],
+) -> None:
+    backend = RemoteBackend(SimpleNamespace())
+    owners = [SimpleNamespace(stop=AsyncMock(side_effect=error)) for error in failures]
+    backend._flows, backend._reload_watches, backend._entry_watches = owners
+    expected = [error for error in failures if error is not None]
+    error_type = type(expected[0]) if len(expected) == 1 else BaseExceptionGroup
+
+    with pytest.raises(error_type) as raised:
+        await backend.stop()
+
+    for owner in owners:
+        owner.stop.assert_awaited_once()
+    if len(expected) == 1:
+        assert raised.value is expected[0]
+    else:
+        assert len(raised.value.exceptions) == 2
+        assert isinstance(raised.value.exceptions[0], asyncio.CancelledError)
+        assert raised.value.exceptions[1] is expected[1]
+    assert (backend._flows, backend._reload_watches, backend._entry_watches) == tuple(
+        owners
+    )

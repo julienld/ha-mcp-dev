@@ -133,6 +133,7 @@ def test_embedded_body_policy_stub_matches_the_public_helper(
 ) -> None:
     from aiohttp.helpers import must_be_empty_body
 
+    assert must_be_empty_body.__module__ == EmbeddedClientTimeout.__module__
     for method, status, expected in real_aiohttp["body_policy"]:
         assert must_be_empty_body(method, status) is expected
 

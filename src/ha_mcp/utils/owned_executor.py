@@ -6,7 +6,12 @@ from typing import Any
 
 
 async def await_owned_io[T](operation: Awaitable[T]) -> T:
-    """Finish issued I/O before cancellation releases its caller's locks/pins."""
+    """Finish issued I/O before cancellation releases its caller's locks/pins.
+
+    The drain deliberately has no deadline: cancellation cannot stop an executor
+    thread from mutating the resource. A hung worker can therefore block shutdown;
+    releasing its owner on timeout would permit concurrent mutation or replay.
+    """
     worker = asyncio.ensure_future(operation)
     try:
         return await asyncio.shield(worker)

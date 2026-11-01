@@ -6,6 +6,7 @@ import asyncio
 from typing import Any
 
 from ha_mcp.tool_api import CallContext, UnsupportedOperation
+from ha_mcp.utils.owned_executor import await_owned_io
 
 
 class RemoteBackend:
@@ -132,12 +133,25 @@ class RemoteBackend:
         return await read_flow_operation(self.client, operation, arguments)
 
     async def stop(self) -> None:
-        if self._flows is not None:
-            await self._flows.stop()
-        if self._reload_watches is not None:
-            await self._reload_watches.stop()
-        if self._entry_watches is not None:
-            await self._entry_watches.stop()
+        results = await await_owned_io(
+            asyncio.gather(
+                *(
+                    owner.stop()
+                    for owner in (
+                        self._flows,
+                        self._reload_watches,
+                        self._entry_watches,
+                    )
+                    if owner is not None
+                ),
+                return_exceptions=True,
+            )
+        )
+        failures = [error for error in results if isinstance(error, BaseException)]
+        if len(failures) == 1:
+            raise failures[0]
+        if failures:
+            raise BaseExceptionGroup("Remote backend shutdown failed", failures)
 
     async def _states(self, entity_ids: list[str]) -> dict[str, Any]:
         from ha_mcp.tools.search.state import StateMixin

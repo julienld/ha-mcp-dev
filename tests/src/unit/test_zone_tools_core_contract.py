@@ -70,25 +70,12 @@ def _client(
         "zone/create": {"success": True, "result": OFFICE},
         "zone/update": {"success": True, "result": OFFICE},
         "zone/delete": {"success": True, "result": None},
-        "config/entity_registry/get": {"success": True, "result": OFFICE_ENTRY},
         "config/entity_registry/update": {
             "success": True,
             "result": {"entity_entry": OFFICE_ENTRY},
         },
     }
     answers.update(replies or {})
-    if (
-        replies
-        and "config/entity_registry/get" in replies
-        and "config/entity_registry/list" not in replies
-    ):
-        reply = replies["config/entity_registry/get"]
-        row = reply.get("result") if isinstance(reply, dict) else None
-        if isinstance(row, dict) and row.get("platform") != "zone":
-            answers["config/entity_registry/list"] = {
-                "success": True,
-                "result": [*REGISTRY, row],
-            }
     known = {"zone.office": {"entity_id": "zone.office", "attributes": {}}}
     known.update(states or {})
 
@@ -119,21 +106,19 @@ def _sent(client: MagicMock, kind: str) -> list[dict[str, Any]]:
     ]
 
 
-@pytest.mark.parametrize(
-    "reply", [HomeAssistantConnectionError("lookup failed"), None, []]
-)
-async def test_registry_lookup_failure_is_preserved_until_the_command_runs(
-    reply: Any,
-) -> None:
-    client = _client({"config/entity_registry/get": reply})
-    command = {"type": "config/entity_registry/get", "entity_id": "zone.office"}
-    if isinstance(reply, Exception):
-        with pytest.raises(type(reply)) as error:
-            await client.send_websocket_message(command)
-        assert error.value is reply
-    else:
-        assert await client.send_websocket_message(command) == reply
-    client.send_websocket_message.assert_awaited_once_with(command)
+async def test_registry_connection_failure_prevents_zone_deletion() -> None:
+    client = _client(
+        {
+            "config/entity_registry/list": HomeAssistantConnectionError(
+                "registry unavailable"
+            )
+        }
+    )
+    with pytest.raises(ToolError) as error:
+        await ZoneTools(client).ha_remove_zone(zone_id="office")
+    assert _error(error)["code"] != "RESOURCE_NOT_FOUND"
+    assert "registry unavailable" in _error(error)["message"]
+    assert not _sent(client, "zone/delete")
 
 
 def _error(exc_info: pytest.ExceptionInfo[ToolError]) -> dict[str, Any]:

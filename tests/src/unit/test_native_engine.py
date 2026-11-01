@@ -166,6 +166,26 @@ def definition(handler: Any, *, read_only: bool = False) -> ToolDefinition:
     )
 
 
+async def test_actor_mismatch_after_an_effect_keeps_the_whole_write_uncertain() -> None:
+    from ha_mcp.runtime import mutation_guard
+
+    effects: list[str] = []
+
+    async def write(arguments: dict, context: CallContext) -> None:
+        mutation_guard.check_mutation_admission(context)
+        effects.append("first write")
+        mutation_guard.check_mutation_admission(CallContext("different actor"))
+        effects.append("unauthorized write")
+
+    engine = Engine(Backend(), [definition(write)])
+    result = await engine.call("work", {}, ACTOR)
+
+    assert effects == ["first write"]
+    assert result.is_error and result.status == "outcome_unknown"
+    assert result.data["error"]["code"] == "OUTCOME_UNKNOWN"
+    assert "Do not retry" in result.data["error"]["suggestion"]
+
+
 async def test_disconnect_preserves_exactly_one_owned_write() -> None:
     backend = Backend()
     started, finish = asyncio.Event(), asyncio.Event()
