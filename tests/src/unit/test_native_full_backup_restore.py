@@ -45,12 +45,14 @@ def restore(backups: Any) -> Any:
 async def test_restore_waits_for_real_safety_then_schedules_existing_core_handoff(
     restore: Any,
 ) -> None:
-    result = await restore.restore(restore.manager, CallContext("actor"), "old", False)
+    result = await restore.restore(
+        restore.manager, CallContext("actor"), "old", False, safety_backup=True
+    )
     assert (
         result["restore_completed"] is False and result["safety_backup_id"] == "created"
     )
     assert result["operation_outcome"] == "scheduled"
-    assert restore.owner.async_create_backup.call_args.kwargs["include_database"]
+    assert not restore.owner.async_create_backup.call_args.kwargs["include_database"]
     restore.owner.async_restore_backup.assert_not_awaited()
     await asyncio.gather(*tuple(restore.manager.system_lifecycle.pending))
     await asyncio.sleep(0)
@@ -77,7 +79,9 @@ async def test_restore_target_change_during_safety_does_not_restore_new_archive(
 
     restore.owner.async_create_backup.side_effect = replace_target
     with pytest.raises(ToolFailure) as caught:
-        await restore.restore(restore.manager, CallContext("actor"), "old", False)
+        await restore.restore(
+            restore.manager, CallContext("actor"), "old", False, safety_backup=True
+        )
     assert caught.value.code == "CONFIG_CONFLICT"
     assert caught.value.data["safety_backup_id"] == "created"
     assert caught.value.data["restore_requested"] is False
@@ -99,6 +103,8 @@ async def test_missing_backup_password_blocks_safety_and_destructive_restore(
 ) -> None:
     restore.owner.config.data.create_backup.password = None
     with pytest.raises(ToolFailure):
-        await restore.restore(restore.manager, CallContext("actor"), "old", False)
+        await restore.restore(
+            restore.manager, CallContext("actor"), "old", False, safety_backup=True
+        )
     restore.owner.async_create_backup.assert_not_awaited()
     restore.owner.async_restore_backup.assert_not_awaited()

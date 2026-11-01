@@ -23,9 +23,11 @@ class FullRestoreTarget:
     backup_id: str
     agent_id: str
     agent: Any = field(repr=False)
-    password: str = field(repr=False)
+    password: str | None = field(repr=False)
     image: dict[str, Any] = field(repr=False)
     restore_database: bool
+    restore_addons: tuple[str, ...]
+    restore_folders: tuple[Any, ...]
 
     async def verify(self, manager: Any, actor: CallContext) -> None:
         access = NativeFullBackups(manager, actor)
@@ -44,7 +46,9 @@ class FullRestoreTarget:
                 "The target backup changed or became unavailable during restore preparation",
                 status="not_started",
             )
-        agent_id, agent, password = access.credentials()
+        agent_id, agent, password = access.credentials(
+            require_password=self.password is not None
+        )
         if (
             agent_id != self.agent_id
             or agent is not self.agent
@@ -62,15 +66,22 @@ class FullRestoreTarget:
         return {
             "agent_id": self.agent_id,
             "password": self.password if _backup_protected(self.image) else None,
-            "restore_addons": [],
-            "restore_folders": [],
+            "restore_addons": list(self.restore_addons),
+            "restore_folders": list(self.restore_folders),
             "restore_homeassistant": True,
             "restore_database": self.restore_database,
         }
 
 
 async def schedule_full_restore(
-    manager: Any, actor: CallContext, backup_id: str, restore_database: bool
+    manager: Any,
+    actor: CallContext,
+    backup_id: str,
+    restore_database: bool | None,
+    *,
+    restore_addons: list[str] | None = None,
+    restore_folders: list[str] | None = None,
+    safety_backup: bool = False,
 ) -> dict[str, Any]:
     access = NativeFullBackups(manager, actor)
     owner = await access.guard("restore")
@@ -90,13 +101,9 @@ async def schedule_full_restore(
             "Use ha_manage_backup(scope='snapshot', action='list') to inspect available backups and select a current backup_id",
         )
     image = json.loads(json_bytes(row))
-    agent_id, agent, password = access.credentials()
-    if agent_id not in image.get("agents", {}):
-        raise ToolFailure(
-            "RESOURCE_NOT_FOUND",
-            "The target backup is not available on the local agent",
-            status="not_started",
-        )
+    effective, addons, folders = _restore_selection(
+        access, image, restore_database, restore_addons, restore_folders
+    )
     protected = _backup_protected(image)
     if protected is None:
         raise ToolFailure(
@@ -104,13 +111,15 @@ async def schedule_full_restore(
             "The backup protection state is unknown",
             status="not_started",
         )
-    effective = (
-        image.get("database_included")
-        if agent_id == "hassio.local"
-        else restore_database
+    agent_id, agent, password = access.credentials(
+        require_password=protected or safety_backup
     )
-    if effective is None:
-        effective = restore_database
+    if agent_id not in image.get("agents", {}):
+        raise ToolFailure(
+            "RESOURCE_NOT_FOUND",
+            "The target backup is not available on the local agent",
+            status="not_started",
+        )
     target = FullRestoreTarget(
         owner,
         owner._reader_writer,
@@ -120,20 +129,37 @@ async def schedule_full_restore(
         password,
         copy.deepcopy(image),
         effective,
+        tuple(addons),
+        tuple(folders),
     )
     await target.verify(manager, actor)
-    # A failed or unavailable safety snapshot blocks full restore. The target
-    # is pinned individually; creating safety legitimately changes the index.
-    safety = await access.create(f"Before_restore_{backup_id}", safety=True)
+    safety_id = None
+    if safety_backup:
+        # The target is pinned individually; safety legitimately changes the index.
+        safety = await access.create(
+            f"Before_restore_{backup_id}",
+            parts={
+                "include_homeassistant": True,
+                "include_database": effective,
+                "include_addons": addons,
+                "include_folders": folders,
+            },
+        )
+        safety_id = safety["backup_id"]
     try:
         await target.verify(manager, actor)
         manager.system_lifecycle.schedule(
             "backup_restore", actor, restore_target=target
         )
     except ToolFailure as error:
-        failure = ToolFailure(error.code, str(error), status="confirmed")
+        failure = ToolFailure(
+            error.code,
+            str(error),
+            data=error.data,
+            status="confirmed" if safety_id is not None else error.status,
+        )
         failure.data.update(
-            safety_backup_id=safety["backup_id"],
+            safety_backup_id=safety_id,
             restore_requested=False,
             restore_completed=False,
         )
@@ -141,18 +167,59 @@ async def schedule_full_restore(
     warnings = [
         "Full restore was scheduled; Home Assistant may restart and the connection may be lost. Completion is not confirmed."
     ]
-    if effective != restore_database:
-        warnings.append(
-            f"restore_database was adjusted to {effective} to match the target archive, as required by Supervisor."
-        )
     return {
         "success": True,
         "backup_id": backup_id,
-        "safety_backup_id": safety["backup_id"],
+        "safety_backup_id": safety_id,
         "status": "Full backup restore requested",
         "operation_outcome": "scheduled",
         "restore_completed": False,
         "restore_database": effective,
+        "restore_addons": addons,
+        "restore_folders": folders,
         "warnings": warnings,
-        "note": "A full safety backup completed before the restore request was scheduled.",
+        "note": (
+            "A local safety backup of the selected restore parts completed before scheduling."
+            if safety_backup
+            else "No safety backup was created (safety_backup=false)."
+        ),
     }
+
+
+def _restore_selection(
+    access: NativeFullBackups,
+    image: dict[str, Any],
+    database: bool | None,
+    addons: list[str] | None,
+    folders: list[str] | None,
+) -> tuple[bool, list[str], list[Any]]:
+    """HA-MCP preflight prevents backups of requests Core rejects or silently omits.
+
+    Core 2026.10.4 backup/manager.py and hassio/backup.py own execution;
+    their reader/writers reject non-Supervisor parts and a mismatched database.
+    """
+    reasons = []
+    held_database = image.get("database_included")
+    if not isinstance(held_database, bool):
+        reasons.append("The backup database inclusion state is unknown")
+    effective = bool(held_database) if database is None else database
+    if effective and held_database is False:
+        reasons.append("restore_database=true but the backup contains no database")
+    if access.supervised and held_database is True and not effective:
+        reasons.append("Supervisor requires restore_database to match the backup")
+    if image.get("homeassistant_included") is not True:
+        reasons.append("The backup must contain Home Assistant configuration")
+    addons = list(addons or [])
+    folders = access.folders(folders) or []
+    if not access.supervised and (addons or folders):
+        reasons.append("restore_addons and restore_folders require Supervisor")
+    held_addons = {app["slug"] for app in image.get("addons") or []}
+    if missing := set(addons) - held_addons:
+        reasons.append(f"The backup contains no apps: {', '.join(sorted(missing))}")
+    if missing := set(folders) - set(image.get("folders") or []):
+        reasons.append(f"The backup contains no folders: {', '.join(sorted(missing))}")
+    if reasons:
+        raise ToolFailure(
+            "VALIDATION_INVALID_PARAMETER", "; ".join(reasons), status="not_started"
+        )
+    return effective, addons, folders

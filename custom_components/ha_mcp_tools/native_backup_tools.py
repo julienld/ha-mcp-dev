@@ -1,5 +1,6 @@
 """Bind the single backup contract to Core and native snapshot owners."""
 
+import os
 from dataclasses import replace
 from typing import Any
 
@@ -11,7 +12,6 @@ from ha_mcp.tool_api import CallContext, ToolDefinition, ToolResult
 from ha_mcp.tools.tool_hints import write_hints
 
 from .native_operations.backups import NativeBackups
-from .native_server_policy import setting_value
 
 
 def _operation_timeout(arguments: dict[str, Any]) -> float | None:
@@ -44,13 +44,12 @@ def backup_definition(manager: Any) -> ToolDefinition:
         meta={
             "ha_mcp": {
                 "native_support": {
-                    "note": "Full archives use Core's configured backup manager. A full restore requires a completed safety backup, is unavailable under hidden-entity enforcement, and reports only a scheduled request; it does not confirm restart or restore completion. Edit backups reuse the existing snapshot store and domain restorers."
+                    "note": "Full archives use Core's backup manager with local storage only; configured remote backup locations are refused. Custom include_* selections are supported. A full restore is unavailable under hidden-entity enforcement and reports only a scheduled request; it does not confirm restart or restore completion. safety_backup=true requires a completed local safety backup before scheduling. Edit backups reuse the existing snapshot store and domain restorers."
                 }
             }
         },
     )
-    flags = getattr(getattr(manager, "policy", None), "flags", {})
-    hint = str(setting_value(flags, "backup_hint")).lower()
+    hint = os.getenv("BACKUP_HINT", "normal").lower()
     return replace(
         definition,
         description=backup_description(BACKUP_HINTS.get(hint, BACKUP_HINTS["normal"])),

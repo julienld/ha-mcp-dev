@@ -21,6 +21,11 @@ class State(StrEnum):
     CREATE = "create_backup"
 
 
+class Folder(StrEnum):
+    SHARE = "share"
+    SSL = "ssl"
+
+
 def row(identifier: str, date: str, **extra: Any) -> dict[str, Any]:
     return {
         "backup_id": identifier,
@@ -29,6 +34,8 @@ def row(identifier: str, date: str, **extra: Any) -> dict[str, Any]:
         "agents": {"backup.local": {"size": 123, "protected": True}},
         "extra_metadata": {},
         "with_automatic_settings": False,
+        "database_included": False,
+        "homeassistant_included": True,
         **extra,
     }
 
@@ -47,11 +54,20 @@ def backups(native: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
         "enable_snapshot_delete": True,
     }
     owner = SimpleNamespace(
+        _reader_writer=object(),
         state=State.IDLE,
         backup_agents={"backup.local": SimpleNamespace(name="local")},
         config=SimpleNamespace(
             data=SimpleNamespace(
-                create_backup=SimpleNamespace(password="fixture-protection")
+                create_backup=SimpleNamespace(
+                    password="fixture-protection",
+                    agent_ids=[],
+                    name=None,
+                    include_database=False,
+                    include_addons=None,
+                    include_all_addons=False,
+                    include_folders=None,
+                )
             )
         ),
     )
@@ -65,6 +81,10 @@ def backups(native: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
             "2026-01-03T00:00:00+00:00",
             name=kwargs["name"],
             extra_metadata=kwargs["extra_metadata"],
+            agents={
+                key: {"size": 123, "protected": True} for key in kwargs["agent_ids"]
+            },
+            database_included=kwargs["include_database"],
         )
         return SimpleNamespace(backup_job_id="actual-core-job")
 
@@ -86,6 +106,11 @@ def backups(native: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
         sys.modules,
         "homeassistant.components.backup.manager",
         SimpleNamespace(BackupManagerState=State),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "homeassistant.components.backup.models",
+        SimpleNamespace(Folder=Folder),
     )
     manager = SimpleNamespace(
         hass=SimpleNamespace(
