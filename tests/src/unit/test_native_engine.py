@@ -203,6 +203,24 @@ async def test_unknown_mutation_outcome_is_never_retried() -> None:
     assert calls == 1
     assert result.is_error and result.status == "outcome_unknown"
     assert result.data["error"]["code"] == "OUTCOME_UNKNOWN"
+    assert result.data["error"]["message"] == "TimeoutError"
+    assert "reply lost after mutation" not in str(result.data)
+    guidance = result.data["error"].get("suggestion", "").lower()
+    assert "do not retry" in guidance
+    assert "state" in guidance and "logs" in guidance
+
+
+async def test_read_failure_does_not_get_uncertain_write_guidance() -> None:
+    async def read(arguments: dict, context: CallContext) -> None:
+        raise RuntimeError("private diagnostic")
+
+    engine = Engine(Backend(), [definition(read, read_only=True)])
+    result = await engine.call("work", {}, ACTOR)
+    assert result.is_error and result.status == "failed"
+    assert result.data["error"] == {
+        "code": "EXECUTION_FAILED",
+        "message": "RuntimeError",
+    }
 
 
 @pytest.mark.parametrize("context", [ACTOR, CallContext("user", read_only=True)])

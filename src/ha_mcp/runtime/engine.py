@@ -206,15 +206,19 @@ class Engine:
                 data = exc.data
             else:
                 _LOGGER.exception("Tool %s failed (%s)", name, operation_id)
-                data = {
-                    "success": False,
-                    "error": {
-                        "code": "OUTCOME_UNKNOWN"
-                        if status == "outcome_unknown"
-                        else "EXECUTION_FAILED",
-                        "message": type(exc).__name__,
-                    },
+                diagnostic = {
+                    "code": "OUTCOME_UNKNOWN"
+                    if status == "outcome_unknown"
+                    else "EXECUTION_FAILED",
+                    "message": type(exc).__name__,
                 }
+                if status == "outcome_unknown":
+                    diagnostic["suggestion"] = (
+                        "Do not retry this write automatically; it may already have acted. "
+                        "Read back the target state and check Home Assistant logs before "
+                        "deciding whether another request is needed."
+                    )
+                data = {"success": False, "error": diagnostic}
             result = ToolResult(
                 data, is_error=True, status=status, operation_id=operation_id
             )
