@@ -108,7 +108,7 @@ def make_window(latest: str, versions: dict[str, str]) -> dict[str, Any]:
             "Window must contain only the exact minimum and latest patches"
         )
     for python in versions.values():
-        if not re.fullmatch(r"3\.[0-9]+\.[0-9]+", python):
+        if not re.fullmatch(r"3\.[0-9]+(?:\.[0-9]+)?", python):
             raise ValueError(f"Invalid Core Python version: {python!r}")
     return {
         "schema": 1,

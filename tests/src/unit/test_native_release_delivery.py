@@ -84,9 +84,16 @@ class Github:
     def api(self, endpoint, *, missing=False):
         if "/commits/" in endpoint:
             return {"sha": "a" * 40}
+        if "/releases/tags/" in endpoint and self.release and self.release["draft"]:
+            if missing:
+                return None
+            raise RuntimeError("HTTP 404: pending draft tag is not a published release")
         return self.release
 
     def command(self, *args):
+        if args[:2] == ("api", "graphql"):
+            release = {"databaseId": self.release["id"]} if self.release else None
+            return json.dumps({"data": {"repository": {"release": release}}})
         self.writes.append(args)
         if args[:2] == ("release", "create"):
             self.release = {
@@ -101,6 +108,7 @@ class Github:
             self.release["assets"].append({"id": len(self.payloads), "name": path.name})
         elif args[:2] == ("release", "edit"):
             self.release["draft"] = False
+        return ""
 
     def download(self, repository, asset, destination):
         destination.write_bytes(self.payloads[asset["name"]])
@@ -139,6 +147,18 @@ def test_release_becomes_visible_only_after_all_three_assets_verify(
     github.writes.clear()
     publish(delivery, bundle, tmp_path)
     assert github.writes == []
+
+
+def test_pending_draft_is_reused_when_tag_lookup_only_serves_published_releases(
+    delivery, bundle, github, tmp_path
+):
+    publish(delivery, bundle, tmp_path, draft_only=True)
+    publish(delivery, bundle, tmp_path)
+    assert (
+        len([call for call in github.writes if call[:2] == ("release", "create")]) == 1
+    )
+    assert github.release["draft"] is False
+    assert set(github.payloads) == {*bundle[1]["files"], "native-build.json"}
 
 
 def test_changed_asset_is_never_clobbered_even_in_a_draft(

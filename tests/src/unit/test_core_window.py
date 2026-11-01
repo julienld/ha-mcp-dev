@@ -65,6 +65,17 @@ def test_missing_exact_floor_cannot_be_replaced_with_latest_patch(resolver):
         resolver.select_versions("2026.11.2", ["2026.10.4", "2026.11.2"])
 
 
+def test_python_source_hint_can_omit_patch_without_changing_the_core_window(resolver):
+    window = resolver.make_window(
+        "2026.10.4", {"2026.10.0": "3.14", "2026.10.4": "3.14.9"}
+    )
+    assert window["versions"]["2026.10.0"] == "3.14"
+    assert {row["core"] for row in window["matrix"]["include"]} == {
+        "2026.10.0",
+        "2026.10.4",
+    }
+
+
 def test_one_channel_snapshot_excludes_future_tags_and_records_each_python(resolver):
     fixtures = {
         resolver.STABLE_URL: {

@@ -144,7 +144,7 @@ jobs:
     env:
       UV_EXCLUDE_NEWER: '7 days'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           submodules: true
           persist-credentials: false
@@ -153,7 +153,7 @@ jobs:
           # renovate: datasource=github-releases depName=astral-sh/uv
           version: "0.13.4"
           python-version: '3.13'
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '24'
       - name: Install locked project and browser test dependencies
@@ -165,7 +165,7 @@ jobs:
         run: uv run --frozen pytest src/unit/ -n 2 --tb=short -q --maxfail=0 --junitxml=unit-results.xml
       - name: Preserve unit results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: native-unit-results
           path: tests/unit-results.xml
@@ -182,7 +182,7 @@ jobs:
       UV_EXCLUDE_NEWER: '7 days'
       HA_IMAGE_GHCR: ghcr.io/home-assistant/home-assistant:${{ needs.core-window.outputs.latest }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           submodules: true
           persist-credentials: false
@@ -203,7 +203,7 @@ jobs:
         run: uv run -s scripts/native_core_warnings.py tests/native/out/ha.log --output tests/native/out/core-warnings.json
       - name: Preserve sanitized native evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: native-container-evidence-HA${{ needs.core-window.outputs.latest }}-${{ runner.arch }}
           path: |
@@ -216,7 +216,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
       - name: Preserve HACS candidate
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: native-hacs-candidate-HA${{ needs.core-window.outputs.latest }}-${{ runner.arch }}
           path: dist/native/
@@ -234,7 +234,7 @@ jobs:
       UV_EXCLUDE_NEWER: '7 days'
       PUBLISHED_TAG: ${{ inputs.published_tag }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           submodules: true
           persist-credentials: false
@@ -251,7 +251,7 @@ jobs:
         run: uv run -s tests/native/run_container.py --published-tag "$PUBLISHED_TAG"
       - name: Preserve published-install qualification evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: native-published-container-evidence
           path: |

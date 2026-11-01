@@ -22,12 +22,23 @@ def native_runtime_selected() -> bool:
 
 
 def build_candidate_artifacts(repository: Path, output: Path) -> Path:
-    """Build the native release profile from this checkout's exact commit."""
+    """Build non-publishable native artifacts from this checkout's exact commit."""
     revision = subprocess.check_output(
         ["git", "rev-parse", "HEAD"], cwd=repository, text=True
     ).strip()
     # Unique per revision, without creating a tag or publishing any asset.
     version = f"9.0.0.dev{int(revision[:12], 16)}"
+    github = os.environ.get("GITHUB_REPOSITORY")
+    if not github:
+        remote = subprocess.check_output(
+            ["git", "remote", "get-url", "origin"], cwd=repository, text=True
+        ).strip()
+        for prefix in ("https://github.com/", "git@github.com:"):
+            if remote.startswith(prefix):
+                github = remote.removeprefix(prefix).removesuffix(".git")
+                break
+        else:
+            raise ValueError("Set GITHUB_REPOSITORY for a non-GitHub source checkout")
     subprocess.run(
         [
             sys.executable,
@@ -35,9 +46,10 @@ def build_candidate_artifacts(repository: Path, output: Path) -> Path:
             "--version",
             version,
             "--tag",
-            f"qualification-{revision}",
+            f"native-ci-{revision}",
+            "--qualification-only",
             "--github",
-            "julienld/ha-mcp-native",
+            github,
             "--revision",
             revision,
             "--output",

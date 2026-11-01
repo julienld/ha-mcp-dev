@@ -13,6 +13,54 @@ from tests.qualification_artifacts import (
 )
 from tests.src.haos_candidate import _configure_entry
 
+from .test_native_release import release_builder as release_builder
+from .test_native_release import source as source
+
+
+def test_qualification_build_survives_a_new_core_floor_without_becoming_publishable(
+    source, release_builder, monkeypatch, tmp_path
+):
+    from tests import qualification_artifacts
+
+    monkeypatch.setenv("GITHUB_REPOSITORY", "example/qualification-fork")
+    monkeypatch.setattr(
+        qualification_artifacts.subprocess,
+        "check_output",
+        lambda *args, **kwargs: "a" * 40,
+    )
+    monkeypatch.setattr(
+        release_builder.core_window,
+        "resolve_window",
+        lambda: release_builder.core_window.make_window(
+            "2026.12.1", {"2026.11.0": "3.15.1", "2026.12.1": "3.15.2"}
+        ),
+    )
+    wheel_build = qualification_artifacts.subprocess.run
+
+    def run(args, **kwargs):
+        if len(args) > 1 and str(args[1]).endswith("native_release.py"):
+
+            def value(flag):
+                return args[args.index(flag) + 1]
+
+            return release_builder.build(
+                source,
+                Path(value("--output")),
+                value("--version"),
+                value("--tag"),
+                value("--github"),
+                qualification_only="--qualification-only" in args,
+            )
+        return wheel_build(args, **kwargs)
+
+    monkeypatch.setattr(qualification_artifacts.subprocess, "run", run)
+    output = qualification_artifacts.build_candidate_artifacts(
+        source, tmp_path / "build"
+    )
+    proof = qualification_artifacts.verify_candidate_artifacts(output)
+    assert proof["qualification_only"] is True
+    assert proof["repository"] == "example/qualification-fork"
+
 
 @pytest.fixture
 def candidate(tmp_path: Path) -> Path:
