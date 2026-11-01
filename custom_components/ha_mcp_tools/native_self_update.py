@@ -135,8 +135,15 @@ class NativeSelfUpdate:
 
     @staticmethod
     def _unresolved(receipt: Any, owner: SelfUpdateOwner | None) -> bool:
-        if not receipt or receipt["state"] != "dispatching":
+        if receipt is None:
             return False
+        if not isinstance(receipt, dict):
+            return True
+        state = receipt.get("state")
+        if state in ("prepared", "installed"):
+            return False
+        if state != "dispatching":
+            return True
         return owner is None or not (
             receipt["owner"] == owner.provider
             and receipt.get("repository") == owner.repository_name

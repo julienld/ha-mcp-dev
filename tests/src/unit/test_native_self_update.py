@@ -484,6 +484,22 @@ async def test_success_response_without_installed_version_readback_is_unknown(
     assert result.status == "outcome_unknown"
 
 
+async def test_unrecognized_recovery_state_never_replays_a_previous_dispatch(
+    self_update: Any,
+) -> None:
+    self_update.manager.hass.services.async_call = AsyncMock(side_effect=TimeoutError())
+    first = await call(self_update, "update")
+    assert first.status == "outcome_unknown"
+    receipt = self_update.storage.read_receipt(self_update.service.directory)
+    receipt["state"] = "unrecognized-after-interruption"
+    self_update.storage.write_receipt(self_update.service.directory, receipt)
+
+    second = await call(self_update, "update")
+    assert second.is_error and second.status == "outcome_unknown"
+    self_update.manager.hass.services.async_call.assert_awaited_once()
+    assert self_update.storage.read_receipt(self_update.service.directory) == receipt
+
+
 async def test_owner_change_during_snapshot_prevents_dispatch(
     self_update: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
