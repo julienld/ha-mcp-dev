@@ -7,6 +7,7 @@ import json
 import sys
 from datetime import UTC, datetime
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock, Mock
 
 import pytest
@@ -264,6 +265,28 @@ async def test_search_keeps_scoring_pagination_and_metadata_without_network(hacs
         data["results"][0]["pending_update"] and data["cache"]["source"] == "hacs_cache"
     )
     assert result.data["metadata"]["home_assistant_timezone"] == "UTC"
+
+
+async def test_search_omits_cached_readme_while_info_keeps_it(hacs: Any) -> None:
+    searched = await call(hacs, "search", query="fixture")
+    row = searched.data["data"]["results"][0]
+    assert not {"readme", "additional_info"} & row.keys()
+    info = await call(hacs, "info", repository_id="1")
+    assert info.data["data"]["readme"] == hacs.repo.additional_info
+
+
+async def test_self_file_version_gate_also_covers_core_install(
+    hacs: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    hacs.owner.version = "2.1.0"
+    hacs.repo.data.domain = "ha_mcp_tools"
+    monkeypatch.setattr(hacs.module, "install_service", lambda *_: object())
+    dispatched = AsyncMock(side_effect=RuntimeError("should not dispatch"))
+    monkeypatch.setattr(hacs.module, "call_install_service", dispatched)
+    monkeypatch.setattr(hacs.module, "pin_install_service", lambda *_: None)
+    result = await call(hacs, "download", repository_id="1")
+    assert result.is_error and result.status == "not_started", result
+    dispatched.assert_not_awaited()
 
 
 @pytest.mark.parametrize(

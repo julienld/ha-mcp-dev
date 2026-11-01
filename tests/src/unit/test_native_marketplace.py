@@ -278,6 +278,7 @@ def update_entity(marketplace, monkeypatch):
         platform="marketplace",
         unique_id="1",
         config_entry_id=marketplace.entry.entry_id,
+        disabled_by=None,
     )
     registry = SimpleNamespace(
         async_get_entity_id=lambda *args: entity.entity_id, async_get=lambda key: row

@@ -143,7 +143,7 @@ class NativeSelfUpdate:
             and receipt.get("repository_id") == str(owner.repository.data.id)
             and receipt["entity_id"] == owner.target.entity_id
             and receipt["target_version"] == owner.target.entity.installed_version
-            and not owner.target.entity.in_progress
+            and owner.target.entity.in_progress is False
         )
 
     def _describe(self, owner: SelfUpdateOwner | None) -> dict[str, Any]:
@@ -255,7 +255,7 @@ class NativeSelfUpdate:
 
         if (
             UpdateEntityFeature.INSTALL not in owner.target.entity.supported_features
-            or owner.target.entity.in_progress
+            or owner.target.entity.in_progress is not False
         ):
             self._fail(
                 "SERVICE_UNAVAILABLE", "The owner cannot start this update now.", before
@@ -318,7 +318,7 @@ class NativeSelfUpdate:
             owner.check(self.manager.hass)
             if (
                 owner.target.entity.installed_version != prepared[1]["version"]
-                or owner.target.entity.in_progress
+                or owner.target.entity.in_progress is not False
             ):
                 raise RuntimeError("The owner did not confirm the requested version")
             receipt = {**receipt, "state": "installed"}

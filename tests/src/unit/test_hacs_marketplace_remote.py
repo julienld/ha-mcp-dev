@@ -2,6 +2,7 @@
 
 import copy
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
@@ -113,6 +114,43 @@ async def test_remote_info_never_calls_mutating_info_endpoint(remote):
     remote.ws.send_command.assert_awaited_once_with(
         "ha_mcp_tools/hacs_cache", repository_id="1"
     )
+
+
+async def test_url_add_looks_up_the_registered_full_name(remote: Any) -> None:
+    async def send(name: str, **values: Any) -> Any:
+        if name == "ha_mcp_tools/hacs_cache":
+            assert values["repository_id"] == "example/repository"
+        return await remote.send(name, **values)
+
+    remote.ws.send_command.side_effect = send
+    result = await remote.store.write(
+        "add_repository",
+        repository="https://github.com/example/repository",
+        category="integration",
+    )
+    assert result["repository_id"] == "1"
+
+
+@pytest.mark.parametrize("version", ["main", "unconfirmed"])
+async def test_default_branch_download_accepts_commit_readback_only_for_that_branch(
+    remote: Any, version: str
+) -> None:
+    remote.row["default_branch"] = "main"
+
+    async def send(name: str, **values: Any) -> Any:
+        result = await remote.send(name, **values)
+        if name == "call_service":
+            remote.row["installed_version"] = "commit-sha"
+        return result
+
+    remote.ws.send_command.side_effect = send
+    if version == "main":
+        result = await remote.store.write("download", "1", version)
+        assert result["installed_version"] == "commit-sha"
+    else:
+        with pytest.raises(ToolFailure) as error:
+            await remote.store.write("download", "1", version)
+        assert error.value.status == "outcome_unknown"
 
 
 async def test_only_unknown_cache_command_selects_incomplete_catalog(remote):

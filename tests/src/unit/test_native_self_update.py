@@ -90,7 +90,10 @@ def self_update(updates: Any, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -
     owner.data = object()
     owner.github, owner.githubapi, owner.common = object(), object(), object()
     row = SimpleNamespace(
-        platform="hacs", config_entry_id=entry.entry_id, unique_id=entity.unique_id
+        platform="hacs",
+        config_entry_id=entry.entry_id,
+        unique_id=entity.unique_id,
+        disabled_by=None,
     )
     registry = SimpleNamespace(
         async_get=lambda key: row if key in updates.entities else None,
@@ -160,6 +163,57 @@ async def test_renamed_entity_is_found_by_owner_and_checks_write_nothing(
     assert not self_update.calls
     assert not self_update.service.directory.exists()
     assert "not-for-output" not in json.dumps(result.data)
+
+
+async def test_disabled_repository_update_entity_yields_manual_discovery(
+    self_update: Any,
+) -> None:
+    self_update.row.disabled_by = "user"
+    self_update.entities.clear()
+    # Registry entries survive disabling, while the live platform entity does not.
+    er = sys.modules["homeassistant.helpers.entity_registry"].async_get(
+        self_update.manager.hass
+    )
+    er.async_get = lambda _: self_update.row
+    result = await call(self_update)
+    assert not result.is_error, result
+    assert result.data["capability"] == "manual_required"
+    assert not self_update.calls
+
+
+@pytest.mark.parametrize("fail_sync", [False, True])
+def test_receipt_rename_is_directory_synced_and_descriptor_closed(
+    self_update: Any, monkeypatch: pytest.MonkeyPatch, fail_sync: bool
+) -> None:
+    storage = self_update.storage
+    events: list[str] = []
+    replace = storage.os.replace
+    fsync = storage.os.fsync
+
+    def renamed(*args: Any) -> None:
+        replace(*args)
+        events.append("rename")
+
+    def synced(descriptor: int) -> None:
+        if "rename" not in events:
+            fsync(descriptor)
+            return
+        assert descriptor == 12345
+        events.append("directory_synced")
+        if fail_sync:
+            raise OSError("directory sync failed")
+
+    monkeypatch.setattr(storage.os, "replace", renamed)
+    monkeypatch.setattr(storage.os, "open", lambda *_: 12345)
+    monkeypatch.setattr(storage.os, "close", lambda fd: events.append("closed"))
+    monkeypatch.setattr(storage.os, "fsync", synced)
+    monkeypatch.setattr(storage, "_DIRECTORY_FSYNC", True, raising=False)
+    if fail_sync:
+        with pytest.raises(OSError, match="directory sync"):
+            storage.write_receipt(self_update.tmp_path, {"state": "dispatching"})
+    else:
+        storage.write_receipt(self_update.tmp_path, {"state": "dispatching"})
+    assert events == ["rename", "directory_synced", "closed"]
 
 
 @pytest.mark.parametrize("defect", ["domain", "repository", "registry", "owner"])
@@ -305,6 +359,76 @@ async def test_unknown_dispatch_is_not_replayed_even_in_a_new_service_instance(
     assert failure.value.status == "outcome_unknown"
     self_update.manager.hass.services.async_call.assert_awaited_once()
     assert "not-for-output" not in json.dumps(first.data)
+
+
+@pytest.mark.parametrize("progress", [0, None])
+async def test_target_version_with_unknown_or_zero_progress_does_not_settle_dispatch(
+    self_update: Any, progress: int | None
+) -> None:
+    self_update.manager.hass.services.async_call = AsyncMock(side_effect=TimeoutError())
+    assert (await call(self_update, "update")).status == "outcome_unknown"
+    self_update.entity.installed_version = "7.1.0"
+    self_update.entity.in_progress = progress
+    result = await call(self_update)
+    assert result.data["status"] == "outcome_unknown", result
+    again = await call(self_update, "update")
+    assert again.is_error and again.status == "outcome_unknown", again
+    self_update.manager.hass.services.async_call.assert_awaited_once()
+
+
+@pytest.mark.parametrize("phase", ["before", "after"])
+@pytest.mark.parametrize("progress", [0, None])
+async def test_self_update_needs_definite_idle_progress_before_and_after_install(
+    self_update: Any, phase: str, progress: int | None
+) -> None:
+    if phase == "before":
+        self_update.entity.in_progress = progress
+    else:
+        original = self_update.manager.hass.services.async_call.side_effect
+
+        async def install(*args: Any, **kwargs: Any) -> None:
+            await original(*args, **kwargs)
+            self_update.entity.in_progress = progress
+
+        self_update.manager.hass.services.async_call.side_effect = install
+    result = await call(self_update, "update")
+    assert result.is_error, result
+    if phase == "before":
+        assert result.status == "not_started"
+        assert not self_update.calls
+    else:
+        assert result.status == "outcome_unknown"
+        assert (
+            self_update.storage.read_receipt(self_update.service.directory)["state"]
+            == "dispatching"
+        )
+
+
+@pytest.mark.parametrize("change", ["version", "repository_id", "entity_id"])
+async def test_unrelated_owner_changes_do_not_settle_an_uncertain_self_update(
+    self_update: Any, change: str
+) -> None:
+    self_update.manager.hass.services.async_call = AsyncMock(side_effect=TimeoutError())
+    first = await call(self_update, "update")
+    assert first.status == "outcome_unknown"
+    if change == "version":
+        self_update.entity.installed_version = "7.0.1"
+    elif change == "repository_id":
+        self_update.repo.data.id = "replacement"
+    else:
+        self_update.entity.entity_id = "update.replacement"
+    receipt = self_update.storage.read_receipt(self_update.service.directory)
+    owner = SimpleNamespace(
+        provider="hacs",
+        repository=self_update.repo,
+        repository_name=self_update.repo.data.full_name,
+        target=SimpleNamespace(
+            entity=self_update.entity, entity_id=self_update.entity.entity_id
+        ),
+    )
+    assert self_update.service._unresolved(receipt, owner)
+    assert receipt["state"] == "dispatching"
+    assert (self_update.service.directory / (receipt["snapshot_id"] + ".zip")).is_file()
 
 
 async def test_success_response_without_installed_version_readback_is_unknown(

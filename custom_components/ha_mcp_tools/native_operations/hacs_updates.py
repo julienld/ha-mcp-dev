@@ -30,6 +30,8 @@ def repository_update_target(
     if entity_id is None:
         return None
     entry = registry.async_get(entity_id)
+    if entry is not None and entry.disabled_by is not None:
+        return None
     target = update_target(access.hass, entity_id)
     if (
         entry is None

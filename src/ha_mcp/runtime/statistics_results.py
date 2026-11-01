@@ -33,6 +33,30 @@ def statistics_unit(
     return result
 
 
+def project_statistics_metadata(
+    result: dict[str, Any],
+    identifiers: list[str],
+    metadata: dict[str, dict[str, Any]],
+    failure: str | None,
+) -> dict[str, Any]:
+    """Attach recorder units without changing preferences or their hash."""
+    result["statistics_metadata"] = [
+        {
+            **(metadata.get(identifier) or {"statistic_id": identifier}),
+            **statistics_unit(metadata.get(identifier), failure),
+        }
+        for identifier in identifiers
+    ]
+    warnings = [
+        f"{row['statistic_id']}: {row['unit_reason']}"
+        for row in result["statistics_metadata"]
+        if row["unit_source"] == "unknown"
+    ]
+    if warnings:
+        result.setdefault("warnings", []).extend(warnings)
+    return result
+
+
 def format_entity_statistics(
     result_data: dict[str, Any],
     entity_ids: list[str],

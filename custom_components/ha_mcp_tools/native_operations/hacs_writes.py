@@ -166,11 +166,7 @@ class NativeHacs(HacsReads):
         self_affecting: bool,
         prepared: Any = None,
     ) -> dict[str, Any]:
-        if (
-            prepared is None
-            and access.domain == "hacs"
-            and action in {"download", "remove"}
-        ):
+        if access.domain == "hacs" and action in {"download", "remove"}:
             check_self_files(access.owner, repo, "ha_mcp_tools")
         await self.manager.visibility.before(
             "ha_manage_hacs",

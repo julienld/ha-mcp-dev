@@ -70,6 +70,18 @@ def test_anonymous_assist_context_never_inherits_owner() -> None:
     assert actor.client_id == "assist:test"
 
 
+async def test_export_authorization_refusal_is_a_core_tool_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = runtime()
+    manager.backend.authorize.side_effect = PermissionError("revoked")
+    catalog = AsyncMock()
+    monkeypatch.setattr(native_llm, "exposed_catalog", catalog)
+    with pytest.raises(native_llm.HomeAssistantError, match="administrator"):
+        await native_llm.call_exposed(manager, "ha_get_state", {}, context("alice"))
+    catalog.assert_not_awaited()
+
+
 async def test_export_rechecks_exposure_after_conversation_discovery(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

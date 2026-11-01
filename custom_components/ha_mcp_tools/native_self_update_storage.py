@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any
 from zipfile import ZIP_DEFLATED, ZipFile
 
+_DIRECTORY_FSYNC = os.name != "nt"
+
 
 def read_receipt(directory: Path) -> dict[str, Any] | None:
     path = directory / "receipt.json"
@@ -38,6 +40,14 @@ def write_receipt(directory: Path, receipt: dict[str, Any]) -> None:
         stream.flush()
         os.fsync(stream.fileno())
     os.replace(temporary, directory / "receipt.json")
+    # Home Assistant's Linux host must persist the renamed no-replay guard.
+    # Windows does not support opening a directory through os.open.
+    if _DIRECTORY_FSYNC:
+        descriptor = os.open(directory, os.O_RDONLY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
 
 
 def capture_code(

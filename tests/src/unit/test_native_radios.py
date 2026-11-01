@@ -6,6 +6,7 @@ import importlib
 import json
 import sys
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
@@ -102,6 +103,35 @@ async def call(radios, radio, action, **kwargs):
     return await radios.engine.call(
         "ha_manage_radio", {"radio": radio, "action": action, **kwargs}, radios.actor
     )
+
+
+@pytest.mark.parametrize("action", ["create_network", "set_network", "set_channel"])
+async def test_multiple_otbrs_require_an_address_before_any_effect(
+    radios: Any, monkeypatch: pytest.MonkeyPatch, action: str
+) -> None:
+    from custom_components.ha_mcp_tools.native_operations import radio_otbr
+
+    first = SimpleNamespace(get_extended_address=AsyncMock(return_value=b"one"))
+    second = SimpleNamespace(get_extended_address=AsyncMock(return_value=b"two"))
+    entry = radios.loaded("otbr", first)
+    other = copy.copy(entry)
+    other.entry_id, other.runtime_data = "second", second
+    radios.entries[other.entry_id] = other
+    effect = AsyncMock()
+    monkeypatch.setattr(radios.access.RadioSession, "effect", effect)
+    monkeypatch.setattr(radio_otbr, "_create_network", effect)
+    monkeypatch.setattr(radio_otbr, "_set_network", effect)
+    radios.command("otbr/" + action)
+    result = await call(
+        radios,
+        "thread",
+        action,
+        params={"dataset_id": "fixture", "channel": 15},
+        confirm=True,
+    )
+    assert result.is_error and result.status == "not_started", result
+    assert result.data["error"]["code"] == "VALIDATION_INVALID_PARAMETER", result
+    effect.assert_not_awaited()
 
 
 @pytest.mark.parametrize(

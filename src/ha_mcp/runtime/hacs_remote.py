@@ -6,6 +6,7 @@ Selection probes are read-only; no mutation ever switches provider or retries.
 
 import asyncio
 from typing import Any
+from urllib.parse import urlsplit
 
 from ha_mcp.client.rest_client import HomeAssistantCommandError
 from ha_mcp.tool_api import ToolFailure
@@ -24,6 +25,18 @@ from .validation import validate_identifier_not_empty
 
 def unknown_command(error: Any) -> bool:
     return getattr(error, "code", None) == "unknown_command"
+
+
+def _repository_full_name(repository: str | None) -> str | None:
+    if repository is None:
+        return None
+    value = repository.strip()
+    if value.lower().startswith("github.com/"):
+        value = "https://" + value
+    parsed = urlsplit(value)
+    if parsed.hostname and parsed.hostname.lower() == "github.com":
+        value = "/".join(parsed.path.strip("/").split("/")[:2])
+    return value.rstrip("/").removesuffix(".git").lower()
 
 
 async def command(ws: Any, name: str, **values: Any) -> Any:
@@ -257,7 +270,11 @@ class MarketplaceRemote:
         )
         if action == "download" and confirm_replace_built_in and target is None:
             values["confirm_replace_built_in"] = True
-        lookup = str(before["id"]) if before is not None else repository
+        lookup = (
+            str(before["id"])
+            if before is not None
+            else _repository_full_name(repository)
+        )
         assert lookup is not None  # _prepare validates add_repository's identifier
         # Core authenticates every command; recheck the per-user consent just
         # before dispatch. Core's WS handler or UpdateEntity also enforces it.
@@ -363,7 +380,11 @@ class MarketplaceRemote:
             raise RuntimeError("Repository identity changed during the operation")
         if action == "download" and (
             not after.get("installed")
-            or (version and after.get("installed_version") != version)
+            or (
+                version
+                and version
+                not in (after.get("installed_version"), after.get("default_branch"))
+            )
         ):
             raise RuntimeError(
                 "Marketplace did not confirm the requested installed version"

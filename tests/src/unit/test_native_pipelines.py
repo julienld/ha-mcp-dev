@@ -348,6 +348,32 @@ async def test_conversation_failure_after_dispatch_never_replays_the_sentence(
     assert len(pipelines.state.calls) == 1
 
 
+@pytest.mark.parametrize("change", ["pipeline", "agent", "authority"])
+async def test_completed_conversation_survives_owner_edits_but_not_revocation(
+    pipelines: Any, change: str
+) -> None:
+    def edit() -> None:
+        if change == "pipeline":
+            pipelines.owner.data["one"].values["name"] = "Edited during conversation"
+        elif change == "agent":
+            pipelines.state.agent = object()
+        else:
+            pipelines.state.active = False
+
+    pipelines.owner.after = edit
+    result = await call(
+        pipelines, action="process", pipeline_id="one", sentence="Turn on lights"
+    )
+    assert len(pipelines.state.calls) == 1
+    if change == "authority":
+        assert result.is_error
+        assert "speech" not in result.data
+    else:
+        assert not result.is_error, result
+        assert result.data["conversation_id"] == "followup"
+        assert result.data["speech"] == "Done"
+
+
 async def test_revocation_during_core_callback_blocks_followup_preferred_mutation(
     pipelines,
 ):

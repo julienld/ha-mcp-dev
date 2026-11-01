@@ -4,6 +4,7 @@ import asyncio
 import copy
 import importlib
 import sys
+from collections.abc import Awaitable
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock
@@ -27,7 +28,7 @@ class CoreOwner:
         self.block = False
 
     @staticmethod
-    def default_preferences():
+    def default_preferences() -> dict[str, list[dict[str, Any]]]:
         return {
             "energy_sources": [],
             "device_consumption": [],
@@ -35,7 +36,7 @@ class CoreOwner:
         }
 
     @staticmethod
-    def _process_energy_sources(sources):
+    def _process_energy_sources(sources: list[dict[str, Any]]) -> list[dict[str, Any]]:
         # Exercise Core's ability to retain input dictionaries and add fields;
         # actual installed source types and validators are covered by Container.
         return [
@@ -43,7 +44,7 @@ class CoreOwner:
             for row in sources
         ]
 
-    async def async_update(self, payload):
+    async def async_update(self, payload: dict[str, Any]) -> None:
         self.calls.append(copy.deepcopy(payload))
         values = (self.data or self.default_preferences()).copy()
         values.update(payload)
@@ -60,21 +61,21 @@ class CoreOwner:
 
 
 @pytest.fixture
-def energy(native, monkeypatch):
+def energy(native: Any, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
     owner = CoreOwner()
     hass = SimpleNamespace(data={"energy_manager": owner})
     registration = (object(), copy.deepcopy)
     hass.data["websocket_api"] = {"energy/save_prefs": registration}
     active = [True]
 
-    async def authorize(_actor):
+    async def authorize(_actor: CallContext) -> None:
         if not active[0]:
             raise PermissionError("Actor revoked")
 
-    async def get_manager(_hass):
+    async def get_manager(_hass: Any) -> CoreOwner:
         return hass.data["energy_manager"]
 
-    async def validate(_hass):
+    async def validate(_hass: Any) -> SimpleNamespace:
         return SimpleNamespace(as_dict=dict)
 
     monkeypatch.setitem(
@@ -109,13 +110,13 @@ def energy(native, monkeypatch):
     )
 
 
-async def call(energy, arguments):
+async def call(energy: Any, arguments: dict[str, Any]) -> Any:
     return await energy.engine.call("ha_manage_energy_prefs", arguments, energy.actor)
 
 
 async def test_native_save_uses_core_normalization_without_losing_other_preferences(
-    energy,
-):
+    energy: Any,
+) -> None:
     result = await call(
         energy,
         {
@@ -131,7 +132,9 @@ async def test_native_save_uses_core_normalization_without_losing_other_preferen
     assert energy.owner.calls == [{"energy_sources": [{"normalize": True}]}]
 
 
-async def test_preview_validates_the_proposal_without_initializing_preferences(energy):
+async def test_preview_validates_the_proposal_without_initializing_preferences(
+    energy: Any,
+) -> None:
     energy.owner.data = None
     result = await call(
         energy, {"mode": "set", "config": {"device_consumption": []}, "dry_run": True}
@@ -145,11 +148,11 @@ async def test_preview_validates_the_proposal_without_initializing_preferences(e
 
 @pytest.mark.parametrize("race", ["authority", "policy", "owner", "schema", "values"])
 async def test_queued_native_save_checks_admission_and_identity_inside_worker(
-    energy, monkeypatch, race
-):
+    energy: Any, monkeypatch: pytest.MonkeyPatch, race: str
+) -> None:
     original = energy.module.await_owned_io
 
-    async def queued(awaitable):
+    async def queued(awaitable: Awaitable[Any]) -> Any:
         if (
             getattr(awaitable, "cr_code", None)
             and awaitable.cr_code.co_name == "_commit"
@@ -182,8 +185,10 @@ async def test_queued_native_save_checks_admission_and_identity_inside_worker(
     assert energy.owner.calls == []
 
 
-async def test_listener_cannot_mutate_the_detached_energy_confirmation_image(energy):
-    def mutate(owner):
+async def test_listener_cannot_mutate_the_detached_energy_confirmation_image(
+    energy: Any,
+) -> None:
+    def mutate(owner: CoreOwner) -> None:
         owner.data["energy_sources"][0]["stat_energy_from"] = "sensor.external"
 
     energy.owner.callback = mutate
@@ -200,9 +205,9 @@ async def test_listener_cannot_mutate_the_detached_energy_confirmation_image(ene
 
 @pytest.mark.parametrize("cancelled", [False, True])
 async def test_core_error_after_energy_effect_is_unknown_without_retry(
-    energy, cancelled
-):
-    def fail(_owner):
+    energy: Any, cancelled: bool
+) -> None:
+    def fail(_owner: CoreOwner) -> None:
         if cancelled:
             raise asyncio.CancelledError("Core listener cancelled after saving")
         raise RuntimeError("Core listener failed after saving")
@@ -219,8 +224,8 @@ async def test_core_error_after_energy_effect_is_unknown_without_retry(
 
 
 async def test_cancelled_energy_waiter_keeps_the_mutex_until_core_callbacks_drain(
-    energy,
-):
+    energy: Any,
+) -> None:
     energy.owner.block = True
     first = asyncio.create_task(
         energy.service.add_device(
@@ -259,8 +264,8 @@ async def test_cancelled_energy_waiter_keeps_the_mutex_until_core_callbacks_drai
 
 
 async def test_missing_energy_integration_refuses_without_materializing_an_owner(
-    energy, monkeypatch
-):
+    energy: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
     energy.hass.data["websocket_api"].clear()
     getter = AsyncMock(side_effect=AssertionError("No cold Core owner expected"))
     monkeypatch.setitem(
@@ -275,9 +280,9 @@ async def test_missing_energy_integration_refuses_without_materializing_an_owner
 
 @pytest.mark.parametrize("race", ["authority", "values"])
 async def test_post_save_validation_race_preserves_completed_write_without_disclosing_stale_result(
-    energy, monkeypatch, race
-):
-    async def validate(_hass):
+    energy: Any, monkeypatch: pytest.MonkeyPatch, race: str
+) -> None:
+    async def validate(_hass: Any) -> SimpleNamespace:
         await asyncio.sleep(0)
         if race == "authority":
             energy.active[0] = False
@@ -302,8 +307,8 @@ async def test_post_save_validation_race_preserves_completed_write_without_discl
 
 @pytest.mark.parametrize("loading", [False, True])
 async def test_read_only_energy_does_not_initiate_or_cancel_shared_core_storage_loading(
-    energy, monkeypatch, loading
-):
+    energy: Any, monkeypatch: pytest.MonkeyPatch, loading: bool
+) -> None:
     getter = AsyncMock(side_effect=AssertionError("Core owns initialization"))
     monkeypatch.setitem(
         sys.modules,

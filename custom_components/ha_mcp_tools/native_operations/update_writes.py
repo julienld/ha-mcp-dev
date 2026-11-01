@@ -25,6 +25,29 @@ from .update_entities import (
 from .update_reads import UpdateReads
 
 
+def _install_data(entity: Any, backup: bool) -> dict[str, Any]:
+    from homeassistant.components.update import UpdateEntityFeature
+
+    if (
+        entity.latest_version is None
+        or entity.installed_version == entity.latest_version
+        or entity.in_progress is not False
+    ):
+        raise ToolFailure(
+            "SERVICE_CALL_FAILED",
+            "No installable update is available for this entity now.",
+            status="not_started",
+        )
+    return {
+        "entity_id": entity.entity_id,
+        **(
+            {"backup": True}
+            if backup and UpdateEntityFeature.BACKUP in entity.supported_features
+            else {}
+        ),
+    }
+
+
 class UpdateWrites(UpdateReads):
     async def _admit(self) -> None:
         await admit_registry_write(self.actor, self.manager.backend.authorize)
@@ -95,8 +118,8 @@ class UpdateWrites(UpdateReads):
             if service is None or not callable(service.schema):
                 raise UnsupportedOperation(f"Core update.{action} service")
             data: dict[str, Any] = {"entity_id": entity_id}
-            if action == "install" and backup:
-                data["backup"] = True
+            if action == "install":
+                data = _install_data(target.entity, backup)
             service.schema(copy.deepcopy(data))
             if action == "install" and stopping_update(self.manager.hass, target):
                 await self._admit()
@@ -105,7 +128,7 @@ class UpdateWrites(UpdateReads):
                     "update_install",
                     self.actor,
                     update=target,
-                    backup=backup,
+                    backup=data.get("backup", False),
                     update_service=service,
                 )
                 return {
@@ -132,6 +155,8 @@ class UpdateWrites(UpdateReads):
                 "The Core update service changed",
                 status="not_started",
             )
+        if action == "install":
+            data = _install_data(target.entity, data.get("backup", False))
         check_mutation_admission(self.actor)
         expected_skipped = target.entity.latest_version if action == "skip" else None
         try:

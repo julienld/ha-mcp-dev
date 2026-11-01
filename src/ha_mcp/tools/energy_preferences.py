@@ -8,10 +8,11 @@ from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ..errors import ErrorCode, create_error_response
 from ..runtime.energy_values import _statistic_ids
 from ..runtime.energy_values import compute_per_key_hashes as compute_per_key_hashes
+from ..runtime.statistics_results import project_statistics_metadata
 from ..utils.config_hash import compute_config_hash
 from .core_contract import core_contract
 from .helpers import exception_to_structured_error, raise_tool_error
-from .statistics_helpers import fetch_statistics_metadata, statistics_unit
+from .statistics_helpers import fetch_statistics_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -22,21 +23,7 @@ async def include_energy_statistics(
     """Enrich the read response without including metadata in config or its hash."""
     ids = sorted(_statistic_ids(result["config"]))
     metadata, failure = await fetch_statistics_metadata(client, ids)
-    result["statistics_metadata"] = [
-        {
-            **(metadata.get(statistic_id) or {"statistic_id": statistic_id}),
-            **statistics_unit(metadata.get(statistic_id), failure),
-        }
-        for statistic_id in ids
-    ]
-    warnings = [
-        f"{row['statistic_id']}: {row['unit_reason']}"
-        for row in result["statistics_metadata"]
-        if row["unit_source"] == "unknown"
-    ]
-    if warnings:
-        result.setdefault("warnings", []).extend(warnings)
-    return result
+    return project_statistics_metadata(result, ids, metadata, failure)
 
 
 def _is_no_prefs_error(error_msg: str) -> bool:

@@ -65,7 +65,11 @@ class HacsReads:
         )
         await access.observe()
         rows = [
-            access.project(repo)
+            {
+                key: value
+                for key, value in access.project(repo).items()
+                if key not in {"readme", "additional_info"}
+            }
             for repo in access.repositories.list_all
             if repo.data.category
             in payload.get("categories", access.owner.common.categories)

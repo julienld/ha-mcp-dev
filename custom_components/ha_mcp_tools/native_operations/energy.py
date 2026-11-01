@@ -17,7 +17,7 @@ from ha_mcp.runtime.energy_values import (
     _statistic_ids,
     compute_per_key_hashes,
 )
-from ha_mcp.runtime.statistics_results import statistics_unit
+from ha_mcp.runtime.statistics_results import project_statistics_metadata
 from ha_mcp.tool_api import CallContext, ToolFailure
 from ha_mcp.utils.config_hash import compute_config_hash, json_values_equal
 from ha_mcp.utils.owned_executor import await_owned_io
@@ -123,20 +123,7 @@ class NativeEnergy(EnergyChanges):
                 )
                 failure = "statistics_metadata_unavailable"
         await authorize_actor(self.actor, self.authorize)
-        result["statistics_metadata"] = [
-            {
-                **(metadata.get(identifier) or {"statistic_id": identifier}),
-                **statistics_unit(metadata.get(identifier), failure),
-            }
-            for identifier in identifiers
-        ]
-        warnings = [
-            f"{row['statistic_id']}: {row['unit_reason']}"
-            for row in result["statistics_metadata"]
-            if row["unit_source"] == "unknown"
-        ]
-        if warnings:
-            result.setdefault("warnings", []).extend(warnings)
+        project_statistics_metadata(result, identifiers, metadata, failure)
 
     async def _validation(self) -> tuple[list[dict[str, Any]], str | None, Any]:
         from homeassistant.components.energy.validate import async_validate

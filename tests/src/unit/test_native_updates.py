@@ -19,6 +19,7 @@ from .test_native_engine_backend import native as native
 
 class Features(IntFlag):
     INSTALL = 1
+    BACKUP = 8
     RELEASE_NOTES = 16
 
 
@@ -51,7 +52,9 @@ class Entity:
 
 
 class CoreUpdate(Entity):
-    pass
+    def __init__(self, entity_id: str) -> None:
+        super().__init__(entity_id)
+        self.supported_features |= Features.BACKUP
 
 
 @pytest.fixture
@@ -133,6 +136,36 @@ async def invoke(updates: Any, **arguments: Any) -> Any:
     return await updates.engine.call(
         "ha_manage_updates", arguments, CallContext("actor")
     )
+
+
+@pytest.mark.parametrize("defect", ["current", "missing", "busy", "unknown_progress"])
+async def test_core_install_refusals_do_not_dispatch_or_claim_uncertainty(
+    updates: Any, defect: str
+) -> None:
+    entity = updates.entities["update.native_a"]
+    if defect == "current":
+        entity.latest_version = entity.installed_version
+    elif defect == "missing":
+        entity.latest_version = None
+    else:
+        entity.in_progress = True if defect == "busy" else None
+    result = await invoke(updates, action="install", entity_ids=entity.entity_id)
+    assert not result.data["success"] and result.status == "not_started", result
+    assert not updates.calls
+
+
+@pytest.mark.parametrize("supported", [False, True])
+async def test_backup_request_only_reaches_entities_that_support_it(
+    updates: Any, supported: bool
+) -> None:
+    entity = updates.entities["update.native_a"]
+    if supported:
+        entity.supported_features |= Features.BACKUP
+    result = await invoke(
+        updates, action="install", entity_ids=entity.entity_id, backup=True
+    )
+    assert not result.is_error, result
+    assert updates.calls[0][2].get("backup", False) is supported
 
 
 async def test_list_and_original_release_notes_use_core_owners(updates: Any) -> None:

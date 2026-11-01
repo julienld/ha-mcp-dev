@@ -96,7 +96,12 @@ async def call_exposed(
     actor = context_from_llm(context)
     arguments = adapt_retired_arguments(name, arguments) or {}
     name = current_tool_name(name)
-    await manager.backend.authorize(actor)
+    try:
+        await manager.backend.authorize(actor)
+    except PermissionError as error:
+        raise HomeAssistantError(
+            "HA-MCP requires an identified, active administrator"
+        ) from error
     tools, _ = await exposed_catalog(manager)
     names = frozenset(tool.name for tool in tools)
     if name not in names:

@@ -170,15 +170,6 @@ class PipelineConversation:
                 agent_id=payload.get("agent_id"),
             )
             await authorize_actor(self.actor, self.authorize)
-            self._pin_conversation(
-                owner,
-                before,
-                manager,
-                component,
-                agent,
-                registration,
-                payload.get("agent_id"),
-            )
             return process_result(
                 copy.deepcopy(result.as_dict()),
                 pipeline_id=pipeline_id,
