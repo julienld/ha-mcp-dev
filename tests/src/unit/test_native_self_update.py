@@ -458,10 +458,12 @@ async def test_unrelated_owner_changes_do_not_settle_an_uncertain_self_update(
     assert first.status == "outcome_unknown"
     if change == "version":
         self_update.entity.installed_version = "7.0.1"
-    elif change == "repository_id":
-        self_update.repo.data.id = "replacement"
     else:
-        self_update.entity.entity_id = "update.replacement"
+        self_update.entity.installed_version = "7.1.0"
+        if change == "repository_id":
+            self_update.repo.data.id = "replacement"
+        else:
+            self_update.entity.entity_id = "update.replacement"
     receipt = self_update.storage.read_receipt(self_update.service.directory)
     owner = SimpleNamespace(
         provider="hacs",
