@@ -1,11 +1,43 @@
 """Standalone OAuth startup must load its configured dotenv before environment reads."""
 
+import os
 from collections.abc import Coroutine
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+
+
+def _clear_startup_env(monkeypatch: pytest.MonkeyPatch, key: str) -> None:
+    # Record absence too: main_oauth/setdefault and dotenv can introduce the key.
+    monkeypatch.setenv(key, os.environ.get(key, ""))
+    monkeypatch.delenv(key)
+
+
+@pytest.mark.parametrize(
+    "startup_test",
+    [
+        "test_invalid_oauth_settings_use_the_existing_configuration_error_handler",
+        "test_oauth_uses_dotenv_urls_and_preserves_token_sentinel",
+    ],
+)
+def test_startup_checks_restore_originally_absent_environment(
+    tmp_path, monkeypatch, startup_test
+):
+    keys = (
+        "HOMEASSISTANT_URL",
+        "MCP_BASE_URL",
+        "HOMEASSISTANT_TOKEN",
+        "MCP_HOST",
+        "MCP_PORT",
+    )
+    for key in keys:
+        monkeypatch.setenv(key, "outer-isolation")
+        monkeypatch.delenv(key)
+    with pytest.MonkeyPatch.context() as isolated:
+        globals()[startup_test](tmp_path, isolated)
+    assert {key: os.environ[key] for key in keys if key in os.environ} == {}
 
 
 def test_invalid_oauth_settings_use_the_existing_configuration_error_handler(
@@ -21,7 +53,7 @@ def test_invalid_oauth_settings_use_the_existing_configuration_error_handler(
     monkeypatch.setattr(config_settings, "env_path", env_file)
     monkeypatch.setenv("HOMEASSISTANT_URL", "ftp://ha.test")
     monkeypatch.setenv("MCP_BASE_URL", "https://mcp.test")
-    monkeypatch.delenv("HOMEASSISTANT_TOKEN", raising=False)
+    _clear_startup_env(monkeypatch, "HOMEASSISTANT_TOKEN")
     errors = []
 
     def handle(error):
@@ -58,7 +90,7 @@ def test_oauth_uses_dotenv_urls_and_preserves_token_sentinel(
         "MCP_HOST",
         "MCP_PORT",
     ):
-        monkeypatch.delenv(key, raising=False)
+        _clear_startup_env(monkeypatch, key)
     monkeypatch.setattr(main, "_log_startup_version", Mock())
     run = AsyncMock()
     monkeypatch.setattr(main, "_run_oauth_server", run)

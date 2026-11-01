@@ -2,6 +2,7 @@
 
 import base64
 import hashlib
+import re
 import secrets
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
@@ -44,7 +45,10 @@ async def _register(checks: Any, callback: str = _CALLBACK) -> str:
 async def _supports_new_login(checks: Any) -> bool:
     probe = await checks.control("probe")
     installed = probe["versions"]["homeassistant"]
-    return tuple(int(part) for part in installed.split(".")) >= (2026, 10, 0)
+    release = re.match(r"^(\d+)\.(\d+)\.(\d+)", installed)
+    if release is None:
+        raise ValueError(f"Unrecognized Core version: {installed!r}")
+    return tuple(int(part) for part in release.groups()) >= (2026, 10, 0)
 
 
 async def prepare_grant(checks: Any, client_id: str) -> dict[str, Any]:

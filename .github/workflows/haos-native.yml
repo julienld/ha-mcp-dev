@@ -146,6 +146,8 @@ jobs:
       - name: Run selected E2E contracts through the HAOS server
         run: |
           cd tests
+          # Env inputs contain multiple pytest paths/arguments; splitting is intentional.
+          # shellcheck disable=SC2086
           uv run pytest $PYTEST_PATHS \
             -n2 --dist loadscope -v --tb=short --maxfail=0 --junitxml=/tmp/haos-native-results.xml $PYTEST_ARGS
         env:

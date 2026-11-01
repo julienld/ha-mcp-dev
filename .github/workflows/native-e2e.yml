@@ -57,7 +57,10 @@ jobs:
         run: docker pull "$HA_IMAGE_GHCR"
       - name: Exercise upstream E2E contracts through the attested native runtime
         working-directory: tests
-        run: uv run --frozen pytest $PYTEST_PATHS -n 2 --dist loadscope --tb=short -v --maxfail=0 --junitxml=native-e2e-results.xml
+        run: |
+          # The env input contains multiple pytest paths; splitting is intentional.
+          # shellcheck disable=SC2086
+          uv run --frozen pytest $PYTEST_PATHS -n 2 --dist loadscope --tb=short -v --maxfail=0 --junitxml=native-e2e-results.xml
         env:
           PYTEST_PATHS: ${{ inputs.pytest_paths || 'src/e2e/' }}
           E2E_BACKEND: embedded
@@ -92,7 +95,10 @@ jobs:
       - *pull_image
       - name: Exercise upstream contracts without the privileged tools entry
         working-directory: tests
-        run: uv run --frozen pytest $PYTEST_PATHS -n 2 --dist loadscope --tb=short -v --maxfail=0 --junitxml=native-e2e-results.xml
+        run: |
+          # The env input contains multiple pytest paths; splitting is intentional.
+          # shellcheck disable=SC2086
+          uv run --frozen pytest $PYTEST_PATHS -n 2 --dist loadscope --tb=short -v --maxfail=0 --junitxml=native-e2e-results.xml
         env:
           PYTEST_PATHS: ${{ inputs.pytest_paths || 'src/e2e/' }}
           E2E_BACKEND: embedded

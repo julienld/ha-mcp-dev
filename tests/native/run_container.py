@@ -65,7 +65,7 @@ CONTAINER = "ha-mcp-native-migration"
 
 def docker(*arguments: str, check: bool = True) -> subprocess.CompletedProcess:
     return subprocess.run(
-        ["docker", *arguments], check=check, capture_output=True, text=True
+        ["docker", *arguments], check=check, capture_output=True, text=True, timeout=60
     )
 
 
@@ -374,6 +374,7 @@ async def exercise_external_clients(checks: Checks, user_id: str) -> None:
         text=True,
         capture_output=True,
         check=False,
+        timeout=300,
     )
     assert result.returncode == 0, result.stdout + result.stderr
     checks.passed("unchanged_Core_SDK1_client_calls_modern_native_endpoint")
@@ -396,6 +397,7 @@ async def exercise_standard_proxy(checks: Checks) -> None:
         text=True,
         capture_output=True,
         check=False,
+        timeout=300,
     )
     assert result.returncode == 0, result.stdout + result.stderr
     checks.passed(
@@ -572,23 +574,23 @@ async def main(*, published_tag: str | None = None) -> None:
         ),
     ):
         (CONFIG / filename).write_text(empty, encoding="utf-8")
-    docker(
-        "run",
-        "-d",
-        "--name",
-        CONTAINER,
-        "-p",
-        "127.0.0.1:8123:8123",
-        "-v",
-        f"{CONFIG}:/config",
-        "--entrypoint",
-        "/bin/sh",
-        "ha-mcp-native-candidate",
-        "-c",
-        "mkdir -p /config/custom_components && cp -r /opt/native/custom_components/* "
-        "/config/custom_components/ && exec python -m homeassistant --config /config",
-    )
     try:
+        docker(
+            "run",
+            "-d",
+            "--name",
+            CONTAINER,
+            "-p",
+            "127.0.0.1:8123:8123",
+            "-v",
+            f"{CONFIG}:/config",
+            "--entrypoint",
+            "/bin/sh",
+            "ha-mcp-native-candidate",
+            "-c",
+            "mkdir -p /config/custom_components && cp -r /opt/native/custom_components/* "
+            "/config/custom_components/ && exec python -m homeassistant --config /config",
+        )
         async with httpx.AsyncClient(timeout=30, trust_env=False) as client:
             identities = await wait_identities()
             credentials = {
@@ -615,9 +617,11 @@ async def main(*, published_tag: str | None = None) -> None:
             evidence["complete"] = True
             (OUT / "evidence.json").write_text(json.dumps(evidence, indent=2) + "\n")
     finally:
-        logs = docker("logs", CONTAINER, check=False)
-        (OUT / "ha.log").write_text(logs.stdout + logs.stderr, encoding="utf-8")
-        docker("rm", "-f", CONTAINER, check=False)
+        try:
+            logs = docker("logs", CONTAINER, check=False)
+            (OUT / "ha.log").write_text(logs.stdout + logs.stderr, encoding="utf-8")
+        finally:
+            docker("rm", "-f", CONTAINER, check=False)
 
 
 if __name__ == "__main__":
