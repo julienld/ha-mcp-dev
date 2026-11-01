@@ -191,10 +191,11 @@ PowerShell example, after the operator has prepared the throwaway RSA-4096 key
 and saved **only its base64 PEM public key** in `devenv-public-key.b64`:
 
 ```powershell
+$fork = '<owner>/<your-fork>'
 $workflowBranch = '<branch-with-the-routing-changes>'
 $installRef = '<SHA-or-branch-present-in-your-fork>'
 $publicKey = (Get-Content -Raw devenv-public-key.b64).Trim()
-gh workflow run native-migration.yml -R julienld/ha-mcp-native --ref $workflowBranch `
+gh workflow run native-migration.yml -R $fork --ref $workflowBranch `
   -f target=live -f "track_ref=$installRef" -f "public_key=$publicKey" `
   -f minutes=60 -f platform=docker -f server=embedded -f embedded_runtime=native
 ```
@@ -219,7 +220,7 @@ timeout, holder teardown and disposable runner lifetime still apply.
 For the paired protocol bench instead:
 
 ```powershell
-gh workflow run native-migration.yml -R julienld/ha-mcp-native --ref $workflowBranch -f target=protocol
+gh workflow run native-migration.yml -R $fork --ref $workflowBranch -f target=protocol
 ```
 
 Each target selects only its own workload: `protocol` calls the paired protocol

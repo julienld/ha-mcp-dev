@@ -216,6 +216,51 @@ def test_receipt_rename_is_directory_synced_and_descriptor_closed(
     assert events == ["rename", "directory_synced", "closed"]
 
 
+def test_recovery_archive_is_synced_before_checksum_and_receipt(
+    self_update: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    storage = self_update.storage
+    synced: list[int] = []
+    fsync = storage.os.fsync
+    digest = storage.hashlib.file_digest
+
+    def sync_archive(descriptor: int) -> None:
+        fsync(descriptor)
+        synced.append(descriptor)
+
+    def checksum(stream: Any, algorithm: str) -> Any:
+        assert stream.fileno() in synced, "Recovery archive was not synced"
+        with ZipFile(stream.name) as archive:
+            assert archive.read("__init__.py") == b"old code"
+        return digest(stream, algorithm)
+
+    monkeypatch.setattr(storage.os, "fsync", sync_archive)
+    monkeypatch.setattr(storage.hashlib, "file_digest", checksum)
+    receipt = storage.capture_code(
+        self_update.source, self_update.service.directory, {}
+    )
+    assert storage.read_receipt(self_update.service.directory) == receipt
+    archive = self_update.service.directory / (receipt["snapshot_id"] + ".zip")
+    with archive.open("rb") as stream:
+        assert digest(stream, "sha256").hexdigest() == receipt["snapshot_sha256"]
+
+
+async def test_unsynced_recovery_archive_prevents_receipt_and_install(
+    self_update: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    storage = self_update.storage
+    receipt = Mock(wraps=storage.write_receipt)
+    monkeypatch.setattr(storage, "write_receipt", receipt)
+    monkeypatch.setattr(storage.os, "fsync", Mock(side_effect=OSError("sync failed")))
+
+    with pytest.raises(OSError, match="sync failed"):
+        await self_update.service.manage("update", CallContext("actor"))
+
+    receipt.assert_not_called()
+    assert storage.read_receipt(self_update.service.directory) is None
+    assert not self_update.calls
+
+
 @pytest.mark.parametrize("defect", ["domain", "repository", "registry", "owner"])
 async def test_friendly_name_cannot_substitute_for_installation_provenance(
     self_update: Any, defect: str

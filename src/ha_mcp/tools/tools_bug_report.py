@@ -587,7 +587,7 @@ class LegacyBugReportTools:
                 parsed_fields,
             )
             if identifier_warning:
-                result["warnings"] = [identifier_warning]
+                result.setdefault("warnings", []).append(identifier_warning)
             return result
 
 

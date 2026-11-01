@@ -91,7 +91,7 @@ class NativeHacs(HacsReads):
                 else None
             )
             command = access.command(action)
-            proposal = {"repository": str(repo.data.id)}
+            proposal: dict[str, Any] = {"repository": str(repo.data.id)}
             if action == "download" and version:
                 proposal["version"] = version
             if (

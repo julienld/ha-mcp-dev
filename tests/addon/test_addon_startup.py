@@ -522,12 +522,17 @@ class TestWidenFastmcpLogConsole:
     def addon(self):
         self.addon = _load_addon_start()
 
-    def test_startup_url_stays_on_one_line(self):
+    @pytest.mark.parametrize("private_sdk", [False, True])
+    def test_startup_url_stays_on_one_line(self, private_sdk):
         import io
         import logging
 
-        from rich.console import Console
-        from rich.logging import RichHandler
+        if private_sdk:
+            from ha_mcp._vendor.rich.console import Console
+            from ha_mcp._vendor.rich.logging import RichHandler
+        else:
+            from rich.console import Console
+            from rich.logging import RichHandler
 
         stream = io.StringIO()
         # Explicit width=80 mirrors rich's non-TTY default in the container.

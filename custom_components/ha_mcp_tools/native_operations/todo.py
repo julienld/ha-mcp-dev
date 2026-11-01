@@ -136,7 +136,7 @@ class NativeTodoOperations:
             "namesake": "CONFIG_CONFLICT",
             "not_supported": "VALIDATION_INVALID_PARAMETER",
             "invalid": "VALIDATION_INVALID_PARAMETER",
-        }.get(error.get("code"))
+        }.get(error.get("code") or "")
         raise ToolFailure(
             code or "OUTCOME_UNKNOWN",
             str(error.get("message", "Todo outcome unknown")),

@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock
 
+import anyio
 import pytest
 
 from ._embedded_stubs import install
@@ -16,7 +17,95 @@ install()
 
 from custom_components.ha_mcp_tools import llm_api  # noqa: E402
 
-from ._llm_api_helpers import make_hass  # noqa: E402
+from ._llm_api_helpers import fake_session, make_api, make_hass  # noqa: E402
+
+
+@pytest.mark.parametrize("operation", ["list", "call-before-list", "call-before-write"])
+async def test_export_disabled_inside_anyio_session_remains_a_home_assistant_error(
+    monkeypatch: pytest.MonkeyPatch, operation: str
+) -> None:
+    hass = make_hass()
+    api = make_api(hass)
+    api.entry = SimpleNamespace(options={"enable_llm_api": True})
+    session = fake_session(monkeypatch)
+    ungrouped_session = llm_api._mcp_session
+
+    async def disable_after_list() -> SimpleNamespace:
+        api.entry.options["enable_llm_api"] = False
+        return session.list_tools.return_value
+
+    if operation == "call-before-write":
+        session.list_tools.side_effect = disable_after_list
+
+    @asynccontextmanager
+    async def grouped_session(url: str) -> AsyncIterator[Any]:
+        async with (
+            anyio.create_task_group(),
+            anyio.create_task_group(),
+            ungrouped_session(url) as opened,
+        ):
+            if operation != "call-before-write":
+                api.entry.options["enable_llm_api"] = False
+            yield opened
+
+    monkeypatch.setattr(llm_api, "_mcp_session", grouped_session)
+    with pytest.raises(llm_api.HomeAssistantError, match="export is disabled"):
+        if operation == "list":
+            await api.async_get_api_instance(llm_api.llm.LLMContext())
+        else:
+            await llm_api._forward_tool_call(
+                hass, api.server_url, "ha_search", {}, check_enabled=api._check_enabled
+            )
+    session.call_tool.assert_not_awaited()
+    if operation == "call-before-write":
+        session.list_tools.assert_awaited_once()
+    else:
+        session.list_tools.assert_not_awaited()
+
+
+@pytest.mark.parametrize("operation", ["list", "call"])
+@pytest.mark.parametrize("other_error", [ValueError, OSError, asyncio.CancelledError])
+async def test_mixed_home_assistant_error_groups_propagate_unchanged(
+    monkeypatch: pytest.MonkeyPatch, operation: str, other_error: type[BaseException]
+) -> None:
+    error = BaseExceptionGroup(
+        "session failure",
+        [
+            ExceptionGroup("export guard", [llm_api.HomeAssistantError("disabled")]),
+            other_error("other failure"),
+        ],
+    )
+    fake_session(monkeypatch, raise_on_open=error)
+    hass = make_hass()
+    api = make_api(hass)
+    with pytest.raises(BaseExceptionGroup) as failure:
+        if operation == "list":
+            await api.async_get_api_instance(llm_api.llm.LLMContext())
+        else:
+            await llm_api._forward_tool_call(hass, api.server_url, "ha_search", {})
+    assert failure.value is error
+
+
+@pytest.mark.parametrize("operation", ["list", "call"])
+async def test_nested_groups_with_only_home_assistant_errors_preserve_the_first_error(
+    monkeypatch: pytest.MonkeyPatch, operation: str
+) -> None:
+    first = llm_api.HomeAssistantError("export disabled")
+    fake_session(
+        monkeypatch,
+        raise_on_open=ExceptionGroup(
+            "session failure",
+            [ExceptionGroup("guard", [first]), llm_api.HomeAssistantError("disabled")],
+        ),
+    )
+    hass = make_hass()
+    api = make_api(hass)
+    with pytest.raises(llm_api.HomeAssistantError) as failure:
+        if operation == "list":
+            await api.async_get_api_instance(llm_api.llm.LLMContext())
+        else:
+            await llm_api._forward_tool_call(hass, api.server_url, "ha_search", {})
+    assert failure.value is first
 
 
 async def test_v2_transport_warms_metadata_off_loop_and_closes_its_httpx2_client(

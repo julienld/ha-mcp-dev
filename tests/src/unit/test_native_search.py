@@ -226,6 +226,171 @@ async def test_native_search_enforce_filters_entire_config_before_total_and_refe
     assert "light.hidden" not in str(result.data)
 
 
+@pytest.mark.parametrize("surface", ["script", "entity", "dashboard", "reference"])
+async def test_native_search_conceals_renamed_hidden_script_service_aliases(
+    search: Any, monkeypatch: pytest.MonkeyPatch, surface: str
+) -> None:
+    from ha_mcp.runtime.search_component_results import _DashboardLeg
+
+    hidden_id = "script.renamed_private"
+    entry = FakeRegEntry(hidden_id, unique_id="private_storage_key")
+    search.registry._entries[hidden_id] = entry
+    search.registry.entities[hidden_id] = entry
+    search.manager.visibility._config.return_value = VisibilityConfig(
+        enabled=True, enforce=True, deny_entity_ids=[hidden_id]
+    )
+    monkeypatch.setattr(search.module, "hidden_from_core", lambda *_: {hidden_id})
+    private_action = "script.private_storage_key"
+    arguments = {"query": "needle", "include_config": True, "limit": 1}
+    if surface in {"script", "reference"}:
+        script(
+            search, "one", {"alias": "Needle", "sequence": [{"action": private_action}]}
+        )
+        script(search, "two", {"alias": "Needle", "sequence": []})
+        arguments["search_types"] = ["script"]
+        if surface == "reference":
+            monkeypatch.setattr(
+                search.module.NativeSearch,
+                "_related",
+                lambda self, req: (
+                    True,
+                    GraphResult({"scripts": {"script.one", "script.two"}}),
+                ),
+            )
+    elif surface == "entity":
+        from .test_component_ws_search import FakeStates
+
+        search.manager.hass.states = FakeStates(
+            [
+                FakeState("light.hidden", friendly_name=f"Needle {private_action}"),
+                FakeState("light.visible", friendly_name="Needle"),
+            ]
+        )
+        arguments["domain_filter"] = "light"
+    else:
+        arguments["search_types"] = ["dashboard"]
+        monkeypatch.setattr(
+            search.module,
+            "load_dashboard_documents",
+            AsyncMock(
+                return_value=_DashboardLeg(
+                    [
+                        {
+                            "url_path": path,
+                            "title": "Safe metadata",
+                            "mode": "storage",
+                            "config": {"title": "Needle", "action": action},
+                        }
+                        for path, action in (
+                            ("private-panel", private_action),
+                            ("public-panel", "light.turn_on"),
+                        )
+                    ]
+                )
+            ),
+        )
+    stored_before = {
+        domain: copy.deepcopy(owner.rows) for domain, owner in search.owners.items()
+    }
+    search.manager.hass.services = SimpleNamespace(async_call=AsyncMock())
+    result = await search.engine.call(
+        "ha_search", arguments, CallContext("actor", read_only=True)
+    )
+    assert not result.is_error, result.data
+    bucket, identity, expected = (
+        ("entities", "entity_id", "light.visible")
+        if surface == "entity"
+        else ("dashboards", "url_path", "public-panel")
+        if surface == "dashboard"
+        else ("scripts", "entity_id", "script.two")
+    )
+    total = "entity_total_matches" if surface == "entity" else "config_total_matches"
+    assert result.data[total] == 1
+    assert [row[identity] for row in result.data[bucket]] == [expected]
+    assert "private_storage_key" not in str(result.data)
+    assert hidden_id not in str(result.data)
+    assert {
+        domain: owner.rows for domain, owner in search.owners.items()
+    } == stored_before
+    search.manager.hass.services.async_call.assert_not_awaited()
+    search.manager.backend.execute.assert_not_awaited()
+
+
+async def test_native_search_detaches_hidden_storage_identifiers_from_core_registry(
+    search: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    projection = importlib.import_module(
+        "custom_components.ha_mcp_tools.native_operations.search_projection"
+    )
+    entries = {
+        "script.renamed_private": "PrivateKey",
+        "scene.renamed_private": "1700000000001",
+        "automation.renamed_private": "1700000000002",
+    }
+    for entity_id, unique_id in entries.items():
+        entry = FakeRegEntry(entity_id, unique_id=unique_id)
+        search.registry._entries[entity_id] = entry
+        search.registry.entities[entity_id] = entry
+    hidden = {*entries, "script.unregistered_private"}
+    search.manager.visibility._config.return_value = VisibilityConfig(
+        enabled=True, enforce=True, deny_entity_ids=sorted(hidden)
+    )
+    monkeypatch.setattr(search.module, "hidden_from_core", lambda *_: hidden)
+    script(
+        search,
+        "one",
+        {"alias": "Needle", "sequence": [{"action": "script.privatekey"}]},
+    )
+    script(search, "two", {"alias": "Needle", "sequence": []})
+    original = projection.score_candidates
+    matchers = []
+
+    def score(*args: Any) -> Any:
+        matcher = original(*args)
+        matchers.append(matcher)
+        return matcher
+
+    monkeypatch.setattr(projection, "score_candidates", score)
+    loop_thread = threading.get_ident()
+    registry_get = search.registry.async_get
+
+    def read_registry(entity_id: str) -> Any:
+        assert threading.get_ident() == loop_thread
+        return registry_get(entity_id)
+
+    monkeypatch.setattr(search.registry, "async_get", read_registry)
+
+    async def executor(function: Any, *arguments: Any) -> Any:
+        assert isinstance(function.args[0], bytes)
+        for entity_id in entries:
+            search.registry._entries[entity_id].unique_id = "changed_after_capture"
+        return await asyncio.to_thread(function, *arguments)
+
+    search.manager.hass.async_add_executor_job = executor
+    result = await search.engine.call(
+        "ha_search",
+        {"query": "needle", "search_types": ["script"], "include_config": True},
+        CallContext("actor", read_only=True),
+    )
+    assert not result.is_error, result.data
+    assert [row["entity_id"] for row in result.data["scripts"]] == ["script.two"]
+    aliases = matchers[0].identifier_aliases
+    for entity_id, unique_id in entries.items():
+        domain = entity_id.partition(".")[0]
+        assert aliases.addresses_hidden(domain, unique_id)
+        assert not aliases.addresses_hidden(domain, "changed_after_capture")
+    assert aliases.addresses_hidden("script", "RENAMED_PRIVATE")
+    assert aliases.addresses_hidden("script", "unregistered_private")
+    assert aliases.addresses_hidden("scene", "renamed_private")
+    assert not aliases.addresses_hidden("automation", "renamed_private")
+    assert not aliases.addresses_hidden("script", "privatekey")
+    assert aliases.script_services == frozenset({"privatekey", "unregistered_private"})
+    assert "privatekey" not in str(result.data).lower()
+    assert "hidden_registry" not in result.data
+    assert all(unique_id not in str(result.data) for unique_id in entries.values())
+    search.manager.backend.execute.assert_not_awaited()
+
+
 async def test_native_search_reference_hits_are_counted_before_window_even_without_a_body_match(
     search: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -20,6 +20,7 @@ import zipfile
 from email.parser import BytesParser
 from pathlib import Path
 from typing import Any, Literal, overload
+from urllib.parse import urlencode
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from scripts import native_published_assets as assets
@@ -71,35 +72,133 @@ def release_by_tag(
 
 
 def release_by_tag(repository: str, tag: str, *, missing: bool = False) -> dict | None:
-    """Resolve pending draft tags through GraphQL, then read assets by release ID."""
-    owner, name = repository.split("/")
-    response = json.loads(
-        gh(
-            "api",
-            "graphql",
-            "-f",
-            "query=query($owner:String!,$name:String!,$tag:String!){"
-            "repository(owner:$owner,name:$name){release(tagName:$tag){databaseId}}}",
-            "-f",
-            f"owner={owner}",
-            "-f",
-            f"name={name}",
-            "-f",
-            f"tag={tag}",
-        )
+    """Find a unique release, including pending drafts visible to the publisher."""
+    pages = json.loads(
+        gh("api", "--paginate", "--slurp", f"repos/{repository}/releases?per_page=100")
     )
-    release = response["data"]["repository"]["release"]
-    if release is None:
+    if not isinstance(pages, list) or not pages:
+        raise ValueError("GitHub returned an invalid release listing")
+    matches = []
+    for page in pages:
+        if not isinstance(page, list):
+            raise ValueError("GitHub returned an invalid release page")
+        for release in page:
+            if not isinstance(release, dict) or not isinstance(
+                release.get("tag_name"), str
+            ):
+                raise ValueError("GitHub returned an invalid release object")
+            if release["tag_name"] == tag:
+                matches.append(release)
+    if len(matches) > 1:
+        raise ValueError(f"Multiple releases identify {repository}@{tag}")
+    if not matches:
         if missing:
             return None
         raise RuntimeError(f"GitHub release not found: {repository}@{tag}")
-    release_id = release["databaseId"]
-    if type(release_id) is not int or release_id <= 0:
+    return validate_release(matches[0], tag)
+
+
+def validate_release(release: Any, tag: str) -> dict:
+    if not isinstance(release, dict) or release.get("tag_name") != tag:
+        raise ValueError("GitHub returned an invalid release identity")
+    if type(release.get("id")) is not int or release["id"] <= 0:
         raise ValueError("GitHub returned an invalid release ID")
-    payload = api(f"repos/{repository}/releases/{release_id}")
-    if not isinstance(payload, dict):
+    if (
+        type(release.get("draft")) is not bool
+        or type(release.get("prerelease")) is not bool
+        or not isinstance(release.get("assets"), list)
+    ):
         raise ValueError("GitHub returned an invalid release object")
-    return payload
+    return release
+
+
+def confirm_release(
+    repository: str, tag: str, release_id: int, prerelease: bool
+) -> dict:
+    release = release_by_tag(repository, tag)
+    if release["id"] != release_id:
+        raise ValueError("Selected release identity changed")
+    if release["prerelease"] != prerelease:
+        raise ValueError("Existing release channel disagrees")
+    return release
+
+
+def create_draft(
+    repository: str, tag: str, revision: str, notes: Path, prerelease: bool
+) -> dict:
+    created = validate_release(
+        json.loads(
+            gh(
+                "api",
+                f"repos/{repository}/releases",
+                "--method",
+                "POST",
+                "-f",
+                f"tag_name={tag}",
+                "-f",
+                f"target_commitish={revision}",
+                "-f",
+                f"name={tag}",
+                "-F",
+                f"body=@{notes}",
+                "-F",
+                "draft=true",
+                "-F",
+                f"prerelease={str(prerelease).lower()}",
+            )
+        ),
+        tag,
+    )
+    if not created["draft"] or created["prerelease"] != prerelease:
+        raise ValueError("Created release is not a draft in the requested channel")
+    release = confirm_release(repository, tag, created["id"], prerelease)
+    if not release["draft"]:
+        raise ValueError("Created release is no longer a draft")
+    return release
+
+
+def upload_asset(repository: str, release: dict, path: Path) -> None:
+    upload_url = release.get("upload_url")
+    expected = (
+        f"https://uploads.github.com/repos/{repository}/releases/{release['id']}/assets"
+    )
+    if (
+        not isinstance(upload_url, str)
+        or upload_url.removesuffix("{?name,label}") != expected
+    ):
+        raise ValueError("GitHub returned an invalid release upload URL")
+    gh(
+        "api",
+        upload_url.removesuffix("{?name,label}") + "?" + urlencode({"name": path.name}),
+        "--method",
+        "POST",
+        "-H",
+        "Content-Type: application/octet-stream",
+        "--input",
+        str(path),
+    )
+
+
+def publish_draft(repository: str, release: dict) -> None:
+    published = validate_release(
+        json.loads(
+            gh(
+                "api",
+                f"repos/{repository}/releases/{release['id']}",
+                "--method",
+                "PATCH",
+                "-F",
+                "draft=false",
+            )
+        ),
+        release["tag_name"],
+    )
+    if (published["id"], published["draft"], published["prerelease"]) != (
+        release["id"],
+        False,
+        release["prerelease"],
+    ):
+        raise ValueError("Published release identity or channel disagrees")
 
 
 def verify_bundle(directory: Path, repository: str, tag: str, revision: str) -> dict:
@@ -307,7 +406,7 @@ def prepare(
     assets.validate_repository(repository)
     assets.validate_tag(tag)
     release = release_by_tag(repository, tag, missing=True)
-    if release is None or not release["assets"]:
+    if release is None:
         build_bundle(checkout, output, version, tag, repository, revision)
     else:
         # Reuse the original build, even when today's Core window has moved.
@@ -381,31 +480,18 @@ def publish(
     release = release_by_tag(repository, tag, missing=True)
     prerelease = ".dev" in proof["library_version"]
     if release is None:
-        gh(
-            "release",
-            "create",
-            tag,
-            "--repo",
-            repository,
-            "--verify-tag",
-            "--draft",
-            "--title",
-            tag,
-            "--notes-file",
-            str(notes),
-            *(["--prerelease"] if prerelease else []),
-        )
-        release = release_by_tag(repository, tag)
+        release = create_draft(repository, tag, revision, notes, prerelease)
     if release["prerelease"] != prerelease:
         raise ValueError("Existing release channel disagrees")
     names = {*proof["files"], "native-build.json"}
+    release_id = release["id"]
     for name in check_remote_assets(directory, repository, release, names):
-        gh("release", "upload", tag, "--repo", repository, str(directory / name))
-    release = release_by_tag(repository, tag)
+        upload_asset(repository, release, directory / name)
+    release = confirm_release(repository, tag, release_id, prerelease)
     if check_remote_assets(directory, repository, release, names):
         raise ValueError("Release upload remains incomplete")
     if release["draft"] and not draft_only:
-        gh("release", "edit", tag, "--repo", repository, "--draft=false")
+        publish_draft(repository, release)
 
 
 def arguments() -> argparse.Namespace:

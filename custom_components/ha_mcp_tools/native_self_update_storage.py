@@ -73,7 +73,8 @@ def capture_code(
     with ZipFile(archive, "x", compression=ZIP_DEFLATED) as output:
         for path in files:
             output.write(path, path.relative_to(source).as_posix())
-    with archive.open("rb") as stream:
+    with archive.open("r+b") as stream:
+        os.fsync(stream.fileno())
         checksum = hashlib.file_digest(stream, "sha256").hexdigest()
     receipt = {
         **before,

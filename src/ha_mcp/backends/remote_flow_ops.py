@@ -110,9 +110,10 @@ class RemoteFlows:
         }
         if operation == "config.flow.abort":
             try:
-                return await getattr(self.client, f"abort_{prefixes[kind]}_flow")(
-                    flow_id
-                )
+                response: dict[str, Any] = await getattr(
+                    self.client, f"abort_{prefixes[kind]}_flow"
+                )(flow_id)
+                return response
             finally:
                 self.owned.pop(flow_id, None)
         if operation != "config.flow.configure" or "user_input" not in arguments:

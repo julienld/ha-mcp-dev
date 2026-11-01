@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import builtins
 import copy
 import json
 import time
@@ -139,7 +140,7 @@ class NativeFullBackups:
         }
         if unknown := set(parts) - keys:
             reasons.append(f"unknown backup parts: {', '.join(sorted(unknown))}")
-        result = {
+        result: dict[str, Any] = {
             key: bool(parts.get(key))
             for key in (
                 "include_homeassistant",
@@ -164,7 +165,7 @@ class NativeFullBackups:
             )
         return result
 
-    def folders(self, values: list[str] | None) -> list[Any] | None:
+    def folders(self, values: builtins.list[str] | None) -> builtins.list[Any] | None:
         if not values:
             return None
         folder = import_module("homeassistant.components.backup.models").Folder
@@ -177,7 +178,7 @@ class NativeFullBackups:
                 status="not_started",
             ) from error
 
-    async def _check_platform_parts(self, parts: dict[str, Any]) -> list[str]:
+    async def _check_platform_parts(self, parts: dict[str, Any]) -> builtins.list[str]:
         if not self.supervised:
             reasons = []
             if (

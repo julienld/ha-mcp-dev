@@ -486,6 +486,7 @@ def _generate_runtime_bug_template(
 - **Installation Method:** {diagnostic_info.get("installation_method", "Unknown")}
 - **MCP Transport:** {mcp_transport} _(auto-detected — correct if wrong)_
 - **MCP Client:** {_format_client_info_for_template(client_info)} _(auto-detected from the MCP `initialize` handshake)_
+- **MCP Protocol:** {_format_protocol_for_template(diagnostic_info)}
 - **MCP Client Host:** {_format_client_host_line(diagnostic_info, text)}
 - **AI Model:** {text.ai_model or ""}
 - **Operating System:** {platform_info.get("os", "Unknown")} {platform_info.get("os_release", "")} ({platform_info.get("architecture", "Unknown")})

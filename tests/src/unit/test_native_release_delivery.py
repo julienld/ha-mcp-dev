@@ -4,7 +4,9 @@ import json
 import shutil
 import tomllib
 import zipfile
+from copy import deepcopy
 from pathlib import Path
+from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from packaging.requirements import Requirement
@@ -80,35 +82,66 @@ class Github:
         self.release = None
         self.payloads = {}
         self.writes = []
+        self.listings = None
+        self.after_create = lambda: None
+        self.after_upload = lambda: None
 
     def api(self, endpoint, *, missing=False):
         if "/commits/" in endpoint:
             return {"sha": "a" * 40}
-        if "/releases/tags/" in endpoint and self.release and self.release["draft"]:
-            if missing:
-                return None
-            raise RuntimeError("HTTP 404: pending draft tag is not a published release")
-        return self.release
+        pytest.fail(f"Unexpected API read: {endpoint}")
 
     def command(self, *args):
-        if args[:2] == ("api", "graphql"):
-            release = {"databaseId": self.release["id"]} if self.release else None
-            return json.dumps({"data": {"repository": {"release": release}}})
+        if args[:2] == ("api", "--paginate"):
+            pages = (
+                self.listings()
+                if self.listings
+                else [[self.release] if self.release else []]
+            )
+            return json.dumps(pages)
+        assert args[0] == "api"
+        method = args[args.index("--method") + 1]
         self.writes.append(args)
-        if args[:2] == ("release", "create"):
+        fields = dict(
+            args[index + 1].split("=", 1)
+            for index, arg in enumerate(args[:-1])
+            if arg in ("-f", "-F")
+        )
+        if method == "POST" and args[1].endswith("/releases"):
+            repository = args[1].removeprefix("repos/").removesuffix("/releases")
+            assert fields["draft"] == "true"
+            assert (
+                fields["prerelease"]
+                == str(".dev" in self.proof["library_version"]).lower()
+            )
+            assert fields["target_commitish"] in ("a" * 40, "d" * 40)
+            assert fields["name"] == fields["tag_name"]
+            assert Path(fields["body"].removeprefix("@")).is_file()
             self.release = {
                 "id": 1,
+                "tag_name": fields["tag_name"],
+                "upload_url": f"https://uploads.github.com/repos/{repository}/releases/1/assets{{?name,label}}",
                 "draft": True,
-                "prerelease": ".dev" in self.proof["tag"],
+                "prerelease": fields["prerelease"] == "true",
                 "assets": [],
             }
-        elif args[:2] == ("release", "upload"):
-            path = Path(args[-1])
+            self.after_create()
+        elif method == "POST" and args[1].startswith("https://uploads.github.com/"):
+            path = Path(args[args.index("--input") + 1])
+            url = urlsplit(args[1])
+            assert url.path.endswith(f"/releases/{self.release['id']}/assets")
+            assert parse_qs(url.query) == {"name": [path.name]}
+            assert "Content-Type: application/octet-stream" in args
             self.payloads[path.name] = path.read_bytes()
             self.release["assets"].append({"id": len(self.payloads), "name": path.name})
-        elif args[:2] == ("release", "edit"):
+            self.after_upload()
+        elif method == "PATCH":
+            assert args[1].endswith(f"/releases/{self.release['id']}")
+            assert fields == {"draft": "false"}
             self.release["draft"] = False
-        return ""
+        else:
+            pytest.fail(f"Unexpected API write: {args}")
+        return json.dumps(self.release)
 
     def download(self, repository, asset, destination):
         destination.write_bytes(self.payloads[asset["name"]])
@@ -137,26 +170,179 @@ def publish(delivery, bundle, tmp_path, *, draft_only=False):
     )
 
 
+def test_release_lookup_searches_all_pages_including_pending_drafts(
+    delivery, monkeypatch
+):
+    selected = {
+        "id": 7,
+        "tag_name": "v9.0.0",
+        "draft": True,
+        "prerelease": False,
+        "assets": [],
+    }
+
+    def command(*args):
+        assert args[0] == "api" and "--paginate" in args and "--slurp" in args
+        assert args[-1].partition("?")[0] == "repos/owner/fork/releases"
+        return json.dumps([[dict(selected, id=6, tag_name="v8.0.0")], [selected]])
+
+    monkeypatch.setattr(delivery, "gh", command)
+    assert delivery.release_by_tag("owner/fork", "v9.0.0") == selected
+
+
+@pytest.mark.parametrize(
+    "pages", [None, [None], [[None]], [[{}]], [[{"tag_name": "v9.0.0", "id": True}]]]
+)
+def test_malformed_release_listing_is_not_absence(delivery, monkeypatch, pages):
+    monkeypatch.setattr(delivery, "gh", lambda *args: json.dumps(pages))
+    with pytest.raises(ValueError, match="release"):
+        delivery.release_by_tag("owner/fork", "v9.0.0", missing=True)
+
+
+def test_release_lookup_distinguishes_absence_from_failed_reads(delivery, monkeypatch):
+    monkeypatch.setattr(delivery, "gh", lambda *args: "[[]]")
+    assert delivery.release_by_tag("owner/fork", "v9.0.0", missing=True) is None
+    with pytest.raises(RuntimeError, match="not found"):
+        delivery.release_by_tag("owner/fork", "v9.0.0")
+
+    def failed(*args):
+        raise RuntimeError("release listing unavailable")
+
+    monkeypatch.setattr(delivery, "gh", failed)
+    with pytest.raises(RuntimeError, match="unavailable"):
+        delivery.release_by_tag("owner/fork", "v9.0.0", missing=True)
+
+
+def test_duplicate_pending_drafts_block_all_release_writes(
+    delivery, bundle, github, tmp_path
+):
+    publish(delivery, bundle, tmp_path, draft_only=True)
+    github.listings = lambda: [[deepcopy(github.release)], [dict(github.release, id=2)]]
+    github.writes.clear()
+    with pytest.raises(ValueError, match="Multiple releases"):
+        publish(delivery, bundle, tmp_path)
+    assert github.writes == []
+
+
+@pytest.mark.parametrize(
+    "defect", ["absent", "error", "duplicate", "replacement", "published", "channel"]
+)
+def test_unverified_creation_never_uploads_or_publishes(
+    delivery, bundle, github, tmp_path, defect
+):
+    def after_create():
+        if defect == "error":
+
+            def failed():
+                raise RuntimeError("release listing unavailable")
+
+            github.listings = failed
+        elif defect == "absent":
+            github.listings = lambda: [[]]
+        elif defect == "duplicate":
+            github.listings = lambda: [[github.release, dict(github.release, id=2)]]
+        else:
+            replacement = deepcopy(github.release)
+            if defect == "replacement":
+                replacement["id"] = 2
+            elif defect == "published":
+                replacement["draft"] = False
+            else:
+                replacement["prerelease"] = not replacement["prerelease"]
+            github.listings = lambda: [[replacement]]
+
+    github.after_create = after_create
+    with pytest.raises((RuntimeError, ValueError), match=r"release|channel"):
+        publish(delivery, bundle, tmp_path)
+    assert len(github.writes) == 1
+    assert github.payloads == {}
+
+
+@pytest.mark.parametrize("defect", ["replacement", "channel", "bytes"])
+def test_upload_readback_must_keep_the_selected_identity_channel_and_bytes(
+    delivery, bundle, github, tmp_path, defect
+):
+    def after_upload():
+        if len(github.payloads) != len(bundle[1]["files"]) + 1:
+            return
+        selected = deepcopy(github.release)
+        if defect == "replacement":
+            selected["id"] = 2
+        elif defect == "channel":
+            selected["prerelease"] = not selected["prerelease"]
+        else:
+            github.payloads["ha_mcp_tools.zip"] = b"damaged upload"
+        github.listings = lambda: [[selected]]
+
+    github.after_upload = after_upload
+    with pytest.raises(ValueError, match=r"release|differs"):
+        publish(delivery, bundle, tmp_path)
+    assert github.release["draft"]
+    assert all("PATCH" not in call for call in github.writes)
+
+
+@pytest.mark.parametrize(
+    "upload_url",
+    [
+        None,
+        "https://untrusted.test/upload",
+        "https://uploads.github.com/repos/homeassistant-ai/ha-mcp/releases/2/assets{?name,label}",
+    ],
+)
+def test_upload_url_must_identify_the_selected_release(
+    delivery, bundle, github, tmp_path, upload_url
+):
+    github.after_create = lambda: github.release.update(upload_url=upload_url)
+    with pytest.raises(ValueError, match="upload URL"):
+        publish(delivery, bundle, tmp_path)
+    assert len(github.writes) == 1
+    assert github.payloads == {}
+
+
+def test_empty_existing_draft_requires_original_build_artifact(
+    delivery, bundle, github, tmp_path, monkeypatch
+):
+    publish(delivery, bundle, tmp_path, draft_only=True)
+    github.release["assets"].clear()
+    monkeypatch.setattr(
+        delivery,
+        "build_bundle",
+        lambda *a: pytest.fail("must not rebuild an existing identity"),
+    )
+    proof = bundle[1]
+    with pytest.raises(ValueError, match="Incomplete existing release"):
+        delivery.prepare(
+            Path.cwd(),
+            tmp_path / "recovered",
+            proof["library_version"],
+            proof["tag"],
+            proof["repository"],
+            proof["revision"],
+        )
+
+
 def test_release_becomes_visible_only_after_all_three_assets_verify(
     delivery, bundle, github, tmp_path
 ):
     publish(delivery, bundle, tmp_path)
     assert not github.release["draft"]
     assert set(github.payloads) == {*bundle[1]["files"], "native-build.json"}
-    assert github.writes[-1][:2] == ("release", "edit")
+    assert github.writes[-1][:2] == (
+        "api",
+        f"repos/{bundle[1]['repository']}/releases/1",
+    )
+    assert all(call[0] == "api" for call in github.writes)
     github.writes.clear()
     publish(delivery, bundle, tmp_path)
     assert github.writes == []
 
 
-def test_pending_draft_is_reused_when_tag_lookup_only_serves_published_releases(
+def test_complete_pending_draft_is_reused_without_a_second_creation(
     delivery, bundle, github, tmp_path
 ):
     publish(delivery, bundle, tmp_path, draft_only=True)
     publish(delivery, bundle, tmp_path)
-    assert (
-        len([call for call in github.writes if call[:2] == ("release", "create")]) == 1
-    )
+    assert len([call for call in github.writes if call[1].endswith("/releases")]) == 1
     assert github.release["draft"] is False
     assert set(github.payloads) == {*bundle[1]["files"], "native-build.json"}
 
@@ -224,8 +410,14 @@ def test_partial_draft_resumes_only_with_the_original_bytes(
     lost = github.release["assets"].pop()["name"]
     github.writes.clear()
     publish(delivery, bundle, tmp_path)
-    uploads = [args for args in github.writes if args[:2] == ("release", "upload")]
-    assert len(uploads) == 1 and Path(uploads[0][-1]).name == lost
+    uploads = [
+        args
+        for args in github.writes
+        if args[1].startswith("https://uploads.github.com/")
+    ]
+    assert len(uploads) == 1 and parse_qs(urlsplit(uploads[0][1]).query) == {
+        "name": [lost]
+    }
     assert not github.release["draft"]
 
 
@@ -264,7 +456,7 @@ def test_mirror_release_keeps_its_tag_convention_and_original_wheel_url(
         recorded=directory / "native-build.json",
     )
     assert not github.release["draft"]
-    assert github.writes[0][2] == tag
+    assert f"tag_name={tag}" in github.writes[0]
     for name, payload in github.payloads.items():
         assert payload == (directory / name).read_bytes()
 

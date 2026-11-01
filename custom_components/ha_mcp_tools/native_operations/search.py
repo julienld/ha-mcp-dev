@@ -104,6 +104,14 @@ class NativeSearch:
         consulted, related = (False, None) if degraded else self._related(req)
         from homeassistant.helpers import entity_registry as er
 
+        hidden_registry = []
+        if self.hidden:
+            registry = er.async_get(self.manager.hass)
+            hidden_registry = [
+                {"entity_id": eid, "unique_id": row.unique_id}
+                for eid in sorted(self.hidden)
+                if (row := registry.async_get(eid)) is not None
+            ]
         identities = {}
         if related is not None:
             registry = er.async_get(self.manager.hass)
@@ -121,6 +129,7 @@ class NativeSearch:
                 "entity_corpora": candidates.entities,
                 "secret_values": list(extra.get("secret_values", ())),
                 "hidden": sorted(self.hidden),
+                "hidden_registry": hidden_registry,
                 "enforce": bool(self.config is not None and self.config.enforce),
                 "graph_consulted": consulted,
                 "graph": {

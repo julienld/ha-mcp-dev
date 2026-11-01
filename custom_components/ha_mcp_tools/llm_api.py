@@ -187,6 +187,22 @@ def _is_transport_failure(err: BaseException) -> bool:
     return isinstance(err, _transport_error_leaves())
 
 
+def _only_home_assistant_error(error: BaseException) -> HomeAssistantError | None:
+    """Find the first HA error only when every nested leaf is an HA error."""
+    if isinstance(error, HomeAssistantError):
+        return error
+    if not isinstance(error, ExceptionGroup):
+        return None
+    found: HomeAssistantError | None = None
+    for child in error.exceptions:
+        leaf = _only_home_assistant_error(child)
+        if leaf is None:
+            return None
+        if found is None:
+            found = leaf
+    return found
+
+
 def _import_mcp_sdk() -> None:
     """Import lazy LLM dependencies (blocking; run on the executor).
 
@@ -431,6 +447,8 @@ async def _forward_tool_call(
             result = await session.call_tool(name, arguments)
     except _transport_errors() as err:
         if not _is_transport_failure(err):
+            if (ha_error := _only_home_assistant_error(err)) is not None:
+                raise ha_error from None
             raise
         raise HomeAssistantError(
             f"Error calling the HA-MCP tool {name}: {err}"
@@ -546,6 +564,8 @@ class HaMcpLlmApi(llm.API):
                 list_result = await session.list_tools()
         except _transport_errors() as err:
             if not _is_transport_failure(err):
+                if (ha_error := _only_home_assistant_error(err)) is not None:
+                    raise ha_error from None
                 raise
             raise HomeAssistantError(
                 f"Could not reach the in-process HA-MCP server: {err}"

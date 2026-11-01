@@ -27,8 +27,7 @@ async def _read_item(
         HomeAssistantAPIError,
         SceneStorageConfigNotFoundError,
     )
-    from ha_mcp.tools.tools_config_automations import AutomationConfigTools
-    from ha_mcp.tools.tools_config_scripts import ConfigScriptTools
+    from ha_mcp.tools.util_helpers import list_visible_registry_ids
 
     identifier = arguments["identifier"]
     domain = operation.split(".")[1]
@@ -58,12 +57,10 @@ async def _read_item(
     except HomeAssistantAPIError as error:
         if error.status_code != 404:
             raise
-        if domain == "automation":
-            available = await AutomationConfigTools(
-                client
-            )._list_automation_entity_ids()
-        elif domain == "script":
-            available = await ConfigScriptTools(client)._list_script_entity_ids()
+        if domain in {"automation", "script"}:
+            available = await list_visible_registry_ids(
+                client, domain, bare=domain == "script"
+            )
         else:
             available = []
         return {

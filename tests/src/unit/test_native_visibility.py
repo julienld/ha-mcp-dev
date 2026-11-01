@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
+import threading
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -51,6 +54,11 @@ def runtime(
         policy=SimpleNamespace(security_policy=None),
     )
     manager.visibility = native_visibility.NativeVisibility(manager)
+    from homeassistant.helpers import entity_registry as er
+
+    manager.registry = SimpleNamespace(entries={})
+    manager.registry.async_get = manager.registry.entries.get
+    monkeypatch.setattr(er, "async_get", lambda _hass: manager.registry)
     handler = AsyncMock(return_value=payload)
     manager.approval_gate = NativeApprovalGate(manager)
     engine = Engine(
@@ -63,6 +71,193 @@ def runtime(
         native_visibility, "hidden_from_core", lambda _hass, _config: {"sensor.secret"}
     )
     return manager, engine, handler
+
+
+def hide_renamed_items(manager: Any, monkeypatch: pytest.MonkeyPatch) -> dict[str, str]:
+    identities = {
+        "script.renamed_private": "PrivateKey",
+        "scene.renamed_private": "1700000000001",
+        "automation.renamed_private": "1700000000002",
+    }
+    manager.registry.entries.update(
+        {
+            entity_id: SimpleNamespace(
+                entity_id=entity_id, unique_id=unique_id, aliases={"bogus_key"}
+            )
+            for entity_id, unique_id in identities.items()
+        }
+    )
+    manager.registry.entries["script.visible"] = SimpleNamespace(
+        entity_id="script.visible", unique_id="public_key", aliases={"PrivateKey"}
+    )
+    manager.visibility._config = AsyncMock(
+        return_value=VisibilityConfig(
+            enabled=True, enforce=True, deny_entity_ids=list(identities)
+        )
+    )
+    monkeypatch.setattr(
+        native_visibility, "hidden_from_core", lambda *_: set(identities)
+    )
+    return identities
+
+
+@pytest.mark.parametrize(
+    "name,arguments",
+    [
+        ("ha_config_get_script", {"script_id": "PrivateKey"}),
+        ("ha_config_get_scene", {"scene_id": "1700000000001"}),
+        ("ha_config_get_automation", {"identifier": "1700000000002"}),
+        ("ha_get_automation_traces", {"automation_id": "automation.1700000000002"}),
+        ("ha_call_service", {"domain": "script", "service": "privatekey"}),
+        (
+            "ha_call_service",
+            {
+                "domain": "trace",
+                "service": "get",
+                "data": {"domain": "script", "item_id": "PrivateKey"},
+            },
+        ),
+    ],
+)
+async def test_hidden_storage_identifiers_stop_before_global_approval_or_execution(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, name: str, arguments: dict
+) -> None:
+    manager, engine, handler = runtime(tmp_path, monkeypatch, name, {})
+    hide_renamed_items(manager, monkeypatch)
+    manager.policy.security_policy = Policy(rules=[Rule(tool_name="*")], wait_seconds=5)
+    arguments["identifier_aliases"] = {"hidden": [], "script_services": []}
+    result = await engine.call(name, arguments, CallContext("alice"))
+    assert result.status == "not_started" and result.is_error, result
+    assert result.data["error"]["code"] == "ENTITY_NOT_FOUND"
+    handler.assert_not_awaited()
+    assert not manager.approval_gate.queue.list_pending()
+    manager.hass.bus.async_fire.assert_not_called()
+    assert "renamed_private" not in json.dumps(result.data)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"action": "script.privatekey", "sensitive": "private-data"},
+        {
+            "trace": {
+                "domain": "script",
+                "item_id": "PrivateKey",
+                "sensitive": "private-data",
+            }
+        },
+        {
+            "trace": {
+                "domain": "automation",
+                "item_id": 1700000000002,
+                "sensitive": "private-data",
+            }
+        },
+    ],
+)
+async def test_global_output_barrier_conceals_hidden_service_and_trace_aliases(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, payload: dict
+) -> None:
+    manager, engine, handler = runtime(
+        tmp_path, monkeypatch, "ha_get_overview", payload
+    )
+    identities = hide_renamed_items(manager, monkeypatch)
+    result = await engine.call("ha_get_overview", {}, CallContext("alice"))
+    assert result.is_error and result.status == "confirmed", result
+    assert result.data["error"]["code"] == "ENTITY_VISIBILITY_ENFORCED"
+    assert "private-data" not in json.dumps(result.data)
+    assert all(value not in json.dumps(result.data) for value in identities.values())
+    handler.assert_awaited_once()
+
+
+@pytest.mark.parametrize(
+    "name,arguments",
+    [
+        ("ha_config_get_script", {"script_id": "privatekey"}),
+        ("ha_config_get_script", {"script_id": "public_key"}),
+        ("ha_config_get_script", {"script_id": "bogus_key"}),
+        ("ha_call_service", {"domain": "light", "service": "privatekey"}),
+        ("ha_eval_template", {"template": "PrivateKey"}),
+    ],
+)
+async def test_global_alias_barrier_trusts_core_keys_and_identifier_context_only(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, name: str, arguments: dict
+) -> None:
+    manager, engine, handler = runtime(
+        tmp_path, monkeypatch, name, {"value": "PrivateKey"}
+    )
+    hide_renamed_items(manager, monkeypatch)
+    arguments["identifier_aliases"] = {"script_services": ["public_key"]}
+    result = await engine.call(name, arguments, CallContext("alice"))
+    assert not result.is_error, result
+    handler.assert_awaited_once()
+
+
+async def test_global_matcher_detaches_core_aliases_before_executor_dispatch(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manager, _engine, _handler = runtime(tmp_path, monkeypatch, "ha_get_state", {})
+    identities = hide_renamed_items(manager, monkeypatch)
+    hidden = set(identities)
+    monkeypatch.setattr(native_visibility, "hidden_from_core", lambda *_: hidden)
+    loop_thread = threading.get_ident()
+
+    def read_registry(entity_id: str) -> Any:
+        assert threading.get_ident() == loop_thread
+        return manager.registry.entries.get(entity_id)
+
+    manager.registry.async_get = read_registry
+
+    async def executor(function, *args):
+        hidden.clear()
+        for entry in manager.registry.entries.values():
+            entry.unique_id = "changed_after_capture"
+        return await asyncio.to_thread(function, *args)
+
+    manager.hass.async_add_executor_job = executor
+    matcher = await manager.visibility._matcher(
+        VisibilityConfig(enabled=True, enforce=True)
+    )
+    assert matcher.hidden == frozenset(identities)
+    for entity_id, unique_id in identities.items():
+        domain = entity_id.partition(".")[0]
+        assert matcher.identifier_aliases.addresses_hidden(domain, unique_id)
+        assert not matcher.identifier_aliases.addresses_hidden(
+            domain, "changed_after_capture"
+        )
+    assert matcher.embeds("action: script.privatekey")
+    assert not matcher.embeds("action: script.public_key")
+    assert not matcher.embeds("action: script.changed_after_capture")
+
+
+async def test_global_alias_registry_failure_conceals_output_and_stops_execution(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    manager, engine, handler = runtime(
+        tmp_path, monkeypatch, "ha_get_overview", {"sensitive": "private-data"}
+    )
+    identities = hide_renamed_items(manager, monkeypatch)
+
+    def unavailable(entity_id: str) -> Any:
+        raise RuntimeError("registry unavailable")
+
+    manager.registry.async_get = unavailable
+    before = await engine.call("ha_get_overview", {}, CallContext("alice"))
+    after = await manager.visibility.after(
+        "ha_get_overview",
+        {},
+        CallContext("alice"),
+        ToolResult({"sensitive": "private-data"}),
+    )
+    for result in (before, after):
+        assert result.is_error
+        assert result.data["error"]["code"] == "ENTITY_VISIBILITY_ENFORCED"
+        assert "private-data" not in json.dumps(result.data)
+        assert all(
+            value not in json.dumps(result.data) for value in identities.values()
+        )
+    assert before.status == "not_started"
+    handler.assert_not_awaited()
 
 
 async def test_hidden_argument_is_concealed_before_approval_and_execution(

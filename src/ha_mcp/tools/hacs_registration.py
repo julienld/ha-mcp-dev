@@ -21,6 +21,7 @@ from ..client.rest_client import (
     HomeAssistantCommandTimeout,
     HomeAssistantConnectionError,
 )
+from .hacs_backend import HACS_API, StoreApi
 
 logger = logging.getLogger(__name__)
 
@@ -316,15 +317,15 @@ async def wait_for_repo_registration(
 
 
 async def send_hacs_repository_refresh(
-    ws_client: Any, repository_id: str
+    ws_client: Any, repository_id: str, api: StoreApi = HACS_API
 ) -> dict[str, Any]:
-    """Send HACS's "Update information" force-refresh for one repository.
+    """Send the store's "Update information" force-refresh for one repository.
 
-    NOTE: HACS's WS API is asymmetric — refresh takes ``repository`` (like
+    NOTE: both store APIs are asymmetric — refresh takes ``repository`` (like
     remove), not ``repository_id`` (like info).
     """
     response: dict[str, Any] = await ws_client.send_command(
-        "hacs/repository/refresh",
+        api.command("refresh"),
         repository=repository_id,
         _wait_timeout=HACS_REFRESH_TIMEOUT,
     )

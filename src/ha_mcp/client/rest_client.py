@@ -663,6 +663,8 @@ class HomeAssistantClient:
                 json=payload,
                 params=params,
             )
+        except HomeAssistantAdminRequiredError:
+            raise
         except HomeAssistantAuthError as exc:
             self._is_admin = None
             self._admin_route_refused = True

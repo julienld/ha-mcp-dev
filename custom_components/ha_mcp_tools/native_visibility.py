@@ -20,6 +20,11 @@ from ha_mcp.visibility.enforcement import (
     _unscannable_reason,
     enforcement_error,
 )
+from ha_mcp.visibility.identifier_aliases import (
+    build_identifier_aliases,
+    hidden_identifier_argument,
+    result_reveals_hidden,
+)
 from ha_mcp.visibility.model import VisibilityConfig
 from ha_mcp.visibility.persistence import load_visibility_config
 from ha_mcp.visibility.resolver import (
@@ -145,7 +150,20 @@ class NativeVisibility:
 
     async def _matcher(self, config: VisibilityConfig) -> _HiddenMatcher:
         try:
-            hidden = hidden_from_core(self.manager.hass, config)
+            from homeassistant.helpers import entity_registry as er
+
+            hidden = set(hidden_from_core(self.manager.hass, config))
+            registry = er.async_get(self.manager.hass)
+            aliases = build_identifier_aliases(
+                hidden,
+                {
+                    "result": [
+                        {"entity_id": eid, "unique_id": row.unique_id}
+                        for eid in hidden
+                        if (row := registry.async_get(eid)) is not None
+                    ]
+                },
+            )
         except Exception as error:
             _LOGGER.warning(
                 "Native visibility inputs could not be resolved", exc_info=True
@@ -156,7 +174,7 @@ class NativeVisibility:
         return cast(
             _HiddenMatcher,
             await self.manager.hass.async_add_executor_job(
-                _HiddenMatcher.from_hidden, hidden
+                _HiddenMatcher.from_hidden, hidden, aliases
             ),
         )
 
@@ -180,6 +198,10 @@ class NativeVisibility:
         if reason is not None:
             self._deny(name, reason)
         exact, embedded = _scan_value(arguments, matcher)
+        exact = (
+            hidden_identifier_argument(name, arguments, matcher.identifier_aliases)
+            or exact
+        )
         if exact is not None:
             raise ToolFailure(
                 "ENTITY_NOT_FOUND",
@@ -245,7 +267,9 @@ class NativeVisibility:
                     data=enforcement_error(name, _outbound_reason(name)),
                     is_error=True,
                 )
-        if matcher.embeds(json.dumps(data, default=str)):
+        if matcher.embeds(json.dumps(data, default=str)) or result_reveals_hidden(
+            [data], matcher.identifier_aliases
+        ):
             return replace(
                 result,
                 data=enforcement_error(name, _outbound_reason(name)),

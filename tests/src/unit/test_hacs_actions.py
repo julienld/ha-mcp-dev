@@ -15,7 +15,6 @@ import pytest
 
 from ha_mcp.__main__ import OAuthProxyClient
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
-from ha_mcp.tools.hacs_backend import HACS_API
 from ha_mcp.tools.tools_hacs import (
     HACS_ADD_REGISTRATION_TIMEOUT,
     HACS_RESOLVE_REGISTRATION_TIMEOUT,
@@ -59,8 +58,8 @@ def _patched_hacs(ws):
     """Patch HACS availability, the WS client factory, and tz metadata."""
     with (
         patch(
-            "ha_mcp.tools.tools_hacs.detect_store_api",
-            new=AsyncMock(return_value=HACS_API),
+            "ha_mcp.tools.tools_hacs._assert_hacs_available",
+            new=AsyncMock(return_value="hacs"),
         ),
         patch(
             "ha_mcp.client.websocket_client.get_websocket_client",

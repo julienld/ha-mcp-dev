@@ -9,6 +9,7 @@ from ha_mcp.runtime.search_references import (
 )
 from ha_mcp.runtime.search_response import _CONFIG_BUCKETS, _ResolvedSearch
 from ha_mcp.visibility.enforcement import _HiddenMatcher, _scan_value
+from ha_mcp.visibility.identifier_aliases import build_identifier_aliases
 
 from ..core_secrets import _scrub_secret_values
 from ..websocket_api.search import _entity_match_type
@@ -147,7 +148,10 @@ def _merge_references(
 def score_candidates(
     image: dict[str, Any], req: _ResolvedSearch, threshold: int
 ) -> _HiddenMatcher:
-    matcher = _HiddenMatcher.from_hidden(set(image["hidden"]))
+    hidden = set(image["hidden"])
+    matcher = _HiddenMatcher.from_hidden(
+        hidden, build_identifier_aliases(hidden, {"result": image["hidden_registry"]})
+    )
     _match_entities(image, req, threshold, matcher)
     _match_configs(image, req, threshold, matcher)
     reasons = [*image["source_reasons"], *_merge_references(image, req, matcher)]

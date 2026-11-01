@@ -47,9 +47,16 @@ def widen_fastmcp_log_console(width: int = 200) -> None:
 
     from rich.logging import RichHandler
 
+    try:
+        from ha_mcp._vendor.rich.logging import RichHandler as PrivateRichHandler
+    except ImportError:
+        # Older server builds still use the shared Rich provider.
+        rich_handlers: tuple[type[Any], ...] = (RichHandler,)
+    else:
+        rich_handlers = (RichHandler, PrivateRichHandler)
     widened = 0
     for handler in logging.getLogger("fastmcp").handlers:
-        if isinstance(handler, RichHandler):
+        if isinstance(handler, rich_handlers):
             handler.console.width = width
             widened += 1
     if not widened:
