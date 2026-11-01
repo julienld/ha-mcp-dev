@@ -281,7 +281,8 @@ async def test_automation_python_transform_result_is_named(monkeypatch) -> None:
     tools = AutomationConfigTools(object())
 
     async def fetch(_identifier, _hash, _action):
-        return {"alias": "x", "triggers": [_TRIGGER], "actions": [_ACTION]}, "id"
+        config = {"alias": "x", "triggers": [_TRIGGER], "actions": [_ACTION]}
+        return config, "id", dict(config)
 
     monkeypatch.setattr(tools, "_fetch_and_verify_hash", fetch)
     with pytest.raises(ToolError) as exc_info:

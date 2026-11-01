@@ -42,6 +42,28 @@ async def test_native_policy_missing_version_still_reports_its_actual_CAS(docume
     )
 
 
+@pytest.mark.parametrize("gate_exists", [False, True])
+async def test_policy_save_clears_approvals_only_when_a_gate_exists(
+    document, gate_exists
+):
+    owner, _settings = document
+    clear = owner.manager.approval_gate.queue.clear_remember_cache
+    if not gate_exists:
+        owner.manager.approval_gate = None
+    result = await owner.set({"rules": [], "rule_effect": "allow"}, 0)
+    assert result["success"] and result["data"]["version"] == 1
+    assert all(
+        "remembered approvals" not in warning for warning in result.get("warnings", [])
+    )
+    stored = await owner.get()
+    assert stored["data"]["policy"]["rule_effect"] == "allow"
+    if gate_exists:
+        clear.assert_called_once_with()
+    else:
+        assert stored["data"]["policies_live"] is False
+        clear.assert_not_called()
+
+
 async def test_native_policy_conflict_withholds_current_document_after_revocation(
     document, monkeypatch
 ):

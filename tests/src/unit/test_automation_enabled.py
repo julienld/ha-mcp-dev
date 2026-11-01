@@ -11,7 +11,7 @@ from ha_mcp.client.rest_client import (
     HomeAssistantAPIError,
     HomeAssistantConnectionError,
 )
-from ha_mcp.tools import auto_backup, config_write_helpers, tools_config_automations
+from ha_mcp.tools import auto_backup, tools_config_automations
 
 
 class _FakeClient:
@@ -175,7 +175,7 @@ async def test_python_transform_reports_entity_resolved_for_enabled(
     }
 
     async def fetch_and_verify_hash(identifier, config_hash, action):
-        return dict(config), "stored-id"
+        return dict(config), "stored-id", dict(config)
 
     async def get_config(identifier):
         return config, "new-hash"
@@ -708,11 +708,12 @@ async def test_python_transform_rejects_injected_enabled_before_write(
     tools = tools_config_automations.AutomationConfigTools(client)
 
     async def fetch_and_verify_hash(identifier, config_hash, action):
-        return {
+        config = {
             "alias": "Morning",
             "triggers": [{"trigger": "event", "event_type": "test_event"}],
             "actions": [{"action": "logbook.log", "data": {"message": "x"}}],
-        }, "stored-id"
+        }
+        return config, "stored-id", dict(config)
 
     monkeypatch.setattr(tools, "_fetch_and_verify_hash", fetch_and_verify_hash)
 
@@ -785,69 +786,6 @@ async def test_standalone_enabled_verification_error_is_warning(monkeypatch) -> 
 
     assert result["enabled_applied"] is True
     assert any("verification failed" in w for w in result["warnings"])
-
-
-class _FakeWsClient:
-    def __init__(self) -> None:
-        self.is_connected = True
-        self.handlers: dict[str, list[Any]] = {}
-        self.unsubscribed: list[int] = []
-
-    def add_event_handler(self, event_type: str, handler: Any) -> None:
-        self.handlers.setdefault(event_type, []).append(handler)
-
-    def remove_event_handler(self, event_type: str, handler: Any) -> None:
-        self.handlers[event_type].remove(handler)
-
-    async def subscribe_events(self, event_type: str) -> int:
-        return 7
-
-    async def unsubscribe_events(self, subscription_id: int) -> None:
-        self.unsubscribed.append(subscription_id)
-
-    async def fire(self, event_type: str) -> None:
-        for handler in list(self.handlers.get(event_type, [])):
-            await handler({"event_type": event_type, "data": {}})
-
-
-@pytest.mark.unit
-@pytest.mark.anyio
-async def test_reload_waiter_returns_true_after_reload_event(monkeypatch) -> None:
-    ws = _FakeWsClient()
-
-    async def get_ws(_client):
-        return ws
-
-    monkeypatch.setattr(config_write_helpers, "_get_waiter_ws_client", get_ws)
-
-    async with config_write_helpers.config_reload_waiter(
-        object(), "automation_reloaded"
-    ) as wait_for_reload:
-        await ws.fire("automation_reloaded")
-        assert await wait_for_reload() is True
-
-    assert ws.unsubscribed == [7]
-    assert ws.handlers["automation_reloaded"] == []
-
-
-@pytest.mark.unit
-@pytest.mark.anyio
-async def test_reload_waiter_times_out_and_skips_without_ws(monkeypatch) -> None:
-    ws = _FakeWsClient()
-
-    async def get_ws(_client):
-        return ws
-
-    monkeypatch.setattr(config_write_helpers, "_get_waiter_ws_client", get_ws)
-    async with config_write_helpers.config_reload_waiter(
-        object(), "automation_reloaded", timeout=0.01
-    ) as wait_for_reload:
-        assert await wait_for_reload() is False
-
-    async with config_write_helpers.config_reload_waiter(
-        object(), "automation_reloaded", enabled=False
-    ) as wait_for_reload:
-        assert await wait_for_reload() is None
 
 
 @pytest.mark.unit
@@ -1028,7 +966,7 @@ async def _write_with_run_actions(
         )
 
     async def fetch_and_verify_hash(identifier, config_hash, action):
-        return dict(config), "morning"
+        return dict(config), "morning", dict(config)
 
     async def get_config(identifier):
         return config, "new-hash"

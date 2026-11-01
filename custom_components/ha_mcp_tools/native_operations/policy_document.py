@@ -169,7 +169,7 @@ class NativePolicyDocument:
         new: Policy,
         warnings: list[str],
     ) -> dict[str, Any]:
-        if changed:
+        if changed and self.manager.approval_gate is not None:
             try:
                 self.manager.approval_gate.queue.clear_remember_cache()
             except Exception:  # noqa: BLE001 - persistence has already committed

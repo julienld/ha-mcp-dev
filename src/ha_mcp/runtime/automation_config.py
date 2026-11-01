@@ -231,10 +231,10 @@ class AutomationConfigMethods(AutomationRemovalTools, ConfigWriteContext):
 
     async def _guard_alias_replacement(
         self, identifier: str, config: dict[str, Any]
-    ) -> str | None:
+    ) -> tuple[dict[str, Any], str | None] | None:
         """Require a prior read before replacing a differently named automation.
 
-        Return the fetched storage id for reuse by the write, when available.
+        Return the raw before-image and storage id for reuse by this write.
         This catches sequential ID reuse. The REST read and write are separate
         requests, so it does not provide atomic protection against other writers.
         """
@@ -265,11 +265,10 @@ class AutomationConfigMethods(AutomationRemovalTools, ConfigWriteContext):
                 )
             )
         raw_id = current.get("id")
-        self._last_verified_automation = (
+        return (
             copy.deepcopy(current),
             str(raw_id) if raw_id is not None else None,
         )
-        return str(raw_id) if raw_id is not None else None
 
     async def _get_automation_config_internal(
         self, identifier: str
@@ -277,30 +276,41 @@ class AutomationConfigMethods(AutomationRemovalTools, ConfigWriteContext):
         """Fetch and normalize automation config without logging or category injection.
 
         Returns (normalized_config, config_hash) tuple.
-        Used internally by _fetch_and_verify_hash and ha_config_get_automation.
+        Used by readback and the historical ha_config_get_automation facade.
 
         Raises a structured ``RESOURCE_NOT_FOUND`` ToolError via
         ``_raise_automation_not_found`` when the REST client returns 404.
         Other ``HomeAssistantAPIError`` instances propagate unchanged to
         caller exception handlers (``exception_to_structured_error`` route).
         """
+        _, normalized_config, config_hash_value = await self._read_automation_snapshot(
+            identifier
+        )
+        return normalized_config, config_hash_value
+
+    async def _read_automation_snapshot(
+        self, identifier: str
+    ) -> tuple[dict[str, Any], dict[str, Any], str]:
+        """Keep the raw CAS image alongside its normalized caller-facing config."""
         try:
             config_result = await self._read_automation_config(identifier)
         except HomeAssistantAPIError as e:
             if e.status_code == 404:
                 await self._raise_automation_not_found(identifier)
             raise
-        self._last_automation_read_raw = copy.deepcopy(config_result)
+        raw_config = copy.deepcopy(config_result)
         normalized_config = _normalize_config_for_roundtrip(config_result)
         config_hash_value = compute_config_hash(normalized_config)
-        return normalized_config, config_hash_value
+        return raw_config, normalized_config, config_hash_value
 
     async def _fetch_and_verify_hash(
         self, identifier: str, config_hash: str, action: str
-    ) -> tuple[dict[str, Any], str | None]:
+    ) -> tuple[dict[str, Any], str | None, dict[str, Any]]:
         """Fetch current automation config and verify config_hash for optimistic locking.
 
-        Returns ``(current_normalized_config, resolved_unique_id)``. The fetch
+        Returns ``(current_normalized_config, resolved_unique_id, raw_config)``.
+        The raw config stays local to the call for backup and CAS; a transform
+        may safely mutate the separate normalized config. The fetch
         already resolved ``identifier`` to the storage key inside
         ``get_automation_config``; HA returns the stored body keyed by that
         unique_id, so ``config['id']`` IS the resolved unique_id (the same value
@@ -311,7 +321,7 @@ class AutomationConfigMethods(AutomationRemovalTools, ConfigWriteContext):
         back to re-resolving.
         Raises ToolError if the hash does not match (conflict).
         """
-        current_config, current_hash = await self._get_automation_config_internal(
+        raw_config, current_config, current_hash = await self._read_automation_snapshot(
             identifier
         )
         if current_hash != config_hash:
@@ -330,11 +340,7 @@ class AutomationConfigMethods(AutomationRemovalTools, ConfigWriteContext):
         # Stringify to match ``_resolve_automation_id``'s ``str()`` coercion so a
         # threaded id is byte-for-byte what the unthreaded path would produce.
         resolved_id = str(raw_id) if raw_id is not None else None
-        self._last_verified_automation = (
-            copy.deepcopy(getattr(self, "_last_automation_read_raw", current_config)),
-            resolved_id,
-        )
-        return current_config, resolved_id
+        return current_config, resolved_id, raw_config
 
     @staticmethod
     def _parse_and_validate_config(config: str | dict[str, Any]) -> dict[str, Any]:

@@ -187,6 +187,7 @@ async def test_old_entity_restore_refuses_changes_or_rights_loss_after_safety_io
 
 async def test_old_entity_state_listener_failure_is_unknown_without_registry_recreation(
     state_history,
+    caplog,
 ):
     _, snapshots, _, path, states = state_history
     states.fail_after = True
@@ -195,6 +196,12 @@ async def test_old_entity_state_listener_failure_is_unknown_without_registry_rec
     assert raised.value.outcome["apply_status"] == "unknown"
     assert raised.value.outcome["temporary_state_only"] is True
     assert states.rows["sensor.legacy"].state == "saved" and len(states.calls) == 1
+    assert any(
+        record.name.endswith(".state_snapshots")
+        and record.exc_info
+        and isinstance(record.exc_info[1], ValueError)
+        for record in caplog.records
+    )
 
 
 @pytest.mark.parametrize(

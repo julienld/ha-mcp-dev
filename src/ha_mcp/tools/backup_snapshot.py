@@ -9,13 +9,14 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Any, NoReturn, cast
 
 from ha_mcp._vendor.fastmcp import Context
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp._vendor.websockets.exceptions import ConnectionClosed
 
+from ..backends.legacy import legacy_errors_sync
 from ..client.rest_client import (
     HomeAssistantClient,
     HomeAssistantCommandNotSent,
@@ -25,7 +26,10 @@ from ..client.rest_client import (
 from ..client.websocket_client import HomeAssistantWebSocketClient
 from ..config import get_global_settings
 from ..errors import ErrorCode, create_error_response
-from ..runtime.backup_values import _newest_backup_id, _parse_backup_date
+from ..runtime.backup_values import (
+    _check_snapshot_deletable as _shared_check_snapshot_deletable,
+)
+from ..runtime.backup_values import _parse_backup_date
 from .helpers import (
     exception_to_structured_error,
     get_connected_ws_client,
@@ -752,53 +756,13 @@ def _check_snapshot_deletable(
     backup_id: str,
 ) -> None:
     """Apply the scheduled / newest / age-floor delete guards; raise to refuse."""
-    if matched.get("with_automatic_settings") is not False:
-        _refuse_snapshot_delete(
-            "Refusing to delete a scheduled (automatic) backup, or one "
-            "whose automatic/manual origin Home Assistant cannot "
-            "confirm (with_automatic_settings=None — not created by "
-            "this HA instance, or predates this metadata) — treated "
-            "as not provably manual, and therefore not deletable.",
-            backup_id=backup_id,
-        )
-
-    # Checked before the age floor below: a backup that is BOTH the
-    # newest AND too young must report "newest" (create a new one
-    # first), not "too young" — the age-floor message's remedy
-    # ("lower snapshot_delete_min_age_days") would be actively
-    # misleading advice for the newest snapshot, which stays
-    # protected at any age floor including 0.
-    newest_id = _newest_backup_id(backups)
-    if newest_id == backup_id:
-        _refuse_snapshot_delete(
-            "Refusing to delete the newest snapshot — at least one "
-            "recovery point must remain. Create a new snapshot first "
-            "if you specifically need to free this one's space.",
-            backup_id=backup_id,
-        )
-
-    min_age_days = settings.snapshot_delete_min_age_days
-    target_date = _parse_backup_date(matched.get("date"))
-    if target_date is None:
-        _refuse_snapshot_delete(
-            "Refusing to delete a backup with a missing or unparseable "
-            "date — cannot verify it clears the minimum-age floor.",
-            backup_id=backup_id,
-        )
-    cutoff = datetime.now(UTC) - timedelta(days=min_age_days)
-    # min_age_days=0 must unconditionally disable the floor, even if
-    # target_date is slightly ahead of this host's clock (clock skew
-    # vs the HA instance that stamped it) — guard explicitly rather
-    # than relying on the arithmetic reduction, which clock skew breaks.
-    if min_age_days > 0 and target_date > cutoff:
-        _refuse_snapshot_delete(
-            f"Refusing to delete a backup younger than "
-            f"snapshot_delete_min_age_days={min_age_days} days — at "
-            "least one recent recovery point must remain. Delete an "
-            "older backup, or lower snapshot_delete_min_age_days if "
-            "this recurs.",
-            backup_id=backup_id,
-        )
+    legacy_errors_sync(_shared_check_snapshot_deletable)(
+        matched,
+        backups,
+        settings.snapshot_delete_min_age_days,
+        backup_id,
+        datetime.now(UTC),
+    )
 
 
 async def _execute_snapshot_delete(

@@ -370,6 +370,7 @@ class AutomationConfigTools(LegacyBackendTools, AutomationWriteTools):
         config: dict[str, Any],
         identifier: str | None,
         resolved_id: str | None,
+        verified: tuple[dict[str, Any], str | None] | None = None,
     ) -> dict[str, Any]:
         """Upsert, threading a pre-resolved unique_id when available.
 
@@ -379,6 +380,9 @@ class AutomationConfigTools(LegacyBackendTools, AutomationWriteTools):
         Phase 0). Otherwise fall back to the raw ``identifier`` and let the REST
         client resolve — creation and fetched configs without an id use this
         fallback.
+
+        ``verified`` belongs to the shared runtime's CAS path; this historical
+        client override retains its existing upsert contract.
         """
         result: dict[str, Any]
         if resolved_id is not None:

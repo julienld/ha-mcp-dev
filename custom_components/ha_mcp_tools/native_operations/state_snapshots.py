@@ -1,5 +1,6 @@
 """The historical entity domain restores temporary StateMachine values only."""
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -17,6 +18,8 @@ from .registry_access import (
     registry_json,
 )
 from .registry_failures import registry_outcome_unknown
+
+_LOGGER = logging.getLogger(__name__)
 
 STATE_ONLY_WARNING = (
     "Legacy entity snapshots contain only state and attributes. This restore does not "
@@ -110,7 +113,8 @@ class NativeStateSnapshots:
                 "warnings": [STATE_ONLY_WARNING],
                 "temporary_state_only": True,
             }
-        except Exception as error:  # noqa: BLE001 - the StateMachine and listeners may already have changed
+        except Exception as error:
+            _LOGGER.exception("State snapshot restore failed after dispatch")
             registry_outcome_unknown(
                 "entity_state",
                 "restore",

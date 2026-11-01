@@ -144,9 +144,8 @@ def transform_tools(tools):
     values — the parity key under test depends only on the post-upsert
     `entity_id` resolution, not on the hash arithmetic.
 
-    `_fetch_and_verify_hash` returns ``(config, resolved_id)`` since #1813
-    Phase 0 — the second element is the already-resolved storage key the tool
-    threads into the upsert.
+    `_fetch_and_verify_hash` returns ``(config, resolved_id, raw_config)`` —
+    the storage key and raw before-image travel with this write.
     """
     canonical_config = {
         "alias": "Morning Routine",
@@ -156,7 +155,7 @@ def transform_tools(tools):
         ],
     }
     tools._fetch_and_verify_hash = AsyncMock(
-        return_value=(dict(canonical_config), "abc123unique")
+        return_value=(dict(canonical_config), "abc123unique", dict(canonical_config))
     )
     tools._get_automation_config_internal = AsyncMock(
         return_value=(dict(canonical_config), "post_transform_hash")

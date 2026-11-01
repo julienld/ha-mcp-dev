@@ -82,7 +82,11 @@ class AutomationWriteTools(AutomationRuntimeTools):
             raise await self._augment_failure(failure, bp_warnings) from None
 
     async def _upsert_automation(
-        self, config: dict[str, Any], identifier: str | None, resolved_id: str | None
+        self,
+        config: dict[str, Any],
+        identifier: str | None,
+        resolved_id: str | None,
+        verified: tuple[dict[str, Any], str | None] | None = None,
     ) -> dict[str, Any]:
         allocated = identifier is None
         candidate = identifier
@@ -100,7 +104,7 @@ class AutomationWriteTools(AutomationRuntimeTools):
             "automation",
             candidate,
             resolved_id,
-            getattr(self, "_last_verified_automation", None),
+            verified,
             creating=allocated,
         )
         body = automation_write_body(config, identifier, key)
@@ -397,14 +401,15 @@ class AutomationWriteTools(AutomationRuntimeTools):
             # Reuse it for the write to avoid a second entity-ID lookup (#1813).
             # Creation and responses without an id retain the existing fallback.
             resolved_id: str | None = None
+            verified: tuple[dict[str, Any], str | None] | None = None
             if identifier and config_hash:
-                _, resolved_id = await self._fetch_and_verify_hash(
+                _, resolved_id, raw_config = await self._fetch_and_verify_hash(
                     identifier, config_hash, "set"
                 )
+                verified = (raw_config, resolved_id)
             elif identifier:
-                resolved_id = await self._guard_alias_replacement(
-                    identifier, config_dict
-                )
+                verified = await self._guard_alias_replacement(identifier, config_dict)
+                resolved_id = verified[1] if verified is not None else None
 
             bp_warnings = _check_best_practices(config_dict)
             validation_meta = await self._validate_references(config_dict)
@@ -427,6 +432,7 @@ class AutomationWriteTools(AutomationRuntimeTools):
                 detached_blueprint,
                 enabled,
                 run_actions=run_actions,
+                verified=verified,
             )
 
         except ToolFailure as failure:
@@ -474,7 +480,7 @@ class AutomationWriteTools(AutomationRuntimeTools):
                 )
             )
 
-        current_config, resolved_id = await self._fetch_and_verify_hash(
+        current_config, resolved_id, raw_config = await self._fetch_and_verify_hash(
             identifier, config_hash, "python_transform"
         )
 
@@ -527,7 +533,7 @@ class AutomationWriteTools(AutomationRuntimeTools):
             enabled=runtime_requested
         ) as wait_for_reload:
             result = await self._upsert_automation(
-                transformed_config, identifier, resolved_id
+                transformed_config, identifier, resolved_id, (raw_config, resolved_id)
             )
             reloaded = await wait_for_reload()
             note_reload_outcome(
@@ -602,6 +608,7 @@ class AutomationWriteTools(AutomationRuntimeTools):
         enabled: bool | None = None,
         *,
         run_actions: bool = False,
+        verified: tuple[dict[str, Any], str | None] | None = None,
     ) -> dict[str, Any]:
         """Execute config-replacement mode and return the tool response.
 
@@ -614,12 +621,16 @@ class AutomationWriteTools(AutomationRuntimeTools):
         ``resolved_id`` (set when the hash check or alias guard fetched an id)
         is threaded to the upsert so it skips the redundant
         re-resolve; None falls back to resolving inside the REST client.
+        ``verified`` carries this call's raw before-image and storage key for
+        the runtime CAS check; creation has no inherited verification image.
         """
         runtime_requested = enabled is not None or run_actions
         async with self._config_reload_waiter(
             enabled=runtime_requested
         ) as wait_for_reload:
-            result = await self._upsert_automation(config_dict, identifier, resolved_id)
+            result = await self._upsert_automation(
+                config_dict, identifier, resolved_id, verified
+            )
             reloaded = await wait_for_reload()
             note_reload_outcome(
                 result, reloaded, domain="automation", requested=enabled is not None
