@@ -100,28 +100,36 @@ class NativeSelfUpdate:
                 "Use the returned installation-owner guide.",
                 result,
             )
-        if result["status"] == "pending_restart":
-            return result
-        if result["impact"]["classification"] == "unchanged":
-            return result
-        if result["impact"]["classification"] != "compatible":
-            self._fail(
-                "VALIDATION_INVALID_PARAMETER",
-                "Review the breaking or unknown release impact before installing through the owner's interface.",
-                result,
-            )
         assert owner is not None
         async with (
             registry_update_lock("hacs", "repositories"),
             registry_update_lock("update", owner.target.entity_id),
         ):
             receipt = await self._io(read_receipt, self.directory)
+            await self._admit_update(actor)
+            owner.check(self.manager.hass)
+            check_mutation_admission(actor)
             if self._unresolved(receipt, owner):
                 self._fail(
                     "OUTCOME_UNKNOWN",
                     "An earlier dispatch is unresolved; it will not be replayed.",
                     result,
                     "outcome_unknown",
+                )
+            if isinstance(receipt, dict) and receipt.get("state") == "dispatching":
+                # Retain an exact observed settlement across later owner updates.
+                receipt = {**receipt, "state": "installed"}
+                await self._io(write_receipt, self.directory, receipt)
+                result["recovery"] = recovery_summary(receipt)
+            if result["status"] == "pending_restart":
+                return result
+            if result["impact"]["classification"] == "unchanged":
+                return result
+            if result["impact"]["classification"] != "compatible":
+                self._fail(
+                    "VALIDATION_INVALID_PARAMETER",
+                    "Review the breaking or unknown release impact before installing through the owner's interface.",
+                    result,
                 )
             return await await_owned_io(self._install(owner, actor, result))
 

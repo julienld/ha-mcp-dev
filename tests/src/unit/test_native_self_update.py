@@ -527,8 +527,9 @@ async def test_concurrent_calls_do_not_repeat_an_uncertain_dispatch(
     self_update.manager.hass.services.async_call.assert_awaited_once()
 
 
+@pytest.mark.parametrize("after_restart", [False, True])
 async def test_readback_after_lost_reply_observes_install_without_replaying(
-    self_update: Any,
+    self_update: Any, after_restart: bool
 ) -> None:
     async def installed(*args: Any, **kwargs: Any) -> None:
         self_update.entity.installed_version = "7.1.0"
@@ -536,8 +537,65 @@ async def test_readback_after_lost_reply_observes_install_without_replaying(
 
     self_update.manager.hass.services.async_call = AsyncMock(side_effect=installed)
     assert (await call(self_update, "update")).status == "outcome_unknown"
+    if after_restart:
+        self_update.service.running_component_version = "7.1.0"
     result = await call(self_update, "update")
+    assert not result.is_error
+    assert result.data["status"] == ("checked" if after_restart else "pending_restart")
+    receipt = self_update.storage.read_receipt(self_update.service.directory)
+    assert receipt["state"] == "installed"
+    assert result.data["recovery"]["state"] == "installed"
+    # A later owner-driven update must not resurrect an already settled fence.
+    self_update.entity.installed_version = "7.2.0"
+    self_update.entity.latest_version = "7.2.0"
+    self_update.service.running_component_version = "7.2.0"
+    checked = await call(self_update)
+    assert not checked.is_error and checked.data["status"] != "outcome_unknown"
+    self_update.manager.hass.services.async_call.assert_awaited_once()
+
+
+@pytest.mark.parametrize("action", ["check", "guide"])
+async def test_read_only_observation_does_not_persist_a_settled_receipt(
+    self_update: Any, action: str
+) -> None:
+    self_update.manager.hass.services.async_call = AsyncMock(side_effect=TimeoutError())
+    assert (await call(self_update, "update")).status == "outcome_unknown"
+    self_update.entity.installed_version = "7.1.0"
+    before = self_update.storage.read_receipt(self_update.service.directory)
+    result = await call(self_update, action, read_only=True)
     assert not result.is_error and result.data["status"] == "pending_restart"
+    assert self_update.storage.read_receipt(self_update.service.directory) == before
+    assert before["state"] == "dispatching"
+    self_update.manager.hass.services.async_call.assert_awaited_once()
+
+
+@pytest.mark.parametrize("change", ["policy", "owner"])
+async def test_settlement_rechecks_admission_and_owner_after_locked_read(
+    self_update: Any, monkeypatch: pytest.MonkeyPatch, change: str
+) -> None:
+    self_update.manager.hass.services.async_call = AsyncMock(side_effect=TimeoutError())
+    assert (await call(self_update, "update")).status == "outcome_unknown"
+    self_update.entity.installed_version = "7.1.0"
+    before = self_update.storage.read_receipt(self_update.service.directory)
+    original = self_update.module.read_receipt
+    reads = 0
+
+    def changed(*args: Any) -> Any:
+        nonlocal reads
+        receipt = original(*args)
+        reads += 1
+        if reads == 2:
+            if change == "policy":
+                self_update.self_engine.read_only = True
+            else:
+                self_update.repo.data.id = "replacement"
+        return receipt
+
+    monkeypatch.setattr(self_update.module, "read_receipt", changed)
+    result = await call(self_update, "update")
+    assert result.is_error
+    assert reads == 2
+    assert self_update.storage.read_receipt(self_update.service.directory) == before
     self_update.manager.hass.services.async_call.assert_awaited_once()
 
 
