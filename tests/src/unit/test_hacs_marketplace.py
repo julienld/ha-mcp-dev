@@ -199,7 +199,8 @@ class TestMarketplaceCommands:
         text = str(excinfo.value)
         assert "AUTH_FORBIDDEN" in text
         assert "warning_not_accepted" in text
-        assert "accept the warning" in text
+        assert "first-run warning" in text
+        assert "Marketplace UI" in text
         assert "cannot accept" in text
         assert not _writes(world.ws)
 
