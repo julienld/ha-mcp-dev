@@ -63,19 +63,35 @@ def _client(
     replies: dict[str, Any] | None = None,
     states: dict[str, dict[str, Any]] | None = None,
 ) -> MagicMock:
-    """A client answering by WebSocket command type and entity_id."""
+    """Answer zone commands and the registry reads shared with helper tests.
+
+    Single-entry overrides seed bulk reads unless the caller supplies a list.
+    """
     answers: dict[str, Any] = {
         "config/entity_registry/list": {"success": True, "result": REGISTRY},
         "zone/list": {"success": True, "result": [OFFICE]},
         "zone/create": {"success": True, "result": OFFICE},
         "zone/update": {"success": True, "result": OFFICE},
         "zone/delete": {"success": True, "result": None},
+        "config/entity_registry/get": {"success": True, "result": OFFICE_ENTRY},
         "config/entity_registry/update": {
             "success": True,
             "result": {"entity_entry": OFFICE_ENTRY},
         },
     }
     answers.update(replies or {})
+    if (
+        replies
+        and "config/entity_registry/get" in replies
+        and "config/entity_registry/list" not in replies
+    ):
+        reply = replies["config/entity_registry/get"]
+        row = reply.get("result") if isinstance(reply, dict) else None
+        if isinstance(row, dict) and row.get("platform") != "zone":
+            answers["config/entity_registry/list"] = {
+                "success": True,
+                "result": [*REGISTRY, row],
+            }
     known = {"zone.office": {"entity_id": "zone.office", "attributes": {}}}
     known.update(states or {})
 
