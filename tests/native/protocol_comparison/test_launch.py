@@ -6,6 +6,7 @@ import argparse
 import copy
 import json
 import os
+import shutil
 import subprocess
 import sys
 import textwrap
@@ -16,6 +17,48 @@ import jwt
 import pytest
 
 from . import launch
+
+
+@pytest.mark.parametrize(
+    "mode", ["success", "missing_uv", "cold_cache", "runtime_error"]
+)
+def test_locked_preflight_is_offline_and_skips_only_missing_prerequisites(
+    monkeypatch: pytest.MonkeyPatch, mode: str
+) -> None:
+    monkeypatch.setattr(
+        shutil, "which", lambda _: None if mode == "missing_uv" else "uv"
+    )
+    calls = []
+
+    def run(args: list[str], **_kwargs: Any) -> Any:
+        calls.append(args)
+        if mode == "cold_cache":
+            return subprocess.CompletedProcess(
+                args,
+                1,
+                "",
+                "error: Network connectivity is disabled; requested data was not found in the cache",
+            )
+        if mode == "runtime_error":
+            return subprocess.CompletedProcess(args, 1, "", "worker imports are broken")
+        return subprocess.CompletedProcess(
+            args, 0, json.dumps({"complete": True, "phase": "host_imports"}), ""
+        )
+
+    monkeypatch.setattr(subprocess, "run", run)
+    if mode in ("missing_uv", "cold_cache"):
+        with pytest.raises(
+            pytest.skip.Exception,
+            match="unavailable" if mode == "missing_uv" else "not cached",
+        ):
+            test_locked_cli_imports_real_worker_helpers_without_the_candidate_installed()
+        assert len(calls) == (0 if mode == "missing_uv" else 1)
+    elif mode == "runtime_error":
+        with pytest.raises(AssertionError, match="worker imports are broken"):
+            test_locked_cli_imports_real_worker_helpers_without_the_candidate_installed()
+    else:
+        test_locked_cli_imports_real_worker_helpers_without_the_candidate_installed()
+        assert len(calls) == 1 and "--offline" in calls[0]
 
 
 def test_ephemeral_seed_keeps_two_real_admins_and_never_reuses_keys(
@@ -428,10 +471,14 @@ def test_locked_cli_imports_real_worker_helpers_without_the_candidate_installed(
 ):
     """The project venv must not hide undeclared dependencies of the PEP 723 CLI."""
     repository = Path(__file__).resolve().parents[3]
+    uv_executable = shutil.which("uv")
+    if uv_executable is None:
+        pytest.skip("uv executable unavailable for offline PEP 723 preflight")
     result = subprocess.run(
         [
-            "uv",
+            uv_executable,
             "run",
+            "--offline",
             "--locked",
             "-s",
             str(Path(launch.__file__).resolve()),
@@ -445,6 +492,16 @@ def test_locked_cli_imports_real_worker_helpers_without_the_candidate_installed(
         timeout=120,
         env=launch.private_environment(),
     )
+    diagnostic = result.stderr.lower()
+    if (
+        result.returncode
+        and "cache" in diagnostic
+        and (
+            "network connectivity is disabled" in diagnostic
+            or "offline mode" in diagnostic
+        )
+    ):
+        pytest.skip("PEP 723 dependencies are not cached for offline preflight")
     assert result.returncode == 0, result.stdout + result.stderr
     assert json.loads(result.stdout) == {"complete": True, "phase": "host_imports"}
 

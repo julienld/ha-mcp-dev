@@ -8,10 +8,48 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock
 
+import httpx
 import pytest
 
+from . import contracts
 from .contracts import actor_contract, read_only_contract
 from .wire import Observation, WireError, parse_reply
+
+
+@pytest.mark.parametrize("failure", ["transport", "server", "auth", "integrity"])
+async def test_readiness_retries_only_transient_fixture_reload_failures(
+    monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    request = httpx.Request("GET", "http://fixture.test/state")
+    if failure == "transport":
+        error = httpx.ConnectError("reload", request=request)
+    elif failure in ("server", "auth"):
+        response = httpx.Response(503 if failure == "server" else 401, request=request)
+        error = httpx.HTTPStatusError("fixture", request=request, response=response)
+    else:
+        error = WireError("fixture_nonce_mismatch")
+    client = SimpleNamespace(rpc=AsyncMock(return_value=reply({"tools": []})))
+    target = SimpleNamespace(
+        snapshot=AsyncMock(side_effect=[error, {"running": True}]),
+        actors=[{"client": client}],
+    )
+    sleep = AsyncMock()
+    monkeypatch.setattr(
+        contracts,
+        "asyncio",
+        SimpleNamespace(timeout=contracts.asyncio.timeout, sleep=sleep),
+    )
+    if failure in ("transport", "server"):
+        await contracts.ready(target)
+        assert target.snapshot.await_count == 2
+        sleep.assert_awaited_once()
+        client.rpc.assert_awaited_once_with("server/discover")
+    else:
+        with pytest.raises(type(error)) as caught:
+            await contracts.ready(target)
+        assert caught.value is error
+        sleep.assert_not_awaited()
+        client.rpc.assert_not_awaited()
 
 
 def record(marker: str, actor: str) -> dict[str, Any]:

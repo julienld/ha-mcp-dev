@@ -187,6 +187,7 @@ def check_floor(
             check=True,
             capture_output=True,
             text=True,
+            timeout=60,
         ).stdout
 
     component = "custom_components/ha_mcp_tools/"

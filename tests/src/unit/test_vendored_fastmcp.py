@@ -120,7 +120,11 @@ assert any(name.startswith("ha_mcp._vendor.rich._unicode_data.unicode") for name
 assert not any(name == "rich" or name.startswith("rich.") for name in sys.modules)
 """
     result = subprocess.run(
-        [sys.executable, "-c", probe], capture_output=True, text=True, check=False
+        [sys.executable, "-c", probe],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=45,
     )
     assert result.returncode == 0, result.stderr
 

@@ -86,6 +86,7 @@ def test_first_native_start_rejects_component_interfaces_from_an_older_import(
         capture_output=True,
         text=True,
         check=False,
+        timeout=120,
     )
     assert result.returncode == 0, result.stdout + result.stderr
 
@@ -149,6 +150,7 @@ def test_legacy_switch_never_replaces_native_resource_generation(
         capture_output=True,
         text=True,
         check=False,
+        timeout=120,
     )
     assert result.returncode == 0, result.stdout + result.stderr
 

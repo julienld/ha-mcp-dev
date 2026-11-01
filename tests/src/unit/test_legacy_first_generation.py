@@ -110,5 +110,6 @@ def test_legacy_first_start_preserves_only_unchanged_library_generation(
         capture_output=True,
         text=True,
         check=False,
+        timeout=120,
     )
     assert result.returncode == 0, result.stdout + result.stderr

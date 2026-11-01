@@ -285,7 +285,12 @@ def verify_wheel(path: Path, proof: dict[str, Any], contract: dict[str, str]) ->
 def checkout_provenance(checkout: Path) -> tuple[str, dict[str, str]]:
     def git(*args: str) -> str:
         return subprocess.run(
-            ["git", *args], cwd=checkout, check=True, capture_output=True, text=True
+            ["git", *args],
+            cwd=checkout,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=60,
         ).stdout.strip()
 
     revision = git("rev-parse", "HEAD")

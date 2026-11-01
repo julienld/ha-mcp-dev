@@ -100,6 +100,55 @@ def test_rejects_assets_from_another_checkout(candidate: Path) -> None:
         verify_candidate_artifacts(candidate, expected_revision="other-revision")
 
 
+def test_rejects_non_object_provenance_before_staging(
+    candidate: Path, tmp_path: Path
+) -> None:
+    (candidate / "native-build.json").write_text("[]")
+    component = tmp_path / "component"
+    with pytest.raises(ValueError, match="JSON object"):
+        stage_candidate_component(candidate, component, tmp_path / "config")
+    assert not component.exists()
+
+
+def test_staging_contains_only_the_candidate_archive_not_checkout_leftovers(
+    candidate: Path, tmp_path: Path
+) -> None:
+    component = tmp_path / "component"
+    (component / "old_package/__pycache__").mkdir(parents=True)
+    (component / "obsolete.py").write_text("old implementation")
+    (component / "old_package/__pycache__/old.pyc").write_bytes(b"old cache")
+    sibling = tmp_path / "unrelated.txt"
+    sibling.write_text("keep")
+    stage_candidate_component(candidate, component, tmp_path / "config")
+    with zipfile.ZipFile(candidate / "ha_mcp_tools.zip") as archive:
+        expected = {name for name in archive.namelist() if not name.endswith("/")}
+    assert {
+        p.relative_to(component).as_posix() for p in component.rglob("*") if p.is_file()
+    } == expected
+    assert sibling.read_text() == "keep"
+
+
+def test_unsafe_archive_is_rejected_before_existing_component_is_removed(
+    candidate: Path, tmp_path: Path
+) -> None:
+    component = tmp_path / "component"
+    component.mkdir()
+    existing = component / "keep.py"
+    existing.write_text("existing")
+    with zipfile.ZipFile(candidate / "ha_mcp_tools.zip", "a") as archive:
+        archive.writestr("../escape.txt", "unsafe")
+    proof_path = candidate / "native-build.json"
+    proof = json.loads(proof_path.read_text())
+    proof["files"]["ha_mcp_tools.zip"] = hashlib.sha256(
+        (candidate / "ha_mcp_tools.zip").read_bytes()
+    ).hexdigest()
+    proof_path.write_text(json.dumps(proof))
+    with pytest.raises(ValueError, match="unsafe path"):
+        stage_candidate_component(candidate, component, tmp_path / "config")
+    assert existing.read_text() == "existing"
+    assert not (tmp_path / "escape.txt").exists()
+
+
 def test_core_installs_paired_local_bytes_with_original_requirements(
     candidate: Path, tmp_path: Path
 ) -> None:

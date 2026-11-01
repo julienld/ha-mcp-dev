@@ -68,6 +68,8 @@ def verify_candidate_artifacts(
 ) -> dict[str, Any]:
     """Reject missing, substituted or mismatched qualification assets."""
     proof = json.loads((assets / "native-build.json").read_text(encoding="utf-8"))
+    if not isinstance(proof, dict):
+        raise ValueError("Qualification provenance must be a JSON object")
     if expected_revision is not None and proof["revision"] != expected_revision:
         raise ValueError("Qualification assets belong to another source revision")
     wheel = f"ha_mcp-{proof['library_version']}-py3-none-any.whl"
@@ -98,12 +100,22 @@ def stage_candidate_component(
     """
     proof = verify_candidate_artifacts(assets)
     wheel = assets / f"ha_mcp-{proof['library_version']}-py3-none-any.whl"
-    component.mkdir(parents=True, exist_ok=True)
+    destination = component.resolve()
+    if (
+        destination == destination.parent
+        or not destination.is_relative_to(component.parent.resolve())
+        or component.is_symlink()
+        or component.is_junction()
+    ):
+        raise ValueError("Qualification component must be a dedicated directory")
     with zipfile.ZipFile(assets / "ha_mcp_tools.zip") as archive:
         for member in archive.infolist():
             target = (component / member.filename).resolve()
-            if not target.is_relative_to(component.resolve()):
+            if not target.is_relative_to(destination):
                 raise ValueError("Qualification archive contains an unsafe path")
+        if component.exists():
+            shutil.rmtree(component)
+        component.mkdir(parents=True, exist_ok=True)
         archive.extractall(component)
     manifest_path = component / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))

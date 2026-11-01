@@ -7,6 +7,8 @@ import json
 import re
 from typing import Any
 
+import httpx
+
 from .wire import VERSION, Client, Observation, WireError, tool_payload
 
 ENTITY = "sensor.protocol_fixture"
@@ -221,7 +223,15 @@ async def read_only_contract(target: Any) -> dict[str, Any]:
 async def ready(target: Any) -> None:
     async with asyncio.timeout(120):
         while True:
-            if (await target.snapshot())["running"]:
+            try:
+                running = (await target.snapshot())["running"]
+            except httpx.TransportError:
+                running = False
+            except httpx.HTTPStatusError as error:
+                if not 500 <= error.response.status_code < 600:
+                    raise
+                running = False
+            if running:
                 probe = await target.actors[0]["client"].rpc("server/discover")
                 if (
                     probe.status == 200
