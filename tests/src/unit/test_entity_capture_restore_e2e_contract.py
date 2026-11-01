@@ -16,7 +16,7 @@ class BackupSelected(Exception):
     "scenario",
     [
         "test_restore_renames_back_and_unhides",
-        "test_a_removed_entity_says_what_core_keeps",
+        "test_deleted_registry_restore_refuses_without_recreating_the_entity",
     ],
 )
 async def test_entity_restore_scenario_selects_the_durable_registry_history(
@@ -25,7 +25,7 @@ async def test_entity_restore_scenario_selects_the_durable_registry_history(
     # capture_entity_registry keys history by the registry row's id, which
     # differs from both the helper's name and its renameable entity_id.
     registry_id = "44ca272a46cb46eb850bad205bc54568"
-    entry = {"id": registry_id, "hidden": False}
+    entry = {"hidden": False}
 
     async def call_tool(name, arguments):
         if name == "ha_get_entity":
@@ -40,12 +40,21 @@ async def test_entity_restore_scenario_selects_the_durable_registry_history(
         return {"success": True}
 
     client = SimpleNamespace(call_tool=AsyncMock(side_effect=call_tool))
+    core = SimpleNamespace(
+        send_websocket_message=AsyncMock(
+            return_value={"success": True, "result": {"id": registry_id}}
+        )
+    )
     lookup = AsyncMock(side_effect=BackupSelected)
     monkeypatch.setattr(scenarios, "_wait_for_backup", lookup)
     with pytest.raises(BackupSelected):
         await getattr(scenarios.TestEntityCaptureRestore(), scenario)(
-            client, monkeypatch
+            client, core, monkeypatch
         )
     lookup.assert_awaited_once_with(
         client, domain="entity_registry", entity_id=registry_id
+    )
+    core.send_websocket_message.assert_awaited_once()
+    assert core.send_websocket_message.call_args.args[0]["type"] == (
+        "config/entity_registry/get"
     )
