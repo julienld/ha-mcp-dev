@@ -14,11 +14,6 @@ configuration:
       alle sessies heen. Interne REST-, WebSocket- en per-tool fan-out-gelijktijdigheid
       blijft ongewijzigd. 0 behoudt onbeperkt gedrag. Een aanroep die wacht op capaciteit
       mislukt na 60 seconden. Bereik 0–32.
-  backup_hint:
-    name: Niveau van back-uptip
-    description: Hoe sterk AI-assistenten worden aangespoord om een volledige Home
-      Assistant-back-up voor te stellen vóór risicovolle wijzigingen. Dit wijzigt
-      alleen deze tip; automatische bewerkingsback-ups hebben hun eigen instelling.
   custom_instructions:
     name: Aangepaste serverinstructies
     description: Tekst die naar elke verbindende AI-assistent wordt verzonden als
@@ -101,6 +96,14 @@ configuration:
       toepassing op elke app; schrijf app_slug:name om het te beperken tot één app.
       Het benoemen van een optiegroep dekt elke optie daarin. Alleen gebruikt wanneer
       Verberg geheimen aan staat. Standaard leeg.
+  ipv6_allowed_networks:
+    name: Extra toegestane IPv6-netwerken
+    description: 'IPv6-clients bereiken de eigen poort van deze server alleen vanuit
+      het lokale netwerk: loopback, link-local, unique local (fc00::/7) en de netwerken
+      waarmee de Home Assistant-host direct is verbonden. IPv4 blijft ongewijzigd.
+      Vermeld andere toe te staan IPv6-netwerken, gescheiden door komma''s of nieuwe
+      regels (bijvoorbeeld 2001:db8:5::/48). Het toevoegen van ::/0 staat elke IPv6-client
+      toe, ook vanaf het internet als je router inkomend IPv6 doorlaat.'
   enable_mandatory_bps:
     name: Koppel best-practice vaardigheden aan schrijfbewerkingen
     description: 'Hoofdschakelaar voor de functie voor het leveren van vaardigheidsinhoud

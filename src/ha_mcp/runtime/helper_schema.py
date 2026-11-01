@@ -1,7 +1,9 @@
 """Helper type constants, per-type field schemas and the helper response shape."""
 
 from contextvars import ContextVar
-from typing import Any, Literal, TypedDict, get_args
+from typing import Any, TypedDict
+
+from ha_mcp.storage_helper_types import SIMPLE_HELPER_TYPES, StorageHelperType
 
 __all__ = [
     "SIMPLE_HELPER_SCHEMAS",
@@ -19,26 +21,6 @@ __all__ = [
 # (input_*, counter, timer, template, group, utility_meter, etc.).
 _HELPER_SKILL_FILES: tuple[str, ...] = ("references/helper-selection.md",)
 
-
-# Simple helper types — managed via {type}/create and {type}/update WebSocket APIs
-# (not Config Entry Flow). The helper tools' schemas spell them out as an enum.
-# Any other value must be a helper flow type Core lists, checked at call time
-# (``helper_flows``), except config_subentry and ha_config_list_helpers' "all".
-StorageHelperType = Literal[
-    "input_button",
-    "input_boolean",
-    "input_select",
-    "input_number",
-    "input_text",
-    "input_datetime",
-    "counter",
-    "timer",
-    "schedule",
-    "zone",
-    "person",
-    "tag",
-]
-SIMPLE_HELPER_TYPES: frozenset[str] = frozenset(get_args(StorageHelperType))
 
 # Stateful HA input helpers skip last-state restore when `initial` is stored in config
 # (including false/0). See input_boolean/input_number async_added_to_hass in HA core.
@@ -177,9 +159,7 @@ SIMPLE_HELPER_SCHEMAS: dict[str, list[_HelperFieldSpec]] = {
             "name": "step",
             "required": False,
             "selector": {"number": {}},
-            "description": (
-                "Step/increment. Must be > 0 and ≤ (max-min). Default 1.0."
-            ),
+            "description": "Step/increment. Must be > 0. Default 1.0.",
         },
         {
             "name": "unit_of_measurement",
@@ -309,7 +289,7 @@ SIMPLE_HELPER_SCHEMAS: dict[str, list[_HelperFieldSpec]] = {
             "name": "step",
             "required": False,
             "selector": {"number": {}},
-            "description": "Increment. Must be > 0. Default 1.",
+            "description": "Whole-number increment, 0 or more. Default 1.",
         },
         {
             "name": "restore",
@@ -330,10 +310,7 @@ SIMPLE_HELPER_SCHEMAS: dict[str, list[_HelperFieldSpec]] = {
             "name": "duration",
             "required": False,
             "selector": {"text": {}},
-            "description": (
-                "Default duration as 'HH:MM:SS' or seconds. Default '00:00:00' "
-                "(timer must be started with explicit duration)."
-            ),
+            "description": "Default duration as 'HH:MM:SS' or seconds. Default '00:00:00'.",
         },
         {
             "name": "restore",
@@ -354,10 +331,7 @@ SIMPLE_HELPER_SCHEMAS: dict[str, list[_HelperFieldSpec]] = {
             "name": "monday",
             "required": False,
             "selector": {"object": {"multiple": True}},
-            "description": (
-                "List of {'from': 'HH:MM', 'to': 'HH:MM'} time ranges. At least "
-                "one day across monday–sunday must contain a non-empty range."
-            ),
+            "description": "List of {'from': 'HH:MM', 'to': 'HH:MM'} time ranges.",
         },
         {
             "name": "tuesday",

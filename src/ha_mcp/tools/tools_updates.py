@@ -50,6 +50,7 @@ from .helpers import (
 )
 from .service_outcome import create_service_item_error
 from .tool_hints import write_hints
+from .update_categories import update_platforms
 
 logger = logging.getLogger(__name__)
 
@@ -79,8 +80,9 @@ class UpdateTools(UpdateToolsFacade):
     async def _list_updates(self, include_skipped: bool) -> dict[str, Any]:
         """Internal helper to list all update entities."""
         states = await self._client.get_states()
+        platforms = await update_platforms(self._client)
 
-        result = update_listing(states, include_skipped)
+        result = update_listing(states, include_skipped, platforms=platforms)
 
         # Surface the MCP server's OWN update status alongside HA's updates so the
         # model is more likely to mention "you're on X, but Y is out" — this tool
@@ -112,7 +114,10 @@ class UpdateTools(UpdateToolsFacade):
         attributes = entity_state.get("attributes", {})
         latest_version = attributes.get("latest_version", "unknown")
 
-        result = update_details(entity_state)
+        result = update_details(
+            entity_state,
+            platform=(await update_platforms(self._client)).get(entity_id, ""),
+        )
 
         # Try to fetch release notes
         release_notes, release_notes_source = await self._fetch_release_notes(

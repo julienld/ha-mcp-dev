@@ -9,6 +9,8 @@ from .report_templates import (
     _build_issue_url,
     _format_client_host_for_template,
     _format_client_info_for_template,
+    _format_ha_install_value,
+    _format_protocol_for_template,
     _format_server_entry_value,
     _format_supervisor_value,
     _format_tools_entry_value,
@@ -129,10 +131,12 @@ def _build_formatted_report(
         f"Installation Method: {diagnostic_info['installation_method']}",
         f"MCP Transport: {mcp_transport}",
         f"MCP Client: {_format_client_info_for_template(client_info)}",
+        f"MCP Protocol: {_format_protocol_for_template(diagnostic_info)}",
         f"MCP Client Host: {_format_client_host_for_template(diagnostic_info)}",
         f"Operating System: {platform_info['os']} {platform_info['os_release']} ({platform_info['architecture']})",
         f"Python Version: {platform_info['python_version']}",
         f"Home Assistant Version: {diagnostic_info['home_assistant_version']}",
+        f"Home Assistant Install: {_format_ha_install_value(diagnostic_info)}",
         f"Supervisor: {_format_supervisor_value(diagnostic_info)}",
         f"Connection Status: {diagnostic_info['connection_status']}",
         f"Entity Count: {diagnostic_info['entity_count']}",
@@ -244,7 +248,7 @@ Before submitting your bug report, please review and anonymize:
 
 ### MUST ANONYMIZE (security-sensitive):
 - API tokens, passwords, secrets -> Replace with "[REDACTED]"
-- IP addresses (internal/external) -> Replace with "192.168.x.x" or "[IP]"
+- IP addresses and internal hostnames (.lan, .ts.net) -> Replace with "[IP]" or "[HOST]"
 - MAC addresses -> Replace with "[MAC]"
 - Email addresses -> Replace with "user@example.com"
 - Phone numbers -> Replace with "[PHONE]"

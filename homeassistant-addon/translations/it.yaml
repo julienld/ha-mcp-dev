@@ -14,12 +14,6 @@ configuration:
       in tutte le sessioni. La concorrenza interna di REST, WebSocket e di distribuzione
       per singolo strumento rimane invariata. 0 mantiene il comportamento illimitato.
       Una chiamata in attesa di capacità fallisce dopo 60 secondi. Intervallo 0–32.
-  backup_hint:
-    name: Livello di suggerimento per il backup
-    description: Con quale insistenza gli assistenti IA vengono invitati a suggerire
-      un backup completo di Home Assistant prima di modifiche rischiose. Modifica
-      solo questo suggerimento; i backup di modifica automatici hanno una propria
-      impostazione.
   custom_instructions:
     name: Istruzioni personalizzate del server
     description: Testo inviato a ogni assistente IA che si connette, come parte delle
@@ -109,6 +103,14 @@ configuration:
       a ogni app; scrivi app_slug:name per limitarlo a una singola app. Denominare
       un gruppo di opzioni copre ogni opzione al suo interno. Utilizzato solo quando
       l'opzione Rimuovi dati sensibili è attiva. Vuoto per impostazione predefinita.
+  ipv6_allowed_networks:
+    name: Reti IPv6 extra consentite
+    description: 'I client IPv6 raggiungono la porta di questo server solo dalla rete
+      locale: loopback, link-local, unique local (fc00::/7) e le reti a cui l''host
+      di Home Assistant è direttamente connesso. L''IPv4 non è interessato. Elenca
+      altre reti IPv6 da consentire, separate da virgole o nuove righe (ad esempio
+      2001:db8:5::/48). L''aggiunta di ::/0 consente qualsiasi client IPv6, anche
+      da Internet se il tuo router lascia passare il traffico IPv6 in ingresso.'
   enable_mandatory_bps:
     name: Allega le skill di buone pratiche alle scritture
     description: 'Interruttore principale della funzione che consegna il contenuto

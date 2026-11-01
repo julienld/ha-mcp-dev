@@ -138,8 +138,9 @@ def get_or_create_secret_path(data_dir: Path, custom_path: str = "") -> str:
 def persist_addon_options(options: dict[str, Any], supervisor_token: str) -> None:
     """POST the full addon options dict to the Supervisor.
 
-    The endpoint is a full-replace validated against the addon schema, so
-    callers must pass the complete options dict (not a partial patch).
+    The endpoint replaces the stored options in full (keys left out fall
+    back to their defaults), so callers must pass the complete options dict
+    (not a partial patch).
 
     Used after auto-generating the secret path so other addons (the
     webhook proxy) can read it from `GET /addons/{slug}/info → options`
@@ -170,10 +171,9 @@ def maybe_persist_secret_path(
     Only calls `persist_addon_options` when all of these hold:
     - `config` is non-empty. If `/data/options.json` was missing or failed
       to parse, `config` is `{}` and the addon is running off hardcoded
-      defaults. Sending a bare `{"secret_path": ...}` in that state would
-      be rejected by Supervisor's schema validation (missing required
-      `backup_hint`), producing a second misleading error line on top of
-      the "Failed to read config" we already logged.
+      defaults. The POST replaces the stored options in full, so a bare
+      `{"secret_path": ...}` in that state would reset every other option
+      the user has set.
     - The resolved `secret_path` differs from the stored one. Otherwise
       the write is a pure no-op and we'd just add noise on every restart.
 
@@ -264,8 +264,9 @@ def export_app_options(
     when ``options.json`` lacks it. An option only some flavors declare
     (the dev-only beta keys) is exported only when ``options.json`` has
     it: on the stable flavor an exported value would mark the setting as
-    app-managed in the web UI, and Supervisor would reject the eventual
-    save of a key the stable schema does not declare.
+    app-managed in the web UI, and Supervisor drops a key the stable schema
+    does not declare (with only a log warning), so a save of it would
+    silently not persist.
     """
     exported: dict[str, Any] = {}
     for option in options:
@@ -436,6 +437,20 @@ def _arm_kill_signal_diagnostics_if_debug(effective_log_level: int) -> None:
         log_error(f"kill-signal diagnostics install failed: {e!r}; continuing")
 
 
+def _ipv6_lan_guard() -> dict[str, Any]:
+    """Return ``mcp.run`` kwargs keeping the IPv6 listener local-network-only.
+
+    The guard re-applies uvicorn's proxy-header handling after its own check,
+    so the caller turns uvicorn's off (#2915).
+    """
+    from starlette.middleware import Middleware
+
+    from ha_mcp.ipv6_lan_guard import IPv6LanGuard, configured_allowed_networks
+
+    allowed = configured_allowed_networks()
+    return {"middleware": [Middleware(IPv6LanGuard, allowed_networks=allowed)]}
+
+
 def _run_mcp_server(
     mcp: Any,
     bind_host: str,
@@ -448,6 +463,17 @@ def _run_mcp_server(
         log_info("Starting MCP server...")
         if bind_host != "0.0.0.0":
             log_info(f"Bind host overridden via MCP_HOST: {bind_host}")
+        from ha_mcp.listen_sockets import (
+            announce_when_listening,
+            wildcard_listen_sockets,
+        )
+
+        sockets = wildcard_listen_sockets(bind_host, port)
+        guard_kwargs: dict[str, Any] = {}
+        if sockets is not None:
+            announce_when_listening(sockets, bind_host, port)
+            guard_kwargs = _ipv6_lan_guard()
+            uvicorn_config = {**uvicorn_config, "proxy_headers": False}
         # Do not pass log_level here: fastmcp's temporary_log_level would
         # rebuild its rich log handlers at the default 80-column width,
         # undoing widen_fastmcp_log_console (#1918).
@@ -455,9 +481,11 @@ def _run_mcp_server(
             transport="http",
             host=bind_host,
             port=port,
+            sockets=sockets,
             path=secret_path,
             stateless_http=True,
             uvicorn_config=uvicorn_config,
+            **guard_kwargs,
         )
     except KeyboardInterrupt:
         log_info("Interrupted, exiting")
@@ -516,7 +544,6 @@ def export_options_env(config: dict[str, Any]) -> None:
     """Export the app options and the add-on-only settings to env vars."""
     options = load_app_options()
     exported = export_app_options(config, options)
-    log_info(f"Backup hint mode: {exported['backup_hint']}")
     log_info(f"Verify SSL: {exported['verify_ssl']}")
     subflags = beta_subflags(options)
     _warn_gated_off_beta_subflags(
@@ -666,7 +693,8 @@ def main() -> int:
     # on arbitrary hosts -- is covered. See ha_mcp.transport_security.
 
     # The addon normally binds to 0.0.0.0 so HA Supervisor ingress can
-    # reach it inside the container; MCP_HOST override is provided for
+    # reach it inside the container, widened to IPv6 as well by
+    # _run_mcp_server (#2915); MCP_HOST override is provided for
     # parity with the standard CLI entry points (see issue #1434).
     bind_host = os.getenv("MCP_HOST", "0.0.0.0")
 

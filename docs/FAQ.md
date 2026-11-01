@@ -16,7 +16,7 @@ You can also use ha-mcp with other AI clients. See the [Setup Wizard](https://ho
 
 If you *do* run the app, you don't also need `uvx` — that would be a second, separate instance. HTTP-native clients (Cursor, Windsurf, Claude Code) connect straight to the app's URL, no proxy needed. Codex is HTTP-native too, but as of early 2026 its HTTP MCP support has a [known initialization bug](https://github.com/openai/codex/issues/11284) where it loads no tools; if you hit that, run ha-mcp locally over stdio with `uvx` instead.
 
-**Don't run both for the same client.** If you switch to the app, remove any local/stdio entry from your client config — a Claude Desktop server running `uvx ha-mcp@latest` with `HOMEASSISTANT_URL` / `HOMEASSISTANT_TOKEN` is the local version and bypasses the app entirely. Pointing both at the same Home Assistant can leave the connection wedged until you restart. The app's Claude Desktop config uses `uvx fastmcp-remote` with the app's URL and **no** token.
+**Don't run both for the same client.** If you switch to the app, remove any local/stdio entry from your client config — a Claude Desktop server running `uvx ha-mcp@latest` with `HOMEASSISTANT_URL` / `HOMEASSISTANT_TOKEN` is the local version and bypasses the app entirely. Pointing both at the same Home Assistant can leave the connection wedged until you restart. The app's Claude Desktop config uses `npx mcp-remote` with the app's URL and **no** token.
 
 ### What's the difference between ha-mcp and Home Assistant's built-in MCP?
 
@@ -35,6 +35,7 @@ Built-in = operate devices. ha-mcp = administer your system.
 ha-mcp ships a web settings page where you can enable, disable, and pin individual MCP tools, toggle feature flags and advanced (beta) settings, manage automatic backups, and review tool-approval requests. How you reach it depends on how ha-mcp is running:
 
 - **Claude Desktop / Claude Code / any stdio install (`uvx ha-mcp`):** a localhost settings server spawns automatically alongside the MCP process. The easiest way to find the URL is to **ask the AI** something like *"how do I open the ha-mcp settings page?"* — the URL is included in `ha_get_overview`'s response. You can also read it directly from `~/.ha-mcp/ui.url` (Windows: `%USERPROFILE%\.ha-mcp\ui.url`). The URL is bound to `127.0.0.1` only and gated by a random secret path generated on first launch and reused afterwards, so the URL stays stable. To rotate it, stop the sidecar with the **Permanently disable settings server** button at the bottom of the settings page's Server tab, then delete **both** `~/.ha-mcp/ui.state` and `~/.ha-mcp/ui.url`, and remove the `~/.ha-mcp/settings_ui_disabled` sentinel that button writes so the next launch spawns again. Deleting `ui.state` alone is not enough: the next startup re-seeds it from a surviving `ui.url` and serves the same secret path, and since the sidecar outlives the client that spawned it, quitting your client does not stop it.
+- **Docker as a stdio server (`docker run --rm -i …` in a client config):** the settings server starts inside the container, bound to the container's own `127.0.0.1`, and writes its URL into the `ha-mcp-data` volume, so it is not reachable from your machine. Run ha-mcp as an HTTP server instead (the `ha-mcp-web` / Docker bullet below) to use the settings page.
 - **HA Custom Component (in-process server):** open the admin-only **HA-MCP** panel in the Home Assistant sidebar — it serves the settings page through Home Assistant itself, no URL or secret needed.
 - **HA App:** easiest is the **"Open Web UI"** button on the app page (served over Home Assistant ingress — no secret needed). For direct access outside the HA UI **on your trusted LAN**, the page lives behind the app's secret path: `http://<home-assistant-ip>:9583/<secret-path>/settings`. That URL is plain HTTP, so it carries the secret path in cleartext — don't use it across an untrusted network. Reach it remotely through ingress or an HTTPS reverse proxy instead (see the Remote bullet below). Find `<secret-path>` in the app's **Configuration** tab ("Secret path override") or in `/data/secret_path.txt`. The bare `:9583/settings` without the secret path is rejected for non-ingress callers.
 - **`ha-mcp-web` / Docker (HTTP):** append `/settings` to your MCP secret-path URL. The default `MCP_SECRET_PATH` is `/mcp`, so the page is at `http://<host>:8086/mcp/settings`; if you set a custom secret path, use that instead (e.g. `http://<host>:8086/private_xxx/settings`).
@@ -255,13 +256,13 @@ If your Home Assistant uses HTTPS with a self-signed certificate or custom CA, y
 
 ### mcp-proxy fails with `ImportError: cannot import name 'request_ctx'`
 
-Switch to `fastmcp-remote` or [`mcp-remote`](https://github.com/punkpeye/mcp-remote#usage) (requires Node.js/`npx` and `--allow-http` for trusted LAN HTTP URLs). We no longer recommend `mcp-proxy` for connecting to ha-mcp.
+Switch to [`mcp-remote`](https://github.com/punkpeye/mcp-remote#usage) (requires Node.js 20.18.1 or newer for `npx`, plus `--allow-http` for a trusted LAN `http://` URL). We no longer recommend `mcp-proxy` for connecting to ha-mcp.
 
-The [Setup Wizard](https://homeassistant-ai.github.io/ha-mcp/setup/) generates a `fastmcp-remote` configuration for Claude Desktop and other stdio-only clients. Replace your old server entry with the generated configuration, keep your connect URL, and fully restart the client.
+The [Setup Wizard](https://homeassistant-ai.github.io/ha-mcp/setup/) generates an `mcp-remote` configuration for Claude Desktop and other stdio-only clients. Replace your old server entry with the generated configuration, keep your connect URL, and fully restart the client.
 
 ### uvx fails with `invalid peer certificate: UnknownIssuer`
 
-If `uvx` can't download ha-mcp (or `fastmcp-remote`, if you connect to the app through it) and the log shows a certificate error fetching from PyPI, the failure is in `uv`'s package download — it never reaches Home Assistant:
+If `uvx` can't download ha-mcp and the log shows a certificate error fetching from PyPI, the failure is in `uv`'s package download — it never reaches Home Assistant:
 
 ```text
 Failed to fetch: https://pypi.org/simple/ha-mcp/
@@ -290,7 +291,9 @@ In Claude Desktop this often shows up as the server briefly connecting, then "tr
 }
 ```
 
-Connecting to the HA app through `uvx fastmcp-remote` instead? Add the same `UV_NATIVE_TLS=1` entry to that config's `env` block. The equivalent `--native-tls` flag also works, but it is a global `uv` option, so it must come before the package name. See [#1506](https://github.com/homeassistant-ai/ha-mcp/issues/1506).
+The equivalent `--native-tls` flag also works, but it is a global `uv` option, so it must come before the package name. See [#1506](https://github.com/homeassistant-ai/ha-mcp/issues/1506).
+
+Connecting to the HA app through `npx mcp-remote` instead? Node.js also ignores the operating-system certificate store by default. Set `NODE_EXTRA_CA_CERTS` in that config's `env` block to the path of the intercepting proxy's root certificate (a `.pem` file), as described in [mcp-remote's VPN certificate notes](https://github.com/punkpeye/mcp-remote#vpn-certs).
 
 ### Windows: pywin32 installation fails
 
@@ -575,7 +578,7 @@ ChatGPT (web, including Codex Work Mode) caches a connector's tool list and some
 - **"Unexpected server output" error:** Add `FASTMCP_SHOW_SERVER_BANNER=false` to your stdio env config. This disables the startup banner that Antigravity misinterprets as unexpected output.
 - **"EOF" errors:** Use absolute paths for the command, not relative paths.
 - **First run timeout:** Run `uvx ha-mcp@latest --version` in your terminal first to download and cache the package before Antigravity tries to start it.
-- **`sending "subscriptions/listen": failed to connect (session ID: ): session not found`:** A bug in Antigravity's built-in MCP client, not a server or config problem: it opens a `subscriptions/listen` stream the server never offered, then misreads the spec-mandated `404 Method not found` reply as a lost session (request sequence in [#2545](https://github.com/homeassistant-ai/ha-mcp/issues/2545); fixed in Go MCP SDK v1.8.0 by [modelcontextprotocol/go-sdk#1193](https://github.com/modelcontextprotocol/go-sdk/pull/1193), which Antigravity has not shipped yet; the same error is reported in [google-antigravity/antigravity-cli#877](https://github.com/google-antigravity/antigravity-cli/issues/877)). Until Antigravity ships a fix, connect through the `fastmcp-remote` stdio bridge: `"command": "uvx", "args": ["fastmcp-remote", "<your MCP server URL>"]`.
+- **`sending "subscriptions/listen": failed to connect (session ID: ): session not found`:** A bug in Antigravity's built-in MCP client, not a server or config problem: it opens a `subscriptions/listen` stream the server never offered, then misreads the spec-mandated `404 Method not found` reply as a lost session (request sequence in [#2545](https://github.com/homeassistant-ai/ha-mcp/issues/2545); fixed in Go MCP SDK v1.8.0 by [modelcontextprotocol/go-sdk#1193](https://github.com/modelcontextprotocol/go-sdk/pull/1193), which Antigravity has not shipped yet; the same error is reported in [google-antigravity/antigravity-cli#877](https://github.com/google-antigravity/antigravity-cli/issues/877)). Until Antigravity ships a fix, connect through the `mcp-remote` stdio bridge: `"command": "npx", "args": ["-y", "mcp-remote", "<your MCP server URL>"]` (append `"--allow-http"` for a LAN `http://` URL).
 - **Tools load but fail when called:** Try switching to stdio mode instead of HTTP. HTTP mode can experience "connection closed" or reconnection errors with this client.
 - **Connection issues after config changes:** Restart the Agent session in Antigravity after saving any config changes.
 
@@ -682,7 +685,9 @@ Template helper edit backups and restores also require the component, using eith
 
 ### How do I install it?
 
-**Using HACS (recommended):** open [this HACS repository link](https://my.home-assistant.io/redirect/hacs_repository/?owner=homeassistant-ai&repository=ha-mcp&category=integration), or add it manually: open **HACS** > **Integrations** > three-dot menu > **Custom repositories** > add `https://github.com/homeassistant-ai/ha-mcp` (category: Integration) > **Download**.
+**Using HACS (recommended, Home Assistant 2026.10 or older):** open [this HACS repository link](https://my.home-assistant.io/redirect/hacs_repository/?owner=homeassistant-ai&repository=ha-mcp&category=integration), or add it manually: open **HACS** > **Integrations** > three-dot menu > **Custom repositories** > add `https://github.com/homeassistant-ai/ha-mcp` (category: Integration) > **Download**.
+
+**Using the Marketplace (Home Assistant 2026.11 or newer):** HACS is built in as the **Marketplace**. Open **Settings → Marketplace**, accept its first-run warning and **Connect GitHub** (a device sign-in; adding a custom repository needs it, and until HA-MCP is in the Marketplace catalog it is also what makes the Marketplace check HA-MCP for updates in the background — otherwise use **Refresh information** on HA-MCP's page). Then open the same link, or the **Add from link** tab, add `https://github.com/homeassistant-ai/ha-mcp` as an **Integration**, and **Install**.
 
 After installing, restart Home Assistant. Then open **Settings** > **Devices & Services** > **Add Integration** and search for **HA-MCP Custom Component**, then pick the entry type: **HA-MCP Server** (the in-process server — the recommended install) or **HA-MCP File & YAML Tools** (the file/YAML services described above).
 
@@ -699,7 +704,7 @@ Yes. The component is required, but the tools are also gated by feature flags fo
 
 The split is deliberate: YAML *reads* sit behind the filesystem flag, and only YAML *edits* need `ENABLE_YAML_CONFIG_EDITING`.
 
-The component itself is installed through HACS — add `homeassistant-ai/ha-mcp` as a custom repository (no feature flag required). An AI agent can drive that install with the generic HACS tools; then add the **HA-MCP File & YAML Tools** entry from **Settings > Devices & Services > Add Integration**.
+The component itself is installed through HACS (the Marketplace on Home Assistant 2026.11+) — add `homeassistant-ai/ha-mcp` as a custom repository (no feature flag required). An AI agent can drive that install with the generic HACS tools once the Marketplace's first-run warning is accepted and GitHub connected, which only you can do; then add the **HA-MCP File & YAML Tools** entry from **Settings > Devices & Services > Add Integration**.
 
 ### Do I still need the app or the webhook proxy if I use the custom component?
 
@@ -717,19 +722,9 @@ The app remains a fully supported alternative on Home Assistant OS and Supervise
 |----------|-------------|---------|----------|
 | `HOMEASSISTANT_URL` | Your Home Assistant URL | - | Yes |
 | `HOMEASSISTANT_TOKEN` | Long-lived access token (or `demo` for demo env) | - | Yes |
-| `BACKUP_HINT` | Backup recommendation level | `normal` | No |
 | `ENABLE_SNAPSHOT_ACTIONS` | Allow full HA snapshot actions through `ha_manage_backup`; deletion also requires `ENABLE_SNAPSHOT_DELETE`. `false` blocks listing too | `true` | No |
 | `BACKUP_READ_ONLY` | Allow backup reads and block manual create, restore, and delete through `ha_manage_backup` | `false` | No |
 | `HA_MCP_DISABLE_SETTINGS_UI` | Set to `1` to skip the localhost settings-page sidecar that stdio installs spawn by default ([details](#how-do-i-open-the-ha-mcp-settings-page)) | - | No |
-
-### Backup Hint Modes
-
-| Mode | Behavior |
-|------|----------|
-| `strong` | Suggests backup before first modification each day/session |
-| `normal` | Suggests backup only before irreversible operations (recommended) |
-| `weak` | Rarely suggests backups |
-| `auto` | Same as normal (future: auto-detection) |
 
 ### Backup permissions
 
@@ -895,6 +890,26 @@ dimension. What it covers:
   applies to *every* tool, including service calls: a `ha_call_service` targeting
   a hidden entity_id is concealed as not-found, so an agent cannot confirm the
   entity by trying to control it.
+- **Bare script, scene and automation keys are concealed as well.** The
+  script, scene and automation config tools also accept a bare storage key
+  (`unlock_house`) or config `id` (`1727266720448`) instead of the entity_id,
+  and Home Assistant exposes every script as a `script.<storage key>` service.
+  When such a key belongs to a hidden script, scene or automation — including
+  a renamed one whose key no longer matches its entity_id — the
+  `ha_config_get_*` / `ha_config_set_*` / `ha_config_remove_*` call, a
+  `ha_get_automation_traces` call for `script.<storage key>`, or a
+  `ha_call_service` with `domain: script` and that key as `service`, is
+  concealed as not-found too. A script or automation body that calls
+  `script.<storage key>`, a raw `trace/*` command or result naming the key,
+  and an `ha_read_file` / `ha_config_get_yaml` read of a file that defines a
+  hidden item are refused. A file defines one through a top-level key of
+  `scripts.yaml`, an `id` in `scenes.yaml` / `automations.yaml`, or a
+  `script:` / `scene:` / `automation:` section elsewhere (a package). The
+  whole file is checked, even when only a `tail_lines` or `yaml_path` slice
+  is asked for. A helper that merely shares a hidden script's key stays
+  readable. Because keys and ids now count, enforce mode can also refuse a
+  read that only shares a hidden entity's key or id.
+  An automation's bare `identifier` is only ever read as its config `id`.
 
 What it deliberately **refuses** (their output cannot be text-scanned): sandbox
 code execution via `ha_manage_custom_tool` (`code` / `run_saved` — pure
@@ -969,20 +984,28 @@ slip past a policy that already watches that tool.
 
 ### Getting notified when a tool call is waiting for approval
 
-Clients using MCP 2026-07-28 can resume a pending approval through MRTR
-(multi round-trip requests). Each request waits up to ten seconds; a client
-that follows continuations retries automatically against the same approval.
-**You still approve or deny in the settings UI or through your configured
-Home Assistant approval automation.** A continuation never grants approval.
+A held call waits up to `wait_seconds` for your decision. **You approve or
+deny in the settings UI or through your configured Home Assistant approval
+automation;** nothing the AI client sends can approve a call.
 
-Automatic waiting ends at the configured `wait_seconds` deadline or after
-eight continuation responses, whichever comes first. Legacy clients keep
-the existing blocking wait and approval error. Modern clients that do not
-follow continuations can still use the existing UI approval and manual
-re-call flow for static targets. Nested calls inside custom scripts keep
-the blocking flow, because retrying a script could repeat earlier actions.
-Selector-based bulk calls can resume only their own approval within the
-original wait window; a fresh call requires a fresh approval.
+How the wait looks depends on the client:
+
+- **Clients using MCP 2026-07-28 that support elicitation:** if the call is
+  still waiting after about ten seconds, the client shows you a short form
+  saying the call is waiting in the Tool Security Policies tab, and the
+  approval window you set. Accepting the form does not approve the call: it
+  continues once you have both approved it in that tab and accepted the
+  form, in either order, within the window. Decline the form to cancel the
+  call. Dismissing it stops waiting: the client gets the approval-required
+  error and can call again once you approve.
+- **All other clients:** the call waits the whole window. If you decide in
+  time it completes; otherwise the client gets an approval-required error
+  telling it to wait for your approval and call again.
+
+Nested calls inside custom scripts always use the blocking wait, because
+resuming a script could repeat earlier actions. Selector-based bulk calls
+can only use their own approval within the original wait window; a fresh
+call requires a fresh approval.
 
 A rule in **Tool Security Policies** holds the call and shows it in the
 settings UI, which only helps while that tab is open. Every held request is

@@ -14,12 +14,6 @@ configuration:
       məhdudiyyət. Daxili REST, WebSocket və hər alət üzrə paylanma eynizmətliliyi
       (concurrency) dəyişməz qalır. 0 məhdudiyyətsiz davranışı qoruyur. Tutum üçün
       gözləyən çağırış 60 saniyədən sonra uğursuz olur. Aralıq 0–32.
-  backup_hint:
-    name: Ehtiyat nüsxə ipucu səviyyəsi
-    description: Riskli dəyişikliklərdən əvvəl süni intellekt köməkçilərinə tam Home
-      Assistant ehtiyat nüsxəsini təklif etməyin nə qədər güclü şəkildə bildirildiyi.
-      O, yalnız bu ipucunu dəyişdirir; avtomatik redaktə ehtiyat nüsxələrinin öz parametrləri
-      var.
   custom_instructions:
     name: Xüsusi server təlimatları
     description: Qoşulan hər bir süni intellekt köməkçisinə MCP server təlimatlarının
@@ -107,6 +101,15 @@ configuration:
       məhdudlaşdırmaq üçün app_slug:name yazın. Seçim qrupunun adlandırılması ondakı
       hər bir seçimi əhatə edir. Yalnız Məxfiliklərin Gizlədilməsi (Redact Secrets)
       aktiv olduqda istifadə olunur. Defolt olaraq boşdur.
+  ipv6_allowed_networks:
+    name: İcazə verilən əlavə IPv6 şəbəkələri
+    description: 'IPv6 klientləri bu serverin öz portuna yalnız yerli şəbəkədən daxil
+      olur: loopback, link-local, unique local (fc00::/7) və Home Assistant hostunun
+      birbaşa qoşulduğu şəbəkələr. IPv4 təsirlənmir. İcazə vermək üçün digər IPv6
+      şəbəkələrini vergül və ya yeni sətirlərlə ayıraraq siyahıya daxil edin (məsələn,
+      2001:db8:5::/48). ::/0 əlavə etmək marşrutlaşdırıcınız daxil olan IPv6 trafikinə
+      icazə verərsə, internetdən gələnlər də daxil olmaqla bütün IPv6 klientlərinə
+      icazə verir.'
   enable_mandatory_bps:
     name: Yazma zamanı ən yaxşı təcrübələr üzrə bacarıq təlimatlarını əlavə et
     description: 'Yazma alətlərinin bacarıq məzmunu təqdim etməsi funksiyası üçün

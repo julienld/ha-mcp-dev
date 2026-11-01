@@ -14,11 +14,6 @@ configuration:
       Interna REST, WebSocket, kaj samtempeco de disbranĉigo po ilo estas senŝanĝaj.
       0 konservas senliman konduton. Voko atendanta kapaciton malsukcesas post 60
       sekundoj. Intervalo 0–32.
-  backup_hint:
-    name: Nivelo de konsilo pri momentfotoj
-    description: Kiom forte oni diras al AI-asistantoj sugesti plenan momentfoton
-      de Home Assistant antaŭ riskaj ŝanĝoj. Ĝi ŝanĝas nur ĉi tiun konsilon; aŭtomataj
-      redaktaj momentfotoj havas sian propran agordon.
   custom_instructions:
     name: Propraj servilaj instrukcioj
     description: Teksto sendita al ĉiu AI-asistanto kiu konektiĝas, kiel parto de
@@ -98,6 +93,14 @@ configuration:
       Disigu nomojn per komoj aŭ novaj linioj. Nomo aplikiĝas al ĉiu aplikaĵo; skribu
       app_slug:name por limigi ĝin al unu aplikaĵo. Nomi opciogrupon kovras ĉiun opcion
       en ĝi. Uzata nur dum "Redact Secrets" estas ŝaltita. Malplena defaŭlte.
+  ipv6_allowed_networks:
+    name: Kromaj permesitaj retoj IPv6
+    description: 'Klientoj IPv6 atingas la propran pordon de ĉi tiu servilo nur el
+      la loka reto: loka buko, liglokala, unika loka (fc00::/7) kaj la retoj al kiuj
+      la gastiganto de Home Assistant estas rekte konektita. IPv4 ne estas tuŝita.
+      Listigu aliajn retojn IPv6 por permesi, apartigite per komoj aŭ novaj linioj
+      (ekzemple 2001:db8:5::/48). Aldono de ::/0 permesas ĉiun klienton IPv6, inkluzive
+      de tiu el la interreto se via enkursigilo tralasas envenantajn IPv6.'
   enable_mandatory_bps:
     name: Aligi plejbonajn praktikajn kapablojn ĉe skriboj
     description: 'Majstra ŝaltilo por la funkcio de liverado de enhavo de skrib-ila

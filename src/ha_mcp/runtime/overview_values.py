@@ -77,6 +77,7 @@ _OVERVIEW_INDEPENDENT_FIELDS = frozenset(
         "read_only_mode",
         "read_only_mode_hint",
         "ha_mcp_update",
+        "mcp_client",
     }
 )
 

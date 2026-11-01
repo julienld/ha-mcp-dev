@@ -267,8 +267,8 @@ class HistoryTools(HistoryFacade):
                 message="recorder query complete",
             )
             # Wrap first so the outer {"data": ..., "metadata": ...} shape
-            # is always present; then project the inner data dict in-place
-            # when caller requested field projection.
+            # is always present; then project the inner data dict and lift
+            # the typo warning project_fields may add to it.
             _r = await add_timezone_metadata(
                 self._client, inner, convert_timestamps=False
             )

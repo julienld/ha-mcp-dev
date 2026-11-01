@@ -234,7 +234,7 @@ class BulkOperationValues:
     ) -> dict[str, Any]:
         """Map one component op result into the legacy per-op result shape.
 
-        The component confirms inline, so the op returns already-verified with a
+        The component reports each op's confirmation inline, so the op returns a
         synthesized terminal status instead of the legacy ``pending_verification`` +
         operation-id handle. A ``command_sent: True`` result is counted ``successful``
         by ``_build_bulk_response`` exactly as the legacy dispatch result is; an op
@@ -359,7 +359,7 @@ class BulkOperationValues:
             "action": action,
             "parameters": op.get("parameters") or {},
             "command_sent": True,
-            # M-status: an inline-confirmed op has no operation_id, so a
+            # M-status: a component-path op has no operation_id, so a
             # "pending_verification" status is misleading (nothing will poll it). Use
             # "dispatched_unconfirmed" — the same label the ambiguous batch path uses.
             "status": "completed" if confirmed else "dispatched_unconfirmed",

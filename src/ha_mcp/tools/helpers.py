@@ -16,10 +16,11 @@ from ha_mcp.runtime.error_text import (
 )
 from ha_mcp.runtime.errors import ws_failure_code
 
-from ..client.rest_client import HomeAssistantAPIError
+from ..client.rest_client import HomeAssistantAPIError, HomeAssistantAuthError
 from ..client.websocket_client import HomeAssistantWebSocketClient
 from ..errors import (
     ErrorCode,
+    create_auth_error,
     create_connection_error,
 )
 from ..runtime.error_classification import classified_error
@@ -90,6 +91,10 @@ async def get_connected_ws_client(
             if isinstance(reason, str)
             else "WebSocket connection could not be established"
         )
+        if isinstance(ws_client.last_connect_exception, HomeAssistantAuthError):
+            return None, create_auth_error(
+                "Home Assistant rejected the WebSocket token", details=details
+            )
         return None, create_connection_error(
             "Failed to connect to Home Assistant WebSocket",
             details=details,

@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from contextlib import AsyncExitStack
 from typing import Any, Protocol
 
-from ha_mcp.utils.registry_update_lock import registry_update_lock
+from ha_mcp.utils.registry_update_lock import registry_update_locks
 
 from .snapshot_payloads import BackupRestoreError
 
@@ -73,9 +72,7 @@ async def _restore_entity_id(
     row = await ports.created(entry_id, unique_id)
     source, target = (row["entity_id"], saved["entity_id"])
     locked_ids = {source, target}
-    async with AsyncExitStack() as locks:
-        for entity_id in sorted(locked_ids):
-            await locks.enter_async_context(registry_update_lock("entity", entity_id))
+    async with registry_update_locks("entity", *locked_ids):
         row = await ports.created(entry_id, unique_id)
         source = row["entity_id"]
         if source not in locked_ids:

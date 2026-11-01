@@ -14,6 +14,7 @@ from ..config import get_global_settings
 from ..runtime.overview_tools import OverviewService, OverviewTools
 from ..runtime.overview_values import resolve_overview_request
 from ..runtime.search_request import resolve_search_request
+from ..runtime.search_response import _omit_empty_warnings
 from ..runtime.search_tools import SearchFacade, SearchService
 from ..transforms.categorized_search import DEFAULT_PINNED_TOOLS
 from .coercion import parse_string_list_param
@@ -121,8 +122,8 @@ class SearchTools(LegacyBackendTools, ComponentSearchMixin, OverviewMixin, State
                         req, ctx, visibility=visibility, caps=caps
                     )
                     if component_response is not None:
-                        return component_response
-        return await self._legacy_ha_search(req, ctx)
+                        return _omit_empty_warnings(component_response)
+        return _omit_empty_warnings(await self._legacy_ha_search(req, ctx))
 
     @property
     def overview(self) -> OverviewService:
@@ -140,6 +141,7 @@ class SearchTools(LegacyBackendTools, ComponentSearchMixin, OverviewMixin, State
         include_notifications: bool | None = True,
         include_dismissed_repairs: bool | None = False,
         fields: str | list[str] | None = None,
+        ctx: Any = None,
     ) -> dict[str, Any]:
         inputs, parsed_fields, independent = resolve_overview_request(
             detail_level=detail_level,
@@ -206,6 +208,9 @@ class SearchTools(LegacyBackendTools, ComponentSearchMixin, OverviewMixin, State
         mcp_update = await get_update_field()
         if mcp_update is not None:
             projected["ha_mcp_update"] = mcp_update
+        from ..mcp_client_context import describe_mcp_client
+
+        projected["mcp_client"] = describe_mcp_client(ctx)
         return projected
 
     ha_search = tool(

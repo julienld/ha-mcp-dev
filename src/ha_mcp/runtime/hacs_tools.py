@@ -18,9 +18,14 @@ class HacsService(Protocol):
         offset: int,
         ctx: Any,
     ) -> dict[str, Any]: ...
-    async def _hacs_info(self, repository_id: str) -> dict[str, Any]: ...
+    async def _hacs_info(
+        self, repository_id: str, include_releases: bool = False
+    ) -> dict[str, Any]: ...
     async def _hacs_download(
-        self, repository_id: str | None, version: str | None
+        self,
+        repository_id: str | None,
+        version: str | None,
+        confirm_replace_built_in: bool = False,
     ) -> dict[str, Any]: ...
     async def _hacs_remove(self, repository_id: str | None) -> dict[str, Any]: ...
     async def _hacs_update_information(
@@ -45,8 +50,7 @@ class HacsFacade:
             str, Field(description="Search keyword (action='search')")
         ] = "",
         category: Annotated[
-            Literal["integration", "lovelace", "theme", "appdaemon", "python_script"]
-            | None,
+            str | None,
             Field(description="Filter by category (action='search')"),
         ] = None,
         installed_only: Annotated[
@@ -72,6 +76,12 @@ class HacsFacade:
             str | None,
             Field(description="Numeric HACS ID or 'owner/repo' path (action='info')"),
         ] = None,
+        include_releases: Annotated[
+            bool,
+            Field(
+                description="Include release and release-note reads from the store (action=info)"
+            ),
+        ] = False,
         ctx: Any = None,
     ) -> dict[str, Any]:
         """Get cached HACS or Home Assistant Marketplace data — search the store or read repository details.
@@ -91,7 +101,9 @@ class HacsFacade:
 
         **Caveats:** ``info`` reads only the already-loaded store cache,
         including cached README/additional information when available, and reports
-        freshness. It never refreshes GitHub or clears HACS's new flag. Use
+        freshness. By default it never refreshes GitHub or clears HACS's new flag.
+        include_releases=True explicitly fetches releases and release notes;
+        failures become warnings alongside the cached repository details. Use
         ha_manage_hacs(action="update_information") to refresh explicitly. The
         remote path needs the component cache capability for full details; without
         it, cached catalog fields are returned with an explicit completeness note.
@@ -112,6 +124,8 @@ class HacsFacade:
                 "Use action='search' to find the repository first",
             ],
         )
+        if include_releases:
+            return await self.hacs._hacs_info(repository_id, include_releases=True)
         return await self.hacs._hacs_info(repository_id)
 
     async def ha_manage_hacs(
@@ -147,9 +161,14 @@ class HacsFacade:
             ),
         ] = None,
         category: Annotated[
-            Literal["integration", "lovelace", "theme", "appdaemon", "python_script"]
-            | None,
+            str | None,
             Field(description="Repository category (action='add_repository')"),
+        ] = None,
+        confirm_replace_built_in: Annotated[
+            bool | None,
+            Field(
+                description="Marketplace download only: permit replacing a built-in integration after the user confirms"
+            ),
         ] = None,
     ) -> dict[str, Any]:
         """Manage HACS or Home Assistant Marketplace — install/update, remove, add repositories, or refresh metadata.
@@ -193,16 +212,26 @@ class HacsFacade:
                 "version": version,
                 "repository": repository,
                 "category": category,
+                "confirm_replace_built_in": confirm_replace_built_in,
             },
-            add_repository={"repository_id": repository_id, "version": version},
+            add_repository={
+                "repository_id": repository_id,
+                "version": version,
+                "confirm_replace_built_in": confirm_replace_built_in,
+            },
             update_information={
                 "version": version,
                 "repository": repository,
                 "category": category,
+                "confirm_replace_built_in": confirm_replace_built_in,
             },
         )
 
         if action == "download":
+            if confirm_replace_built_in:
+                return await self.hacs._hacs_download(
+                    repository_id, version, confirm_replace_built_in=True
+                )
             return await self.hacs._hacs_download(repository_id, version)
 
         if action == "remove":
@@ -217,13 +246,9 @@ class HacsFacade:
             "repository",
             suggestions=["Pass repository in 'owner/repo' format"],
         )
-        # ``category`` is a Literal param, so bind the validated value to a
-        # new ``str`` name rather than reassigning (str is wider than the Literal).
         valid_category = validate_identifier_not_empty(
             category,
             "category",
-            suggestions=[
-                "Pass category (integration, lovelace, theme, appdaemon, python_script)"
-            ],
+            suggestions=["Pass one of the categories reported by the running store"],
         )
         return await self.hacs._hacs_add_repository(repository, valid_category)

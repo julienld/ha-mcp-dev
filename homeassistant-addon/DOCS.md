@@ -41,6 +41,11 @@ Full features and documentation: https://github.com/homeassistant-ai/ha-mcp
 
    ```
 
+   The app listens on every IPv4 and IPv6 address of the Home Assistant
+   host; IPv6 clients are accepted from the local network only (see
+   [`ipv6_allowed_networks`](#ipv6_allowed_networks)). For an IPv6 address,
+   put it in brackets: `http://[2001:db8::10]:9583/private_...`.
+
 5. **Configure your AI client** using one of the options below
 
 ---
@@ -51,15 +56,17 @@ Full features and documentation: https://github.com/homeassistant-ai/ha-mcp
 
 ### <details><summary><b>📱 Claude Desktop</b></summary>
 
-Claude Desktop talks to MCP servers over stdio, so it reaches the app through **fastmcp-remote**, run automatically via `uvx`. That only needs **uv** on the computer running Claude Desktop:
+Claude Desktop talks to MCP servers over stdio, so it reaches the app through **mcp-remote**, run automatically via `npx`. That only needs **Node.js 20.18.1 or newer** on the computer running Claude Desktop:
 
 ```bash
-# macOS / Linux
-curl -LsSf https://astral.sh/uv/install.sh | sh
+# macOS
+brew install node
 
 # Windows (PowerShell)
-winget install --id=astral-sh.uv -e
+winget install --id=OpenJS.NodeJS.LTS -e
 ```
+
+On Linux, install Node.js from [nodejs.org](https://nodejs.org/en/download): the Debian 12 and Ubuntu 24.04 packages are Node.js 18, which is too old for mcp-remote.
 
 Then add to your Claude Desktop configuration file:
 
@@ -73,20 +80,20 @@ Then add to your Claude Desktop configuration file:
 {
   "mcpServers": {
     "home-assistant": {
-      "command": "uvx",
-      "args": ["fastmcp-remote", "http://192.168.1.100:9583/private_zctpwlX7ZkIAr7oqdfLPxw"]
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "http://192.168.1.100:9583/private_zctpwlX7ZkIAr7oqdfLPxw", "--allow-http"]
     }
   }
 }
 ```
 
-Replace the URL in `args` with the one from your app logs. No token goes here — the app handles authentication behind the secret path in the URL.
+Replace the URL in `args` with the one from your app logs. `--allow-http` lets mcp-remote reach a plain `http://` URL on your local network; drop it if your URL starts with `https://`. No token goes here — the app handles authentication behind the secret path in the URL.
 
 **Restart Claude Desktop** after saving the configuration.
 
-**How it works:** `uvx` runs fastmcp-remote, which converts the app's HTTP endpoint to the stdio Claude Desktop expects.
+**How it works:** `npx` runs [mcp-remote](https://github.com/punkpeye/mcp-remote#usage), which converts the app's HTTP endpoint to the stdio Claude Desktop expects.
 
-**Migrating from mcp-proxy:** switch to `fastmcp-remote` using the configuration above, or follow the [`mcp-remote` setup instructions](https://github.com/punkpeye/mcp-remote#usage). For `mcp-remote`, install Node.js and set `"command": "npx"` with `"args": ["-y", "mcp-remote", "YOUR_CONNECT_URL", "--allow-http"]` for a trusted LAN HTTP URL. We no longer recommend `mcp-proxy` for connecting to ha-mcp.
+**Migrating from mcp-proxy:** replace the whole server entry with the configuration above. We no longer recommend `mcp-proxy` for connecting to ha-mcp.
 
 </details>
 
@@ -278,19 +285,6 @@ The app has minimal configuration - most settings are automatic.
 > tools are still missing after re-adding, delete the connector and create
 > a new one with a **different name**.
 
-### backup_hint (Advanced)
-
-**Default:** `normal`
-
-Controls when the AI assistant suggests creating backups before operations:
-
-- `normal` (recommended): Before irreversible operations only
-- `strong`: Before first modification of each session
-- `weak`: Rarely suggests backups
-- `auto`: Intelligent detection (future enhancement)
-
-**Note:** This is an advanced option. Enable "Show unused optional configuration options" in the app configuration UI to see it.
-
 ### enable_snapshot_actions
 
 **Default:** `true`
@@ -442,7 +436,7 @@ Toggles all write tools off, and removes ability for tools to make any write or 
 
 Mixed read/write tools whose read functionality exists nowhere else stay available with their write operations blocked:
 
-- `ha_config_get_dashboard` — config/list/search reads only; screenshot renders are blocked because Puppet can persist frontend theme/dark preferences
+- `ha_config_get_dashboard` — config/list/search reads; optional screenshot rendering is a beta feature that uses a separate screenshot engine (see [beta documentation](../docs/beta.md))
 - `ha_manage_backup` — only listing and viewing per-edit backups
 - `ha_manage_app` — only HTTP GET proxy reads of app (add-on) APIs
 - `ha_manage_energy_prefs` — only `mode='get'` and `dry_run=true` previews
@@ -502,6 +496,20 @@ Requires app restart to take effect.
 ```yaml
 redact_secrets: true
 redact_app_option_keys: backup_password,snapshot_password
+```
+
+### ipv6_allowed_networks
+
+**Default:** `""`
+
+The app's port answers IPv6 clients from the local network only, the way IPv4 sits behind your router's NAT: loopback, link-local, unique local addresses (`fc00::/7`) and the networks the Home Assistant host is directly connected to. IPv6 clients from anywhere else get `403`, even if your router lets inbound IPv6 through. IPv4 is unaffected.
+
+List any other IPv6 networks that should reach the app, separated by commas or new lines. Adding `::/0` allows every IPv6 client, including from the internet if your router admits inbound IPv6. Requires app restart to take effect.
+
+**Example Configuration:**
+
+```yaml
+ipv6_allowed_networks: 2001:db8:5::/48
 ```
 
 ### enable_security_policy_tool
@@ -642,10 +650,10 @@ The app requests `hassio_role: manager` (declared in `config.yaml`).
 `manager` is required for the Supervisor REST endpoints used to fetch
 add-on and system-service logs (`/addons/<slug>/logs`, `/<service>/logs`,
 `/core/logs`) — `default` returns 403 (see #1116). The role also supports
-explicit app management through `ha_manage_app`. When dashboard
-screenshots are enabled, `ha_get_dashboard_screenshot` may update only the
-schema-verified Puppet app's `keep_browser_open` option and restart that
-same app; it accepts no caller-supplied slug for those operations.
+explicit app management through `ha_manage_app`. When dashboard screenshots
+are enabled, the screenshot integration uses read-only Supervisor app listing
+and app-info endpoints to discover a supported renderer; it does not change
+renderer options.
 
 ---
 
@@ -843,8 +851,8 @@ The add-on provides 88+ MCP tools for controlling Home Assistant:
 
 ### Todo Lists
 - `ha_get_todo` — Get todo lists or items - list all todo lists or get items from a specific list.
-- `ha_remove_todo_item` — Remove an item from a Home Assistant todo list.
-- `ha_set_todo_item` — Create or update a todo item in Home Assistant.
+- `ha_remove_todo_item` — Remove items from a Home Assistant todo list.
+- `ha_set_todo_item` — Create, update or reorder a todo item in Home Assistant.
 
 ### Utilities
 - `ha_eval_template` — Execute a Jinja2 template render, or an automation condition check, in Home Assistant.

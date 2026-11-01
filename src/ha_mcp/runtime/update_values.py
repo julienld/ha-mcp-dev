@@ -143,44 +143,45 @@ def _supports_release_notes(entity_id: str, attributes: dict[str, Any]) -> bool:
     return has_release_notes_feature or attributes.get("release_url") is not None
 
 
-def _categorize_update(entity_id: str, attributes: dict[str, Any]) -> str:
-    """Categorize an update entity based on its entity_id and attributes."""
+_STORE_PLATFORMS = frozenset({"hacs", "marketplace"})
+
+
+def categorize_update(
+    entity_id: str, attributes: dict[str, Any], platform: str = ""
+) -> str:
+    """Categorize an update entity by its integration, entity_id and attributes."""
+    if platform in _STORE_PLATFORMS:
+        return "hacs"
+
     entity_lower = entity_id.lower()
     # Use 'or ""' to handle both missing keys AND explicit None values
     title_lower = (attributes.get("title") or "").lower()
 
-    # Core update
     if "home_assistant_core" in entity_lower or (
         "core" in entity_lower and "home_assistant" in title_lower
     ):
         return "core"
 
-    # Operating System
     if "operating_system" in entity_lower or "haos" in entity_lower:
         return "os"
 
-    # Supervisor
     if "supervisor" in entity_lower:
         return "supervisor"
 
-    # HACS updates
-    if "hacs" in entity_lower:
-        return "hacs"
-
     # Add-ons (typically named update.xxx_update where xxx is addon name)
-    # Add-ons usually have "Add-on" in title or specific patterns
     if "add-on" in title_lower or "addon" in title_lower:
         return "addons"
 
-    # Device firmware updates (ESPHome, Z-Wave, Zigbee, etc.)
     device_patterns = ["esphome", "zwave", "zigbee", "zha", "matter", "firmware"]
     if any(
         pattern in entity_lower or pattern in title_lower for pattern in device_patterns
     ):
         return "devices"
 
-    # Default to other
     return "other"
+
+
+_categorize_update = categorize_update
 
 
 def update_listing(
@@ -189,6 +190,7 @@ def update_listing(
     *,
     include_attributes: bool = False,
     native_categories: dict[str, str] | None = None,
+    platforms: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     update_entities = [
         s for s in states if s.get("entity_id", "").startswith("update.")
@@ -218,7 +220,9 @@ def update_listing(
             "skipped_version": attributes.get("skipped_version"),
             "auto_update": attributes.get("auto_update", False),
             "category": (native_categories or {}).get(entity_id)
-            or _categorize_update(entity_id, attributes),
+            or categorize_update(
+                entity_id, attributes, (platforms or {}).get(entity_id, "")
+            ),
         }
         if include_attributes:
             update_info["attributes"] = attributes
@@ -265,7 +269,10 @@ def update_listing(
 
 
 def update_details(
-    entity_state: dict[str, Any], *, include_attributes: bool = False
+    entity_state: dict[str, Any],
+    *,
+    include_attributes: bool = False,
+    platform: str = "",
 ) -> dict[str, Any]:
     entity_id = entity_state["entity_id"]
     attributes = entity_state.get("attributes", {})
@@ -285,7 +292,7 @@ def update_details(
         "in_progress": attributes.get("in_progress", False),
         "skipped_version": attributes.get("skipped_version"),
         "auto_update": attributes.get("auto_update", False),
-        "category": _categorize_update(entity_id, attributes),
+        "category": categorize_update(entity_id, attributes, platform),
     }
 
     if include_attributes:

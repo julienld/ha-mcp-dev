@@ -6,16 +6,23 @@ own helpers are reached lazily so its tests can patch them in place.
 
 from __future__ import annotations
 
+from contextlib import AbstractAsyncContextManager
 from typing import Any
 
 from ._vendor.websockets.exceptions import WebSocketException
-from .utils.registry_update_lock import registry_update_lock
+from .utils.registry_update_lock import registry_update_lock, registry_update_locks
 
 
 def _manager() -> Any:
     from . import backup_manager
 
     return backup_manager
+
+
+def entity_id_locks(*entity_ids: str) -> AbstractAsyncContextManager[None]:
+    """Hold the registry lock of each entity ID, in a stable order."""
+    lock = _manager().registry_update_lock
+    return registry_update_locks("entity", *entity_ids, lock=lock)
 
 
 async def registry_row(

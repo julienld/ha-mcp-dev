@@ -82,16 +82,17 @@ _ADMIN_ONLY_401_MESSAGE = (
 class HomeAssistantCommandNotSent(HomeAssistantConnectionError):
     """A WS command that provably never left the process.
 
-    Raised by ``HomeAssistantWebSocketClient.send_command`` ONLY at its single
-    provably-never-sent site: the entry-guard reject (socket not authenticated), where
-    nothing is transmitted. Subclass of ``HomeAssistantConnectionError`` so every
-    existing broad handler is unaffected, yet a write consumer can catch this type
-    FIRST to fall back to the legacy path safely — the write provably never happened,
-    so a legacy first fire cannot double-apply. A ``send_json_message`` failure is NOT
-    this type: ``websocket.send()`` raising does not prove the frame was untransmitted
-    (bytes may already be on the socket when the close surfaces), so send_command
-    re-raises the original exception and the consumer treats it as ambiguous. A
-    post-send socket close (mid-await) likewise raises a plain
+    Raised by ``HomeAssistantWebSocketClient.send_command``'s entry guard (socket not
+    authenticated) and by ``send_websocket_message`` when no attempt obtained a client
+    (raised from the acquisition error, so a rejected token survives as ``__cause__``).
+    A subclass of ``HomeAssistantConnectionError``, so broad handlers are unaffected,
+    yet a write consumer can catch it FIRST: the write provably never happened, so a
+    legacy first fire cannot double-apply. Check ``__cause__`` before such a fallback:
+    resending a rejected token over REST adds a 401 toward Home Assistant's IP ban. A
+    ``send_json_message`` failure is NOT this type: ``websocket.send()`` raising does
+    not prove the frame was untransmitted (bytes may already be on the socket when the
+    close surfaces), so send_command re-raises the original exception and the consumer
+    treats it as ambiguous. A post-send socket close (mid-await) likewise raises a plain
     ``HomeAssistantConnectionError`` (the close handler sets it on the pending future),
     so type alone distinguishes never-sent from sent-then-dropped/ambiguous.
     """
@@ -1237,7 +1238,7 @@ class HomeAssistantClient:
     ) -> str:
         """Fetch app (add-on) container logs directly from Supervisor REST.
 
-        Distinct from ``tools_bug_report._fetch_addon_logs``: that auxiliary
+        Distinct from ``bug_report_sources._fetch_addon_logs``: that auxiliary
         helper uses the app self-service path ``/addons/self/logs`` and may skip
         failures. This helper takes arbitrary slugs and surfaces failures because
         callers (``ha_get_logs(source="supervisor", slug=...)``) need them.
@@ -1899,8 +1900,6 @@ class HomeAssistantClient:
                 return result
 
             except Exception as e:
-                if acquiring and isinstance(e, HomeAssistantAuthError):
-                    raise
                 error_str = str(e)
                 is_403 = "403" in error_str and "Forbidden" in error_str
 
@@ -1918,15 +1917,12 @@ class HomeAssistantClient:
                     logger.error(
                         f"WebSocket transport failed ({message.get('type')}): {e}"
                     )
-                    if isinstance(e, HomeAssistantCommandNotSent) or (
-                        acquiring and isinstance(e, HomeAssistantConnectionError)
-                    ):
+                    if acquiring:
+                        raise HomeAssistantCommandNotSent(error_str) from e
+                    if isinstance(e, HomeAssistantCommandNotSent):
                         raise
-                    if not acquiring:
-                        # A local type survives wrappers without trusting remote
-                        # JSON. The original exception remains available as cause.
-                        raise HomeAssistantCommandOutcomeUnknown(error_str) from e
-                    raise HomeAssistantConnectionError(error_str) from e
+                    # A local type survives wrappers without trusting remote JSON.
+                    raise HomeAssistantCommandOutcomeUnknown(error_str) from e
 
                 # Deliberate asymmetry (#1966 review item 8): a 403 that
                 # exhausts its retries DURING acquisition is transport death -

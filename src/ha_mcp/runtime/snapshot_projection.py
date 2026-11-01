@@ -4,7 +4,7 @@ from typing import Any
 
 from ha_mcp.errors import ErrorCode, create_error_response
 
-from .snapshot_payloads import BackupRestoreError
+from .snapshot_payloads import BackupRestoreError, restore_error_code
 
 
 def panel_diff(name: str, snapshot: dict[str, Any], current: Any) -> dict[str, Any]:
@@ -33,13 +33,7 @@ def panel_diff(name: str, snapshot: dict[str, Any], current: Any) -> dict[str, A
 
 
 def restore_error(error: BackupRestoreError) -> tuple[dict[str, Any], int]:
-    code = {
-        "snapshot_not_found": ErrorCode.RESOURCE_NOT_FOUND,
-        "invalid_snapshot": ErrorCode.VALIDATION_INVALID_PARAMETER,
-        "unsupported_domain": ErrorCode.VALIDATION_INVALID_PARAMETER,
-        "backup_capture_failed": ErrorCode.BACKUP_CAPTURE_FAILED,
-        "entry_deleted": ErrorCode.RESOURCE_NOT_FOUND,
-    }.get(error.outcome.get("reason") or "", ErrorCode.SERVICE_CALL_FAILED)
+    code = restore_error_code(error)
     payload = create_error_response(
         code,
         str(error),
@@ -55,5 +49,6 @@ def restore_error(error: BackupRestoreError) -> tuple[dict[str, Any], int]:
     )
     return payload, {
         ErrorCode.RESOURCE_NOT_FOUND: 404,
+        ErrorCode.ENTITY_NOT_FOUND: 404,
         ErrorCode.VALIDATION_INVALID_PARAMETER: 400,
     }.get(code, 409)

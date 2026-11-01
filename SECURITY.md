@@ -83,6 +83,15 @@ reachable from other machines on the LAN. To restrict to the local machine, set
 The native component uses only Home Assistant's HTTP listener; these server
 bind/port settings do not create a native listener.
 
+The app (add-on), and the in-process server's **Local network** option, also
+listen on IPv6. IPv6 has no NAT to keep the port off the internet, so those
+listeners refuse IPv6 peers outside loopback, link-local, unique local
+addresses, the host's directly connected networks and the operator's
+`ipv6_allowed_networks` list. The check uses the socket peer, before any
+`X-Forwarded-For` handling, so a forged header cannot pass it. The in-process
+server's authentication mode applies to its webhook, not to this direct port,
+which is protected by the secret path as on IPv4.
+
 ### Host/Origin validation (DNS-rebinding guard) is off by default
 
 fastmcp ships a Host/Origin guard — a DNS-rebinding defense that only accepts
@@ -154,8 +163,14 @@ the [Entity visibility filter FAQ](docs/FAQ.md#enforce-mode)) makes a hidden set
 unreadable across ordinary tool reads: direct reads of a hidden entity are
 refused with a generic not-found before the tool runs, and scannable content
 reads (dashboards, templates, automations, traces, logs, files) that would
-surface a hidden entity_id are refused on contact. Those enforced paths fail
-closed when registry data cannot be loaded.
+surface a hidden entity_id are refused on contact. A hidden script, scene or
+automation addressed by its bare storage key or config `id` (the registry
+`unique_id`) rather than its entity_id is concealed the same way, including
+its traces. A `script.<storage key>` service call is concealed, and a config
+body or result that names one is refused. A config-file read is refused when
+the whole file defines a hidden script, scene or automation (judged on the full
+file, whatever slice was asked for). Those
+enforced paths fail closed when registry data cannot be loaded.
 
 One shape-bounded exception preserves an allowed entity's state: JSON
 `ha_get_state` results omit fields, mapping keys, list items, or related records

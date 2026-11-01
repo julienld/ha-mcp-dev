@@ -47,10 +47,10 @@ the baseline only from a CI observation, deleting the fragments it absorbs.
 
 **Two different things share the `ha_mcp_tools` name — don't conflate them:**
 
-- **The component itself** (filesystem / registry tools) is installed on
-  every lane by `_install_custom_component` EXCEPT the no-tools lanes
-  (`E2E_NO_TOOLS_ENTRY=1`, see below), where the "File & YAML Tools" config
-  entry is absent and the privileged services never register. A test that
+- **The File & YAML Tools entry** (the privileged filesystem and YAML
+  services) is set up on every lane by `_install_custom_component` EXCEPT the
+  no-tools lanes (`E2E_NO_TOOLS_ENTRY=1`, see below), where that config entry
+  is absent and the privileged services never register. A test that
   relies on tools-entry behaviour must carry `requires_tools_entry`;
   everywhere else a test may still rely on
   component-gated behaviour with no marker — e.g. a config entry's
@@ -241,7 +241,7 @@ The harness fakes `setTimeout` / `setInterval` / `Date.now` on a virtual clock, 
 
 Each pytest worker sends all its runs to one long-lived node process, and every run gets a fresh JSDOM window. A run that times out, crashes node or garbles its reply ends that process; the next run starts a new one. `tests/src/unit/test_js_harness_worker.py` covers this.
 
-Astro `<script>` blocks without `define:vars` / `is:inline` are TypeScript by default — pass `language="ts"` to `run_script`. For Astro pages needing wizard data, use `extract_astro_frontmatter_vars` + `astro_vars_prelude` to inject production data.
+Astro `<script>` blocks without `define:vars` / `is:inline` are TypeScript by default — pass `language="ts"` to `run_script`. A page whose `<script>` imports modules (the setup wizard) is bundled first with `bundle_inline_script`, which resolves the imports from the page's directory and returns plain JS; `module_exports` reads a module's exported data (the wizard's `data.ts`) so tests use production data instead of a copy.
 
 CI installs Node + jsdom in the `unit-tests` job. Local devs without `tests/js/node_modules/` get clean skips. Each harness run has a 15s node timeout; set `HA_MCP_JS_HARNESS_TIMEOUT=<seconds>` to raise it on slower hardware.
 

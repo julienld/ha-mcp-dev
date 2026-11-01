@@ -15,14 +15,13 @@ from ha_mcp.dashboard_screenshot.content import (
     dashboard_screenshot_warnings,
 )
 from ha_mcp.dashboard_screenshot.provision import (
-    ENGINE_PORT,
-    ENGINE_SLUG_SUFFIXES,
+    _SUPPORTED_ENGINES,
     EngineTarget,
-    _select_started_verified_puppet,
+    _select_started_verified_engine,
 )
+from ha_mcp.dashboard_screenshot.theme_guard import addon_credential_from_options
 from ha_mcp.runtime.dashboard_routes import (
     DashboardRenderTarget,
-    resolve_dashboard_view,
 )
 from ha_mcp.runtime.screenshot_routes import resolve_dashboard_render_target
 from ha_mcp.runtime.screenshot_values import screenshot_result
@@ -61,7 +60,7 @@ class NativeScreenshots:
                 error.status = "outcome_unknown"
             raise
 
-    async def _discover(self) -> tuple[str, str | None]:
+    async def _discover(self) -> EngineTarget:
         get_supervisor_client = loaded_integration_module(
             self.manager.hass, "hassio"
         ).get_supervisor_client
@@ -72,11 +71,11 @@ class NativeScreenshots:
             apps = await client.addons.list()
             infos = []
             for app in apps:
-                if app.slug.endswith(ENGINE_SLUG_SUFFIXES):
+                if app.slug.endswith(tuple(p.slug_suffix for p in _SUPPORTED_ENGINES)):
                     await authorize_actor(self.actor, self.manager.backend.authorize)
                     info = await client.addons.addon_info(app.slug)
                     infos.append((app.slug, info.to_dict()))
-            _slug, selected = _select_started_verified_puppet(infos)
+            _slug, selected, profile = _select_started_verified_engine(infos)
         hostname = selected.get("hostname") or selected.get("ip_address")
         if not hostname:
             raise ToolFailure(
@@ -84,10 +83,31 @@ class NativeScreenshots:
                 "The screenshot engine app has no reachable hostname",
                 status="not_started",
             )
-        token = (selected.get("options") or {}).get("access_token")
-        return f"http://{hostname}:{ENGINE_PORT}", str(token).strip() if token else None
+        options = selected.get("options")
+        version = selected.get("version")
+        return EngineTarget(
+            url=f"http://{hostname}:{profile.port}",
+            engine_kind=profile.kind,
+            engine_version=version.strip()
+            if isinstance(version, str) and version.strip()
+            else None,
+            addon_credential=(
+                addon_credential_from_options(
+                    options if isinstance(options, dict) else None
+                )
+                if profile.has_persistent_theme_override
+                else None
+            ),
+        )
 
     async def _target(self) -> tuple[str, str | None]:
+        target = await self._engine_target()
+        return (
+            target.url,
+            target.addon_credential.token if target.addon_credential else None,
+        )
+
+    async def _engine_target(self) -> EngineTarget:
         explicit = (
             str(
                 setting_value(
@@ -109,20 +129,20 @@ class NativeScreenshots:
         available = "hassio" in self.manager.hass.config.components
         if not available:
             if explicit:
-                return explicit, None
+                return EngineTarget(explicit)
             raise with_recovery_hint(
                 ToolFailure(
                     "SERVICE_CALL_FAILED",
-                    "No screenshot engine is configured. Set the screenshot engine URL for this entry, or install and start the Puppet app on Home Assistant OS.",
+                    "No screenshot engine is configured. Set the screenshot engine URL for this entry, or install and start Puppet or WPE Screenshot Engine on Home Assistant OS.",
                     status="not_started",
                 ),
-                "Set the screenshot engine URL in this entry, or install and start the Puppet app on Home Assistant OS",
+                "Set the screenshot engine URL in this entry, or install and start Puppet or WPE Screenshot Engine on Home Assistant OS",
             )
         try:
-            discovered, token = await self._discover()
+            discovered = await self._discover()
         except ToolError as error:
             if explicit:
-                return explicit, None
+                return EngineTarget(explicit)
             # Discovery is shared with the legacy facade. Normalize its
             # structured refusal here because theme reads also use _target.
             data = json.loads(str(error))
@@ -134,7 +154,7 @@ class NativeScreenshots:
                 detail.get("details")
                 or detail.get("suggestion")
                 or (
-                    "Select one started, schema-verified Puppet app, or configure "
+                    "Select one started, schema-verified Puppet or WPE app, or configure "
                     "this entry's screenshot engine URL explicitly."
                 )
             )
@@ -142,13 +162,13 @@ class NativeScreenshots:
         except Exception:
             if not explicit:
                 raise
-            return explicit, None
+            return EngineTarget(explicit)
         # A credential discovered for one app is not evidence about an
         # unrelated explicitly configured renderer.
         return (
-            (explicit, token if explicit == discovered else None)
-            if explicit
-            else (discovered, token)
+            EngineTarget(explicit)
+            if explicit and explicit != discovered.url
+            else discovered
         )
 
     async def capture(
@@ -196,13 +216,13 @@ class NativeScreenshots:
         view_path: str | None,
     ) -> ToolResult:
         await authorize_actor(self.actor, self.manager.backend.authorize)
-        if config is None:
-            raise ToolFailure(
-                "RESOURCE_NOT_FOUND",
-                "Dashboard config is unavailable for screenshot view resolution",
-                status="not_started",
-            )
-        target = resolve_dashboard_view(url_path, config, view_path)
+
+        async def read_config(_name: str) -> dict[str, Any] | None:
+            return config
+
+        target = await resolve_dashboard_render_target(
+            read_config, dashboard_path=None, url_path=url_path, view_path=view_path
+        )
         captures, warnings = await self._render(target, {}, None)
         warnings = [*target.warnings, *warnings]
         assembled: ToolResult = await await_owned_io(
@@ -219,12 +239,12 @@ class NativeScreenshots:
             self.manager.hass, self.actor, authorize=self.manager.backend.authorize
         )
 
-        async def read_config(name: str) -> dict[str, Any]:
+        async def read_config(name: str) -> dict[str, Any] | None:
             state = await dashboards.read(name, force=True)
-            if state.config is None:
+            if state.owner is None and state.url_path != "lovelace":
                 raise ToolFailure(
                     "RESOURCE_NOT_FOUND",
-                    "Dashboard config is unavailable",
+                    "Dashboard not found",
                     status="not_started",
                 )
             return state.config
@@ -266,7 +286,8 @@ class NativeScreenshots:
         self.started = False
         await admit_registry_write(self.actor, self.manager.backend.authorize)
         self._check_enabled()
-        engine, token = await self._target()
+        engine = await self._engine_target()
+        token = engine.addon_credential.token if engine.addon_credential else None
         observer = NativeThemeObserver(
             self.manager.hass, self.actor, self.manager.backend.authorize, token=token
         )
@@ -285,7 +306,7 @@ class NativeScreenshots:
                 return await capture_dashboard_images(
                     target.render_path,
                     **options,
-                    engine_target=EngineTarget(engine),
+                    engine_target=engine,
                     theme_observer=observer,
                     capture_warnings=warnings,
                     partial_failures=failures,

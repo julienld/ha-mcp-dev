@@ -23,6 +23,13 @@ def comparison_values(data: dict[str, Any], current: Any) -> tuple[dict[str, Any
         and "registry_icon" not in data["config"]
     ):
         current.pop("registry_icon", None)
+    if data["domain"] == "todo_item" and isinstance(data["config"], dict):
+        from ha_mcp.backup_todo import snapshot_item
+
+        current = snapshot_item(data["config"], current)
+        data["config"].pop("completed", None)
+        if isinstance(current, dict):
+            current.pop("completed", None)
     if _is_flow_helper_domain(data["domain"]) and current is not None:
         data["config"] = {key: data["config"][key] for key in ("entry_id", "options")}
         current = {key: current[key] for key in ("entry_id", "options")}

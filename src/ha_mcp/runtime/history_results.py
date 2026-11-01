@@ -80,7 +80,7 @@ def history_result(
             "summary": summary_until is not None,
         },
     }
-    if summary_until is not None:  # ha_get_history drops an empty list
+    if summary_until is not None:  # add_timezone_metadata drops an empty list
         history_data["warnings"] = summary_warnings(result_data, summaries, start_ts)
 
     return history_data

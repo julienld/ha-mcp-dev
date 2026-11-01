@@ -14,11 +14,6 @@ configuration:
       všemi relacemi. Vnitřní souběh pro REST, WebSocket a rozbočení pro jednotlivé
       nástroje zůstává nezměněn. 0 zachovává neomezené chování. Volání čekající na
       kapacitu selže po 60 sekundách. Rozsah 0–32.
-  backup_hint:
-    name: Úroveň nápovědy zálohování
-    description: Jak důrazně jsou asistenti AI vyzýváni k doporučení úplné zálohy
-      Home Assistant před rizikovými změnami. Mění pouze tuto nápovědu; automatické
-      zálohy úprav mají své vlastní nastavení.
   custom_instructions:
     name: Vlastní instrukce serveru
     description: Text odeslaný každému připojujícímu se AI asistentu jako součást
@@ -108,6 +103,14 @@ configuration:
       platí pro každou aplikaci; zápisem app_slug:name jej omezíte na jednu aplikaci.
       Pojmenování skupiny možností zahrnuje každou možnost v ní. Používá se pouze
       tehdy, když je zapnuto Skrýt tajné údaje. Ve výchozím nastavení prázdné.
+  ipv6_allowed_networks:
+    name: Další povolené sítě IPv6
+    description: 'Klienti IPv6 přistupují k vlastnímu portu tohoto serveru pouze z
+      lokální sítě: loopback, link-local, unique local (fc00::/7) a sítí, ke kterým
+      je hostitel Home Assistant přímo připojen. IPv4 to neovlivňuje. Uveďte další
+      sítě IPv6, které chcete povolit, oddělené čárkami nebo novými řádky (například
+      2001:db8:5::/48). Přidáním ::/0 povolíte všechny klienty IPv6, včetně přístupu
+      z internetu, pokud váš router propouští příchozí provoz IPv6.'
   enable_mandatory_bps:
     name: Připojit dovednosti osvědčených postupů při zápisu
     description: 'Hlavní přepínač pro funkci doručování obsahu dovedností nástrojů
@@ -177,22 +180,21 @@ configuration:
       když je také zapnuto „Povolit úpravy konfigurace YAML“ výše.
   enable_lite_docstrings:
     name: Povolit zjednodušené docstringy nástrojů (beta)
-    description: 'Beta funkce. Nahrazuje dokumentační řetězce u 15 náročných nástrojů
-      ha-mcp (ha_config_get_automation, ha_config_set_automation, ha_config_get_script,
+    description: 'Funkce v beta verzi. Nahrazuje dokumentační řetězce u 15 náročných
+      nástrojů ha-mcp (ha_config_get_automation, ha_config_set_automation, ha_config_get_script,
       ha_config_set_script, ha_config_get_scene, ha_config_set_scene, ha_config_list_helpers,
       ha_config_set_helper, ha_config_get_dashboard, ha_config_set_dashboard, ha_call_service,
       ha_config_set_yaml, ha_search, ha_manage_backup, ha_report_issue) kratšími variantami,
-      které odsouvají podrobnosti schémat a příkladů na nástroj ha_get_skill_guide
-      (nebo jeho zdroj skill://). Jedna výjimka: ha_report_issue se odkazuje na pole
-      instructions ve své vlastní odpovědi. Ladění nastavení Backup-hint funguje v
-      úsporném režimu (lite mode) i nadále. VAROVÁNÍ: toto snižuje spotřebu tokenů
-      v klidovém stavu, ale může snížit výkon LLM — zkrácené popisy spoléhají na to,
-      že LLM skutečně zavolá nástroj dovedností nebo si přečte zdroj dovedností pro
-      podrobnosti, což není zaručeno (některé modely přeskočí dodatečné volání nástroje
-      a skončí s menší nápovědou než dříve). Nejlépe se používá s klientem, který
-      podporuje zdroje MCP nebo s enable_tool_search. Vyžaduje restart, aby se projevilo.
-      VYŽADUJE, aby hlavní přepínač "Povolit beta funkce" výše (a ve webovém rozhraní)
-      byl zapnutý — jinak bude tento podpříznak za běhu ignorován bez ohledu na jeho
+      které přenášejí podrobnosti o schématu a příkladech na nástroj ha_get_skill_guide
+      (nebo jeho zdroj skill://). Jedna výjimka: ha_report_issue odkazuje na pole
+      pokynů ve vlastní odpovědi. VAROVÁNÍ: toto snižuje spotřebu tokenů v klidovém
+      stavu, ale může snížit výkon LLM — ořezané popisy spoléhají na to, že LLM skutečně
+      zavolá nástroj dovednosti nebo si přečte zdroj dovednosti pro podrobnosti, což
+      není zaručeno (některé modely přeskočí dodatečné volání nástroje a skončí s
+      menší podporou než dříve). Nejlépe se používá s klientem, který podporuje zdroje
+      MCP nebo s enable_tool_search. Vyžaduje restart, aby se projevilo. VYŽADUJE,
+      aby byl hlavní přepínač "Enable beta features" nahoře (a ve webovém rozhraní)
+      zapnutý — jinak bude tento dílčí příznak za běhu ignorován bez ohledu na jeho
       hodnotu zde.'
   enable_filesystem_tools:
     name: Povolit nástroje souborového systému (beta)
@@ -220,21 +222,19 @@ configuration:
       bez ohledu na jeho hodnotu zde.
   enable_dashboard_screenshot:
     name: Povolit režim snímání obrazovky dashboardu (beta)
-    description: Funkce v beta verzi – ve výchozím nastavení zakázána. Přidává nástroj
-      ha_get_dashboard_screenshot a volby include_screenshot / return_screenshot k
-      nástrojům pro získání/nastavení nástěnek, takže AI asistenti mohou kontrolovat
-      jeden nebo více responzivních obrázků Lovelace (např. pro ověření právě vytvořené
-      nástěnky). Podporuje stabilní pojmenované pohledy, dávky pro mobily/tablety/desktopy
-      a výstup v PNG/JPEG/WebP/BMP. Vykreslování běží v samostatném volitelném enginu
-      – „Puppet“ aplikaci (doplňku) od ballooba, což je headless Chromium –, který
-      nainstalujete jednou (přidáte balloobův repozitář do obchodu s aplikacemi a
-      nainstalujete „Puppet“) a poskytnete mu přístupový token s dlouhou platností;
-      v nasazeních Docker/Container tento engine spustíte jako vedlejší kontejner
-      (sidecar) a nastavíte proměnnou HAMCP_DASHBOARD_SCREENSHOT_ENGINE_URL. Nic náročného
-      se neinstaluje, dokud obojí nepovolíte a nenainstalujete daný engine. K projevům
-      změn je vyžadován restart. VYŽADUJE, aby byl výše uvedený hlavní přepínač „Enable
-      beta features“ zapnutý (a to i ve webovém rozhraní) – v opačném případě bude
-      tento dílčí příznak za běhu ignorován bez ohledu na jeho hodnotu zde.
+    description: 'BETA funkce — ve výchozím nastavení zakázána. Přidává nástroj ha_get_dashboard_screenshot
+      a volby include_screenshot / return_screenshot k nástrojům pro získání/nastavení
+      nástěnek, takže AI asistenti mohou kontrolovat responzivní obrázky rozhraní
+      Lovelace. Podporuje stabilní pojmenované pohledy, dávky pro mobilní zařízení/tablety/stolní
+      počítače a výstup PNG/JPEG/WebP/BMP. Vykreslování běží v samostatné aplikaci:
+      balloob''s Puppet nebo WPE Screenshot Engine. Nainstalujte a nakonfigurujte
+      jeden engine s jeho vlastním dlouhodobým přístupovým tokenem pro Home Assistant.
+      HA OS / Supervised detekuje spuštěný engine přes Supervisor; nasazení v Dockeru
+      / Containeru jej spouštějí jako sidecar a nastavují proměnnou HAMCP_DASHBOARD_SCREENSHOT_ENGINE_URL.
+      Nic náročného se neinstaluje, dokud tuto funkci nepovolíte a nenainstalujete
+      engine. Pro projevení změn je vyžadován restart. VYŽADUJE, aby hlavní přepínač
+      "Povolit beta funkce" výše (a ve webovém rozhraní) byl zapnutý — jinak bude
+      tento dílčí příznak za běhu ignorován bez ohledu na jeho zde zadanou hodnotu.'
   enable_auto_backup:
     name: Automatické zálohování úprav
     description: Uložit snímek entity před každým voláním nástroje pro zápis nebo

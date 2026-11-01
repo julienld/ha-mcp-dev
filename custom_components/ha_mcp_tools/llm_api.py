@@ -39,11 +39,13 @@ keeps its requirements independent of Core's shared SDK. Every SDK import is
 lazy and the first one runs on the executor; no session or SDK class is cached
 across runtime generations.
 
-The tool list is fetched fresh on every ``async_get_api_instance`` call (once
-per conversation turn): exposure toggles and runtime-registered custom tools
-apply on the agent's next message, and two loopback round-trips per turn are
-noise next to the LLM call itself. Tool calls likewise open a short-lived
-stateless session each — the in-process server serves ``stateless_http=True``.
+The tool list is fetched on every ``async_get_api_instance`` call. Before Home
+Assistant 2026.11 that is every conversation turn; from 2026.11 Core keeps the
+instance for the whole conversation, so a newly exposed or registered tool
+shows up in the next conversation. Each tool call opens a short-lived
+stateless session (the in-process server serves ``stateless_http=True``) and
+checks the tool is still exposed before calling it, so hiding a tool takes
+effect on the very next call either way.
 """
 
 from __future__ import annotations
@@ -200,6 +202,7 @@ def _import_mcp_sdk() -> None:
     importlib.import_module(
         "httpcore2" if getattr(transport, "httpx2", None) is not None else "httpcore"
     )
+    importlib.import_module("jsonschema")
     _schema_converter()
 
 
@@ -384,7 +387,20 @@ class HaMcpTool(llm.Tool):
             tool_input.tool_args,
             check_enabled=self._check_enabled,
         )
+        if dumped is None:
+            return _unknown_tool(self.name)
         return tool_result(dumped, error=dumped.get("isError") is True)
+
+
+def _unknown_tool(name: str) -> Any:
+    """The answer for a tool that does not exist or is not exposed."""
+    return tool_result(
+        {
+            "error": f"Unknown tool '{name}'.",
+            "suggestion": f"Use {_SEARCH_TOOL_NAME} to discover available tools.",
+        },
+        error=True,
+    )
 
 
 async def _forward_tool_call(
@@ -394,7 +410,7 @@ async def _forward_tool_call(
     arguments: dict[str, Any],
     *,
     check_enabled: Callable[[], None] | None = None,
-) -> JsonObjectType:
+) -> JsonObjectType | None:
     """Forward one tool call over loopback and dump the result for the agent."""
     if check_enabled is not None:
         check_enabled()
@@ -403,6 +419,13 @@ async def _forward_tool_call(
             asyncio.timeout(_CALL_TOOL_TIMEOUT_SECONDS),
             _mcp_session(server_url) as (session, _init),
         ):
+            if check_enabled is not None:
+                check_enabled()
+            exposed, _pinned, _stamped = partition_tools(
+                (await session.list_tools()).tools
+            )
+            if name not in {tool.name for tool in exposed}:
+                return None
             if check_enabled is not None:
                 check_enabled()
             result = await session.call_tool(name, arguments)
@@ -482,6 +505,8 @@ class HaMcpCallTool(llm.Tool):
         dumped = await _forward_tool_call(
             hass, self._server_url, name, arguments, check_enabled=self._check_enabled
         )
+        if dumped is None:
+            return _unknown_tool(name)
         return tool_result(dumped, error=dumped.get("isError") is True)
 
 
@@ -503,9 +528,10 @@ class HaMcpLlmApi(llm.API):
     ) -> llm.APIInstance:
         """Fetch the current tool list and return an API instance.
 
-        Fetched fresh each conversation turn (see the module docstring); the
-        server's own initialize ``instructions`` become the API prompt, so the
-        agent gets the same guidance every MCP client gets.
+        Core asks once per turn, or from 2026.11 once per conversation (see
+        the module docstring); the server's own initialize ``instructions``
+        become the API prompt, so the agent gets the same guidance every MCP
+        client gets.
         """
         self._check_enabled()
         try:

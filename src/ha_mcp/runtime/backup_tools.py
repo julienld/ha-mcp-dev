@@ -5,6 +5,8 @@ from typing import Annotated, Any, Literal
 
 from pydantic import Field
 
+from ha_mcp.tools.coercion import JSON_STRING_COERCION
+
 
 class BackupFacade:
     def __init__(self, manage: Callable[..., Awaitable[dict[str, Any]]]) -> None:
@@ -29,7 +31,8 @@ class BackupFacade:
             str | None,
             Field(
                 default=None,
-                description="(snapshot.create) Tarball name. Auto-generated if not provided.",
+                description="(snapshot.create) Tarball name. Auto-generated if not provided. "
+                "Home Assistant names a full backup made with its automatic-backup settings itself.",
             ),
         ] = None,
         backup_id: Annotated[
@@ -40,11 +43,84 @@ class BackupFacade:
             ),
         ] = None,
         restore_database: Annotated[
+            bool | None,
+            Field(
+                default=None,
+                description="(snapshot.restore) Include the database in the restore. Default: "
+                "restore it when the backup contains it. Must be false for a backup "
+                "without one; on Supervisor installs it must match the backup.",
+            ),
+        ] = None,
+        restore_addons: Annotated[
+            list[str] | None,
+            JSON_STRING_COERCION,
+            Field(
+                default=None,
+                description="(snapshot.restore) Slugs of apps (add-ons) in the backup to "
+                "restore, from its `addons` in the snapshot list. Default: none. "
+                "Supervisor installs only.",
+            ),
+        ] = None,
+        restore_folders: Annotated[
+            list[str] | None,
+            JSON_STRING_COERCION,
+            Field(
+                default=None,
+                description="(snapshot.restore) Folders in the backup to restore, from its "
+                "`folders` in the snapshot list (`share`, `addons/local`, `ssl`, `media`). "
+                "Default: none. Supervisor installs only.",
+            ),
+        ] = None,
+        include_homeassistant: Annotated[
+            bool | None,
+            Field(
+                default=None,
+                description="(snapshot.create) Custom backup: include Home Assistant's "
+                "configuration.",
+            ),
+        ] = None,
+        include_database: Annotated[
+            bool | None,
+            Field(
+                default=None,
+                description="(snapshot.create) Custom backup: include the database "
+                "(history); needs include_homeassistant=True.",
+            ),
+        ] = None,
+        include_addons: Annotated[
+            list[str] | None,
+            JSON_STRING_COERCION,
+            Field(
+                default=None,
+                description="(snapshot.create) Custom backup: slugs of the installed apps "
+                "(add-ons) to include. Supervisor installs only.",
+            ),
+        ] = None,
+        include_all_addons: Annotated[
+            bool | None,
+            Field(
+                default=None,
+                description="(snapshot.create) Custom backup: include every app (add-on); "
+                "not together with include_addons. Supervisor installs only.",
+            ),
+        ] = None,
+        include_folders: Annotated[
+            list[str] | None,
+            JSON_STRING_COERCION,
+            Field(
+                default=None,
+                description="(snapshot.create) Custom backup: folders to include "
+                "(`share`, `addons/local`, `ssl`, `media`). Supervisor installs only.",
+            ),
+        ] = None,
+        safety_backup: Annotated[
             bool,
             Field(
                 default=False,
-                description="(snapshot.restore) Include the database in the restore; otherwise "
-                "config only.",
+                description="(snapshot.restore) Back up what the restore replaces "
+                "(configuration, plus the database, apps and folders it restores) first, "
+                "as a manual backup on the default location. Off by default; offer it "
+                "to the user, who decides. Needs the default backup password.",
             ),
         ] = False,
         confirm: Annotated[
@@ -161,6 +237,16 @@ class BackupFacade:
             name=name,
             backup_id=backup_id,
             restore_database=restore_database,
+            restore_addons=restore_addons,
+            restore_folders=restore_folders,
+            safety_backup=safety_backup,
+            parts={
+                "include_homeassistant": include_homeassistant,
+                "include_database": include_database,
+                "include_addons": include_addons,
+                "include_all_addons": include_all_addons,
+                "include_folders": include_folders,
+            },
             confirm=confirm,
             domain=domain,
             entity_id=entity_id,

@@ -1,6 +1,5 @@
 """Compatibility exports for the shared report templates."""
 
-from ..runtime.report_templates import _URL_USERINFO_RE as _URL_USERINFO_RE
 from ..runtime.report_templates import (
     REPORT_END_MARKER,
     _cut_to_fit,
@@ -13,6 +12,7 @@ from ..runtime.report_templates import (
     _ReportText,
     _sanitize_log_text,
 )
+from .bug_report_redaction import _URL_USERINFO_RE as _URL_USERINFO_RE
 
 __all__ = [
     "REPORT_END_MARKER",

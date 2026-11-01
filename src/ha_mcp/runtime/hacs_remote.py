@@ -247,12 +247,16 @@ class MarketplaceRemote:
         version: str | None = None,
         repository: str | None = None,
         category: str | None = None,
+        *,
+        confirm_replace_built_in: bool = False,
     ) -> dict[str, Any]:
         self.category(category)
         await self._admit(action)
         before, name, values, target = await self._prepare(
             action, identifier, version, repository, category
         )
+        if action == "download" and confirm_replace_built_in and target is None:
+            values["confirm_replace_built_in"] = True
         lookup = str(before["id"]) if before is not None else repository
         assert lookup is not None  # _prepare validates add_repository's identifier
         # Core authenticates every command; recheck the per-user consent just

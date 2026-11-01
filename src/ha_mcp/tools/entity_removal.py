@@ -9,9 +9,15 @@ item, so it gets no note.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from typing import Any
 
-from ..client.rest_client import HomeAssistantError
+from ..client.rest_client import (
+    HomeAssistantCommandNotSent,
+    HomeAssistantConnectionError,
+    HomeAssistantError,
+)
+from ..errors import ErrorCode
 from ..runtime.entity_removal_values import (
     storage_note_unread as _unread,
 )
@@ -20,6 +26,7 @@ from ..runtime.entity_removal_values import (
 )
 from .config_helpers.listing import listed_items
 from .config_helpers.schemas import SIMPLE_HELPER_TYPES
+from .helpers import exception_to_structured_error
 
 
 async def _stored_helper_note(client: Any, entity_id: str) -> list[str]:
@@ -59,3 +66,65 @@ async def remove_registry_entry(
         {"type": "config/entity_registry/remove", "entity_id": entity_id}
     )
     return result, notes
+
+
+async def remove_registry_entries(
+    client: Any,
+    entity_ids: list[str],
+    error_text: Callable[[dict[str, Any]], str],
+    *,
+    remove: Callable[[str], Awaitable[dict[str, Any]]] | None = None,
+) -> dict[str, Any]:
+    """Remove each id in turn; each lands in ``removed``, ``skipped`` (Core's
+    not_found: already absent) or ``errors``. A lost connection stops the run
+    and lists the ids it never sent, which are safe to retry: the ones after the
+    failing id, and the failing id too when its command provably never left."""
+    removed: list[str] = []
+    skipped: list[str] = []
+    errors: list[dict[str, str]] = []
+    not_attempted: list[str] = []
+    for index, eid in enumerate(entity_ids):
+        try:
+            result = (
+                await remove(eid)
+                if remove is not None
+                else await client.send_websocket_message(
+                    {"type": "config/entity_registry/remove", "entity_id": eid}
+                )
+            )
+        except HomeAssistantConnectionError as exc:
+            # CONNECTION_FAILED, CONNECTION_TIMEOUT for a timed-out command,
+            # or AUTH_* when the token was rejected on reconnect.
+            structured = exception_to_structured_error(exc, raise_error=False)
+            errors.append(
+                {
+                    "entity_id": eid,
+                    "code": structured["error"]["code"],
+                    "message": str(exc),
+                }
+            )
+            unsent = isinstance(exc, HomeAssistantCommandNotSent)
+            not_attempted = list(entity_ids[index if unsent else index + 1 :])
+            break
+        if result.get("success"):
+            removed.append(eid)
+        elif result.get("error_code") == "not_found":
+            skipped.append(eid)
+        else:
+            errors.append(
+                {
+                    "entity_id": eid,
+                    "code": ErrorCode.SERVICE_CALL_FAILED.value,
+                    "message": error_text(result),
+                }
+            )
+    response: dict[str, Any] = {
+        "success": not errors,
+        "total": len(entity_ids),
+        "removed": removed,
+        "skipped": skipped,
+        "errors": errors,
+    }
+    if not_attempted:
+        response["not_attempted"] = not_attempted
+    return response

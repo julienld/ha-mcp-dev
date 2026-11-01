@@ -118,13 +118,13 @@ class ResourceTools:
           still succeeds and the card simply never renders. Register the code as
           a file and use url='/local/...' on such a deployment. (HA itself ships
           no CSP.)
-        - url: External resource URL — /local/... (files in /config/www/),
-          /hacsfiles/... (HACS-installed cards) or https://... (CDN). Supports
-          all types: 'module', 'js', 'css', 'html'.
+        - url: External resource URL — /local/... (/config/www/; Marketplace
+          cards: /local/community/...), /hacsfiles/... (HACS cards) or
+          https://... (CDN). Supports all types: 'module', 'js', 'css', 'html'.
 
         EXAMPLES:
         - Inline: ha_config_set_dashboard_resource(content="class MyCard extends HTMLElement { ... } customElements.define('my-card', MyCard);", resource_type="module")
-        - HACS card (after ha_manage_hacs(action='download')): ha_config_set_dashboard_resource(url="/hacsfiles/lovelace-mushroom/mushroom.js", resource_type="module")
+        - Store cards need no call: in storage mode HACS and the Marketplace register the resource on install (adding it again duplicates it); with YAML-mode resources, list it under lovelace: resources: in configuration.yaml instead.
         - Update: ha_config_set_dashboard_resource(url="/local/my-card-v2.js", resource_type="module", resource_id="abc123")
 
         After adding a resource, a browser cache clear or hard refresh

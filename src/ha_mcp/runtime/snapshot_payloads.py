@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from ha_mcp.errors import HomeAssistantError
+from ha_mcp.errors import ErrorCode, HomeAssistantError
 
 from .snapshot_files import _flow_label
 
@@ -178,3 +178,16 @@ class BackupRestoreError(HomeAssistantError):
             "apply_status": apply_status,
             "verification_status": verification_status,
         }
+
+
+def restore_error_code(err: BackupRestoreError) -> ErrorCode:
+    """The error code a refused or failed restore is reported with."""
+    return {
+        "snapshot_not_found": ErrorCode.RESOURCE_NOT_FOUND,
+        "invalid_snapshot": ErrorCode.VALIDATION_INVALID_PARAMETER,
+        "unsupported_domain": ErrorCode.VALIDATION_INVALID_PARAMETER,
+        "backup_capture_failed": ErrorCode.BACKUP_CAPTURE_FAILED,
+        "entry_deleted": ErrorCode.RESOURCE_NOT_FOUND,
+        "entity_unavailable": ErrorCode.ENTITY_UNAVAILABLE,
+        "entity_not_found": ErrorCode.ENTITY_NOT_FOUND,
+    }.get(err.outcome.get("reason") or "", ErrorCode.SERVICE_CALL_FAILED)

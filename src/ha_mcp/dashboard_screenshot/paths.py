@@ -9,11 +9,16 @@ from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp.backends.legacy import legacy_errors_sync
 from ha_mcp.runtime import dashboard_routes as _routes
 from ha_mcp.runtime import screenshot_routes as _screenshots
+from ha_mcp.runtime.dashboard_read_contract import (
+    CONFIG_NOT_FOUND_CODE,
+    NO_STORED_CONFIG_MESSAGES,
+    UNKNOWN_CONFIG_PREFIX,
+)
 from ha_mcp.runtime.errors import raise_failure
 from ha_mcp.tool_api import ToolFailure
 
 from ..errors import ErrorCode, create_error_response
-from ..tools.helpers import raise_tool_error
+from ..utils.tool_errors import raise_tool_error
 
 DashboardRenderTarget = _routes.DashboardRenderTarget
 dashboard_frontend_path = legacy_errors_sync(_routes.dashboard_frontend_path)
@@ -21,17 +26,19 @@ dashboard_render_paths = legacy_errors_sync(_routes.dashboard_render_paths)
 resolve_dashboard_view = legacy_errors_sync(_routes.resolve_dashboard_view)
 
 
-_UNKNOWN_CONFIG_PREFIX = "Unknown config specified:"
-_NO_CONFIG_MESSAGES = frozenset(
-    {"No config found.", "Command failed: No config found."}
-)
 # Puppet percent-encodes each render-path segment, while HA's frontend applies
 # decodeURI before matching views.  decodeURI intentionally leaves these URI
 # delimiters encoded, so an exact configured-path match would silently miss.
 
 
-async def fetch_dashboard_render_config(client: Any, url_path: str) -> dict[str, Any]:
-    """Fetch a Lovelace dashboard config for stable view-path resolution."""
+async def fetch_dashboard_render_config(
+    client: Any, url_path: str
+) -> dict[str, Any] | None:
+    """Fetch a Lovelace dashboard config for stable view-path resolution.
+
+    ``None`` when Home Assistant holds no config for the dashboard, which the
+    frontend renders as its generated default view.
+    """
     base_path = dashboard_frontend_path(url_path)
     request: dict[str, Any] = {"type": "lovelace/config", "force": True}
     if base_path != "lovelace":
@@ -62,12 +69,13 @@ async def fetch_dashboard_render_config(client: Any, url_path: str) -> dict[str,
         else:
             error_code = ""
             message = str(error)
-        missing_dashboard = (
-            error_code == "config_not_found"
-            or message.startswith(
-                (_UNKNOWN_CONFIG_PREFIX, f"Command failed: {_UNKNOWN_CONFIG_PREFIX}")
+        if message in NO_STORED_CONFIG_MESSAGES:
+            return None
+        missing_dashboard = error_code == CONFIG_NOT_FOUND_CODE or message.startswith(
+            (
+                f"{UNKNOWN_CONFIG_PREFIX}:",
+                f"Command failed: {UNKNOWN_CONFIG_PREFIX}:",
             )
-            or message in _NO_CONFIG_MESSAGES
         )
         if missing_dashboard:
             raise_tool_error(
@@ -119,7 +127,7 @@ async def resolve_dashboard_render_target(
 ) -> DashboardRenderTarget:
     """Adapt the existing remote config reader to canonical render addressing."""
 
-    async def read_config(name: str) -> dict[str, Any]:
+    async def read_config(name: str) -> dict[str, Any] | None:
         try:
             return await fetch_dashboard_render_config(client, name)
         except ToolError as error:

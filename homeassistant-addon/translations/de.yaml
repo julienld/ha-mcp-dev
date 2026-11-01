@@ -14,11 +14,6 @@ configuration:
       alle Sitzungen hinweg. Interne REST-, WebSocket- und tool-spezifische Fan-Out-Gleichzeitigkeit
       bleibt unverändert. 0 belässt das Verhalten unbegrenzt. Ein Aufruf, der auf
       Kapazität wartet, schlägt nach 60 Sekunden fehl. Bereich 0–32.
-  backup_hint:
-    name: Backup-Hinweisstufe
-    description: Wie nachdrücklich KI-Assistenten angewiesen werden, vor riskanten
-      Änderungen ein vollständiges Home Assistant-Backup vorzuschlagen. Ändert nur
-      diesen Hinweis; automatische Bearbeitungs-Backups haben ihre eigene Einstellung.
   custom_instructions:
     name: Eigene Server-Anweisungen
     description: Text, den jeder verbundene KI-Assistent als Teil der MCP-Server-Anweisungen
@@ -103,6 +98,14 @@ configuration:
       app_slug:name, um ihn auf eine App zu beschränken. Das Benennen einer Optionsgruppe
       deckt jede Option darin ab. Wird nur verwendet, wenn Geheimnisse schwärzen aktiv
       ist. Standardmäßig leer.
+  ipv6_allowed_networks:
+    name: Zusätzliche erlaubte IPv6-Netzwerke
+    description: 'IPv6-Clients erreichen den Port dieses Servers nur aus dem lokalen
+      Netzwerk: Loopback, Link-Local, Unique Local (fc00::/7) und die Netzwerke, mit
+      denen der Home Assistant-Host direkt verbunden ist. IPv4 ist nicht betroffen.
+      Liste weitere erlaubte IPv6-Netzwerke auf, getrennt durch Kommas oder neue Zeilen
+      (zum Beispiel 2001:db8:5::/48). Das Hinzufügen von ::/0 erlaubt jeden IPv6-Client,
+      einschließlich aus dem Internet, wenn dein Router eingehenden IPv6-Verkehr durchlässt.'
   enable_mandatory_bps:
     name: Best-Practice-Skills bei Schreibvorgängen anhängen
     description: 'Hauptschalter für die Funktion zur Bereitstellung von Schreib-Tool-Skill-Inhalten

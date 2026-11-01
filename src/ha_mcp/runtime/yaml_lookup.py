@@ -333,6 +333,9 @@ class YamlLookup:
         include_parsed: bool = False,
     ) -> dict[str, Any]:
         targets, resolve_warnings = await _resolve_target_files(self.files, file)
+        guard = getattr(self.files, "guard_targets", None)
+        if guard is not None:
+            await guard([target for target, _ in targets])
 
         extra: dict[str, Any] = {"include_parsed": True} if include_parsed else {}
         # The reads are independent, so fan them out rather than paying N

@@ -20,6 +20,7 @@ import pytest
 
 from ha_mcp._vendor.websockets.exceptions import ConnectionClosedError
 from ha_mcp.client.rest_client import (
+    HomeAssistantAuthError,
     HomeAssistantClient,
     HomeAssistantCommandError,
     HomeAssistantCommandNotSent,
@@ -223,11 +224,12 @@ class TestNoAnswerRaises:
             HomeAssistantConnectionError(
                 "Failed to connect to Home Assistant WebSocket"
             ),
+            HomeAssistantAuthError("WebSocket authentication failed"),
         ],
-        ids=["untyped", "connection_error"],
+        ids=["untyped", "connection_error", "auth"],
     )
     @pytest.mark.asyncio
-    async def test_failure_to_acquire_a_client_raises(
+    async def test_failure_to_acquire_a_client_is_not_sent(
         self, client: HomeAssistantClient, exc: Exception
     ) -> None:
         """Never obtaining a usable connection counts as transport death
@@ -238,10 +240,62 @@ class TestNoAnswerRaises:
         has untyped exits — ``WebSocketManager`` guards its pool lock with a
         bare ``Exception("Lock not initialized")`` — and a caller cannot read a
         result it never got regardless of how the manager chose to signal that.
-        The untyped case is what fails if the phase check is ever dropped in
-        favour of the type check alone."""
-        with pytest.raises(HomeAssistantConnectionError, match=str(exc)):
+        The untyped and auth cases are what fail if the phase check is ever dropped in
+        favour of the type check alone. No client means nothing was sent, so it
+        is ``HomeAssistantCommandNotSent``, raised from the original so a
+        rejected token keeps its auth cause."""
+        with pytest.raises(HomeAssistantCommandNotSent, match=str(exc)) as excinfo:
             await _send_with_acquire_failure(client, exc)
+
+        assert excinfo.value.__cause__ is exc
+
+    @pytest.mark.asyncio
+    async def test_403_retry_that_fails_to_acquire(
+        self,
+        client: HomeAssistantClient,
+        no_retry_sleep: Any,
+    ) -> None:
+        """Two failed acquisitions cannot have dispatched a command."""
+        forbidden = HomeAssistantCommandError("403 Forbidden")
+        ws_client = MagicMock()
+        ws_client.send_command = AsyncMock(side_effect=forbidden)
+        rejected = HomeAssistantAuthError("WebSocket authentication failed")
+        with (
+            patch(
+                "ha_mcp.client.websocket_client.get_websocket_client",
+                new=AsyncMock(side_effect=[forbidden, rejected]),
+            ),
+            pytest.raises(HomeAssistantConnectionError) as excinfo,
+        ):
+            await client.send_websocket_message({"type": "config_entries/get"})
+
+        assert isinstance(excinfo.value, HomeAssistantCommandNotSent)
+        assert excinfo.value.__cause__ is rejected
+        ws_client.send_command.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_post_dispatch_403_never_reaches_a_second_entry_guard(
+        self, client: HomeAssistantClient, no_retry_sleep: Any
+    ) -> None:
+        """A second entry guard cannot erase an effect from the first attempt."""
+        guard = HomeAssistantCommandNotSent("WebSocket not authenticated")
+        ws_client = MagicMock()
+        ws_client.send_command = AsyncMock(
+            side_effect=[HomeAssistantCommandError("403 Forbidden"), guard]
+        )
+        with (
+            patch(
+                "ha_mcp.client.websocket_client.get_websocket_client",
+                new=AsyncMock(return_value=ws_client),
+            ) as acquire,
+        ):
+            result = await client.send_websocket_message({"type": "config_entries/get"})
+
+        assert result["success"] is False
+        assert "403 Forbidden" in result["error"]
+        acquire.assert_awaited_once()
+        ws_client.send_command.assert_awaited_once()
+        no_retry_sleep.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_403_acquisition_failure_raises_after_safe_retries(

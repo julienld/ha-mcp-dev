@@ -38,6 +38,7 @@ from ..runtime.hacs_results import (
     search_data,
 )
 from ..runtime.hacs_tools import HacsFacade
+from .hacs_backend import StoreApi, fetch_releases
 from .hacs_registration import (
     CATEGORY_MAP,
     HACS_ADD_REGISTRATION_TIMEOUT,
@@ -232,10 +233,22 @@ class HacsTools:
         )
         return {"success": True, **wrapped}
 
-    async def _hacs_info(self, repository_id: str) -> dict[str, Any]:
+    async def _hacs_info(
+        self, repository_id: str, include_releases: bool = False
+    ) -> dict[str, Any]:
         ws_client = await self._get_hacs_client()
         if isinstance(ws_client, MarketplaceRemote):
-            return await self._store_result(await ws_client.info(repository_id))
+            data = await ws_client.info(repository_id)
+            if include_releases:
+                data.update(
+                    await fetch_releases(
+                        ws_client.ws,
+                        StoreApi("marketplace"),
+                        str(data["data"].get("id") or repository_id),
+                        data["data"],
+                    )
+                )
+            return await self._store_result(data)
         try:
             result, cache = await cached_repository(ws_client, "hacs", repository_id)
         except HomeAssistantCommandError as cmd_err:
@@ -248,14 +261,24 @@ class HacsTools:
                 raise_error=True,
             )
 
-        wrapped = await add_timezone_metadata(
-            self._client,
-            {**info_data(repository_id, result), "cache": cache},
-        )
+        data = {**info_data(repository_id, result), "cache": cache}
+        if include_releases:
+            data.update(
+                await fetch_releases(
+                    ws_client,
+                    StoreApi("hacs"),
+                    str(result.get("id") or repository_id),
+                    result,
+                )
+            )
+        wrapped = await add_timezone_metadata(self._client, data)
         return {"success": True, **wrapped}
 
     async def _hacs_download(
-        self, repository_id: str | None, version: str | None
+        self,
+        repository_id: str | None,
+        version: str | None,
+        confirm_replace_built_in: bool = False,
     ) -> dict[str, Any]:
         # Empty/whitespace repository_id would either be passed straight
         # into ``_resolve_hacs_repo_id`` (which has no empty-check and
@@ -276,7 +299,12 @@ class HacsTools:
 
         if isinstance(ws_client, MarketplaceRemote):
             return await self._store_result(
-                await ws_client.write("download", repository_id, version)
+                await ws_client.write(
+                    "download",
+                    repository_id,
+                    version,
+                    confirm_replace_built_in=confirm_replace_built_in,
+                )
             )
 
         # Resolve GitHub path to numeric ID if needed

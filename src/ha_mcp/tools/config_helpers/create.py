@@ -6,7 +6,6 @@ from ...backends.legacy import legacy_errors
 from ...utils.registry_update_lock import registry_update_lock
 from ..config_write_helpers import apply_entity_category
 from .core_payload import (
-    check_core_gaps,
     with_create_defaults,
 )
 from .registry import _ws_error_msg
@@ -20,7 +19,6 @@ def _build_create_message(
     if icon:
         message["icon"] = icon
     message.update(with_create_defaults(helper_type, fields))
-    check_core_gaps(helper_type, message)
     message["type"] = f"{helper_type}/create"  # never a field's
     return message
 

@@ -30,6 +30,9 @@ from ..core_registry import (
     _substrate_unavailable,
     er,
 )
+from ..core_registry import (
+    _reg_entity_id as _reg_entity_id,
+)
 
 __all__ = [
     "_RegistryView",

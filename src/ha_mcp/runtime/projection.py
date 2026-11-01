@@ -355,6 +355,20 @@ def timezone_metadata(
     if not include_metadata:
         return data
 
+    result = _timezone_metadata(data, ha_timezone, fetch_failed, convert_timestamps)
+    inner = result["data"]
+    if isinstance(inner, dict) and isinstance(inner.get("warnings"), list):
+        result["data"] = {
+            key: value for key, value in inner.items() if key != "warnings"
+        }
+        if warnings := inner["warnings"] + result.get("warnings", []):
+            result["warnings"] = warnings
+    return result
+
+
+def _timezone_metadata(
+    data: dict[str, Any], ha_timezone: str, fetch_failed: bool, convert_timestamps: bool
+) -> dict[str, Any]:
     if not convert_timestamps:
         note = "Timestamp fields retain their native format; see the tool description for units."
         result: dict[str, Any] = {

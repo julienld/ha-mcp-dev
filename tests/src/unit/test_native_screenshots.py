@@ -103,6 +103,59 @@ async def test_native_capture_sends_only_render_parameters_to_configured_engine(
     )
 
 
+@pytest.mark.parametrize(
+    ("name", "registered", "raw"),
+    [
+        ("wall-panel", True, False),
+        ("wall-panel", False, False),
+        ("lovelace", False, False),
+        ("lovelace", False, True),
+    ],
+)
+async def test_unsaved_dashboard_can_render_but_unknown_dashboard_cannot(
+    renderer, monkeypatch, name, registered, raw
+):
+    from custom_components.ha_mcp_tools import native_screenshots
+
+    renderer, *_ = renderer
+    read = AsyncMock(
+        return_value=SimpleNamespace(
+            config=None, owner=object() if registered else None, url_path=name
+        )
+    )
+    monkeypatch.setattr(
+        native_screenshots,
+        "DashboardStorage",
+        lambda *args, **kwargs: SimpleNamespace(read=read),
+    )
+    render = AsyncMock(return_value=([], []))
+    monkeypatch.setattr(type(renderer), "_render", render)
+    arguments = {
+        "dashboard_path": name if raw else None,
+        "url_path": None if raw else name,
+        "view_path": None,
+    }
+    if not registered and name != "lovelace":
+        with pytest.raises(ToolFailure, match="Dashboard"):
+            await renderer.screenshot(**arguments)
+        render.assert_not_awaited()
+        return
+    await renderer.screenshot(**arguments)
+    assert render.await_args.args[0].render_path == name
+
+
+async def test_unsaved_capture_renders_default_without_inventing_static_views(renderer):
+    renderer, requests, *_ = renderer
+    result = await renderer.capture({}, "wall-panel", None, None, after_write=False)
+    assert requests[0].url.path == "/wall-panel"
+    assert result.data["screenshots"][0]["render_path"] == "wall-panel"
+    assert result.data["warnings"]
+    requests.clear()
+    with pytest.raises(ToolFailure):
+        await renderer.capture({}, "wall-panel", None, "home", after_write=False)
+    assert requests == []
+
+
 async def test_screenshot_failure_after_write_preserves_the_existing_outcome(renderer):
     renderer, _requests, status, *_ = renderer
     status[0] = 500
@@ -236,38 +289,103 @@ async def test_screenshot_theme_observation_never_initializes_or_cancels_a_user_
     assert not future.cancelled()
 
 
-async def test_explicit_renderer_never_inherits_a_different_apps_identity(
-    renderer, monkeypatch
+@pytest.mark.parametrize("same_endpoint", [False, True])
+async def test_explicit_renderer_inherits_only_its_verified_apps_identity(
+    renderer, monkeypatch, same_endpoint
 ):
+    from ha_mcp.dashboard_screenshot.provision import EngineTarget
+    from ha_mcp.dashboard_screenshot.theme_guard import EngineCredential
+
     renderer, *_ = renderer
     renderer.manager.hass.config.components = {"hassio"}
     monkeypatch.setattr(
         type(renderer),
         "_discover",
-        AsyncMock(return_value=("http://another-renderer:10000", "secret-placeholder")),
+        AsyncMock(
+            return_value=EngineTarget(
+                "http://renderer.test:10000"
+                if same_endpoint
+                else "http://another-renderer:10000",
+                engine_kind="puppet",
+                engine_version="2.4.0",
+                addon_credential=EngineCredential(
+                    "http://homeassistant:8123", "secret-placeholder"
+                ),
+            )
+        ),
     )
     target, token = await renderer._target()
-    assert target == "http://renderer.test:10000" and token is None
+    assert target == "http://renderer.test:10000"
+    assert token == ("secret-placeholder" if same_endpoint else None)
+    engine = await renderer._engine_target()
+    assert engine.engine_kind == ("puppet" if same_endpoint else None)
+    assert engine.engine_version == ("2.4.0" if same_endpoint else None)
 
 
-async def test_supervisor_discovery_uses_the_existing_core_client(
+async def test_native_legacy_puppet_auto_height_failure_never_replays(
     renderer, monkeypatch
 ):
+    from ha_mcp.dashboard_screenshot.provision import EngineTarget
+    from ha_mcp.runtime.dashboard_routes import resolve_dashboard_view
+
+    renderer, requests, status, *_ = renderer
+    status[0] = 400
+    monkeypatch.setattr(
+        type(renderer),
+        "_engine_target",
+        AsyncMock(
+            return_value=EngineTarget("http://renderer.test:10000", "puppet", "2.4.0")
+        ),
+    )
+    with pytest.raises(ToolFailure) as caught:
+        await renderer._render(
+            resolve_dashboard_view("lovelace", {"views": []}, None),
+            {"full_page": True},
+            None,
+        )
+    assert caught.value.status == "outcome_unknown"
+    assert len(requests) == 1 and requests[0].url.params["viewport"].endswith("xauto")
+
+
+@pytest.mark.parametrize(
+    ("name", "suffix", "schema", "port", "kind", "token_option"),
+    [
+        (
+            "Puppet",
+            "puppet",
+            ("access_token", "home_assistant_url", "keep_browser_open"),
+            10000,
+            "puppet",
+            "access_token",
+        ),
+        (
+            "WPE Screenshot Engine",
+            "wpe_screenshot_engine",
+            ("home_assistant_url", "home_assistant_token", "dashboard_path"),
+            8080,
+            "wpe",
+            "home_assistant_token",
+        ),
+    ],
+)
+async def test_supervisor_discovery_uses_the_existing_core_client(
+    renderer, monkeypatch, name, suffix, schema, port, kind, token_option
+):
+    from custom_components.ha_mcp_tools import native_screenshots
+
     renderer, *_ = renderer
     renderer.manager.hass.config.components = {"hassio"}
     renderer.manager.policy.flags["dashboard_screenshot_engine_url"] = ""
     info = {
-        "name": "Puppet",
-        "schema": [
-            {"name": name}
-            for name in ("access_token", "home_assistant_url", "keep_browser_open")
-        ],
+        "name": name,
+        "schema": [{"name": option} for option in schema],
         "state": "started",
         "hostname": "core-puppet",
-        "options": {"access_token": "engine-placeholder"},
+        "options": {token_option: "engine-placeholder"},
+        "version": " 2.4.0 ",
     }
     addons = SimpleNamespace(
-        list=AsyncMock(return_value=[SimpleNamespace(slug="repository_puppet")]),
+        list=AsyncMock(return_value=[SimpleNamespace(slug=f"repository_{suffix}")]),
         addon_info=AsyncMock(return_value=SimpleNamespace(to_dict=lambda: info)),
     )
     client = SimpleNamespace(addons=addons)
@@ -277,8 +395,15 @@ async def test_supervisor_discovery_uses_the_existing_core_client(
         SimpleNamespace(get_supervisor_client=lambda hass: client),
     )
     target, token = await renderer._target()
-    assert target == "http://core-puppet:10000" and token == "engine-placeholder"
-    addons.addon_info.assert_awaited_once_with("repository_puppet")
+    assert target == f"http://core-puppet:{port}"
+    assert token == ("engine-placeholder" if kind == "puppet" else None)
+    addons.addon_info.assert_awaited_once_with(f"repository_{suffix}")
+    capture = AsyncMock(return_value=[])
+    monkeypatch.setattr(native_screenshots, "capture_dashboard_images", capture)
+    await renderer.capture({}, "wall-panel", {"views": []}, None, after_write=False)
+    engine = capture.await_args.kwargs["engine_target"]
+    assert engine.engine_kind == kind and engine.engine_version == "2.4.0"
+    assert engine.url == target
 
 
 @pytest.mark.parametrize(

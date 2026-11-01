@@ -14,11 +14,6 @@ configuration:
       všemi relacemi. Vnitřní souběh pro REST, WebSocket a rozbočení pro jednotlivé
       nástroje zůstává nezměněn. 0 zachovává neomezené chování. Volání čekající na
       kapacitu selže po 60 sekundách. Rozsah 0–32.
-  backup_hint:
-    name: Úroveň nápovědy zálohování
-    description: Jak důrazně jsou asistenti AI vyzýváni k doporučení úplné zálohy
-      Home Assistant před rizikovými změnami. Mění pouze tuto nápovědu; automatické
-      zálohy úprav mají své vlastní nastavení.
   custom_instructions:
     name: Vlastní instrukce serveru
     description: Text odeslaný každému připojujícímu se AI asistentu jako součást
@@ -99,6 +94,14 @@ configuration:
       platí pro každou aplikaci; zápisem app_slug:name jej omezíte na jednu aplikaci.
       Pojmenování skupiny možností zahrnuje každou možnost v ní. Používá se pouze
       tehdy, když je zapnuto Skrýt tajné údaje. Ve výchozím nastavení prázdné.
+  ipv6_allowed_networks:
+    name: Další povolené sítě IPv6
+    description: 'Klienti IPv6 přistupují k vlastnímu portu tohoto serveru pouze z
+      lokální sítě: loopback, link-local, unique local (fc00::/7) a sítí, ke kterým
+      je hostitel Home Assistant přímo připojen. IPv4 to neovlivňuje. Uveďte další
+      sítě IPv6, které chcete povolit, oddělené čárkami nebo novými řádky (například
+      2001:db8:5::/48). Přidáním ::/0 povolíte všechny klienty IPv6, včetně přístupu
+      z internetu, pokud váš router propouští příchozí provoz IPv6.'
   enable_mandatory_bps:
     name: Připojit dovednosti osvědčených postupů při zápisu
     description: 'Hlavní přepínač pro funkci doručování obsahu dovedností nástrojů

@@ -16,6 +16,7 @@ from ha_mcp.utils.python_sandbox import (
 )
 
 from .dashboard_errors import raise_dashboard_edit_error
+from .dashboard_read_contract import NO_STORED_CONFIG_NOTE
 from .dashboard_routes import dashboard_render_paths, match_dashboard_view
 from .dashboard_validation import reject_malformed_dashboard_lists
 from .errors import raise_failure as raise_tool_error
@@ -183,7 +184,19 @@ def get_dashboard_result(
     *,
     original_url_path: str | None,
     view_path: str | None,
+    stored_config: bool | None = None,
 ) -> dict[str, Any]:
+    if stored_config is None:
+        stored_config = config is not None
+    if view_path is not None and not stored_config:
+        raise_tool_error(
+            create_error_response(
+                ErrorCode.VALIDATION_INVALID_PARAMETER,
+                NO_STORED_CONFIG_NOTE,
+                context={"url_path": url_path, "view_path": view_path},
+                suggestions=["Omit view_path: there are no static views to scope to"],
+            )
+        )
     config_hash = compute_config_hash(config) if isinstance(config, dict) else None
 
     # Calculate config size for progressive disclosure hint
@@ -227,6 +240,9 @@ def get_dashboard_result(
     if original_url_path is not None and original_url_path != url_path:
         get_result["resolved_from"] = original_url_path
 
+    get_result["stored_config"] = stored_config
+    if not stored_config:
+        get_result["message"] = NO_STORED_CONFIG_NOTE
     return get_result
 
 

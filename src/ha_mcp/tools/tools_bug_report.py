@@ -16,8 +16,6 @@ import time
 from pathlib import Path
 from typing import Any, Literal
 
-import httpx
-
 from ha_mcp import __version__
 from ha_mcp._vendor.fastmcp import Context
 from ha_mcp._vendor.fastmcp.server.dependencies import get_http_headers
@@ -25,9 +23,14 @@ from ha_mcp._vendor.fastmcp.tools import tool
 
 from .._version import is_embedded, is_running_in_addon
 from ..backends.legacy import legacy_errors
-from ..client.supervisor_client import make_supervisor_httpx_client
 from ..config import Settings, get_global_settings
 from ..errors import create_validation_error
+from ..mcp_client_context import (
+    capability_names,
+    client_capabilities,
+    extract_client_info,
+    protocol_version,
+)
 from ..runtime.report_environment import _detect_platform
 from ..runtime.report_rendering import (
     _format_logs_for_report,
@@ -43,11 +46,15 @@ from ..utils.usage_logger import (
     get_startup_logs,
 )
 from .bug_report_config import collect_config_toggles
-from .bug_report_templates import (
-    _ReportText,
-    _sanitize_log_text,
+from .bug_report_redaction import _sanitize_log_text, known_identifiers_scope
+from .bug_report_sources import (
+    _fetch_addon_logs,
+    _fetch_core_error_log,
+    collect_known_identifiers,
+    fetch_ha_install,
 )
-from .coercion import ANSI_ESCAPE_RE, parse_string_list_param
+from .bug_report_templates import _ReportText
+from .coercion import parse_string_list_param
 from .component_api import InfoResult, read_component_version, read_info, webhook_auth
 from .helpers import (
     log_tool_usage,
@@ -75,25 +82,6 @@ logger = logging.getLogger(__name__)
 # Known Claude Desktop bugs that present as ha-mcp failures. Both live in
 # the client, never reach this server, and already have upstream tickets, so
 # the agent must rule them out before filing here.
-
-# Max characters to include from addon container logs.
-# 3000 chars ≈ 750 LLM tokens — keeps the tool response well below context budgets
-# while still capturing enough recent output to diagnose most issues.
-_ADDON_LOG_MAX_CHARS = 3000
-
-# Max characters to include from the Home Assistant error log (home-assistant.log).
-# Slightly larger than the addon cap: this log carries the highest-value
-# diagnostic lines (auth failures, integration tracebacks) and the recent tail
-# is where they land. ~5000 chars ≈ 1250 LLM tokens.
-_CORE_LOG_MAX_CHARS = 5000
-
-# Log window requested from the install for that tail. Only the last
-# _CORE_LOG_MAX_CHARS survive into the report — a few dozen lines of typical
-# HA log text — so anything deeper is fetched and then thrown away, which on
-# Supervisor-backed installs is exactly the cost that made the unconditional
-# 20,000-line fetch hang (#2279). 500 keeps an order of magnitude of headroom
-# for short lines.
-_CORE_LOG_WINDOW_LINES = 500
 
 # A slow or missing Supervisor must not hold up the whole report.
 _SUPERVISOR_PROBE_TIMEOUT = 10.0
@@ -250,73 +238,6 @@ def _tool_policy_summary() -> str:
     return f"{rules}, rule_effect={policy.rule_effect}"
 
 
-def _extract_client_info(ctx: Context | None) -> dict[str, str]:
-    """Pull the connecting MCP client's self-identification off the request context.
-
-    The MCP ``initialize`` handshake carries a ``clientInfo`` Implementation
-    object (``name``/``version``/optional ``title``). FastMCP exposes the
-    underlying server session as ``ctx.session``; the MCP SDK's
-    ``ServerSession`` keeps the parsed initialize params on ``client_params``;
-    on the 2026-07-28 protocol the SDK synthesizes them from the request's
-    ``_meta`` when it carries both client info and capabilities. An
-    older-protocol client over stateless HTTP sends client info only in
-    ``initialize``, so the request's ``User-Agent`` is the fallback there,
-    marked as such in ``title``.
-
-    Returns ``{"name": ..., "version": ..., "title": ...}``. ``name`` and
-    ``version`` fall back to ``"unknown"`` when the client didn't send them;
-    ``title`` falls back to the empty string so callers can distinguish "not
-    sent" from a real title without false-positive aside rendering.
-
-    Returns an empty dict when there is no context, or no client info and no
-    ``User-Agent`` (e.g. stdio), so the bug-report path stays robust. The
-    log level is intentionally INFO, not DEBUG: this catch is the only signal
-    we'd get if FastMCP/MCP SDK shape drifts in a future release, and silent
-    drift would hide a regression for months.
-    """
-    if ctx is None:
-        return {}
-    try:
-        session = getattr(ctx, "session", None)
-        params = (
-            getattr(session, "client_params", None) if session is not None else None
-        )
-        client = (
-            getattr(params, "client_info", None) or getattr(params, "clientInfo", None)
-            if params is not None
-            else None
-        )
-        if client is None:
-            return _client_info_from_user_agent()
-        return {
-            "name": getattr(client, "name", None) or "unknown",
-            "version": getattr(client, "version", None) or "unknown",
-            "title": getattr(client, "title", None) or "",
-        }
-    except Exception as e:  # noqa: BLE001
-        logger.info(
-            "Failed to read MCP client info from context: %s (%s)",
-            e,
-            type(e).__name__,
-        )
-        return {}
-
-
-def _client_info_from_user_agent() -> dict[str, str]:
-    """``{"name", "version", "title"}`` from the HTTP ``User-Agent``, or ``{}``."""
-    user_agent = get_http_headers(include={"user-agent"}).get("user-agent", "").strip()
-    if not user_agent:
-        return {}
-    product = user_agent.split()[0]
-    name, _, version = product.partition("/")
-    logger.debug("No MCP client info on the request; using User-Agent %r", product)
-    return {
-        "name": name or "unknown",
-        "version": version or "unknown",
-        "title": "from HTTP User-Agent",
-    }
-
-
 def _http_user_agent() -> str:
     """The request's ``User-Agent``, or ``""`` outside an HTTP request."""
     value = get_http_headers(include={"user-agent"}).get("user-agent", "")
@@ -379,98 +300,6 @@ def _detect_mcp_transport() -> str:
         pass
 
     return "unknown"
-
-
-async def _fetch_addon_logs() -> str:
-    """Fetch ha-mcp addon container logs via the Supervisor REST API.
-
-    Only works when running as a Home Assistant add-on (SUPERVISOR_TOKEN set).
-    Uses /addons/self/logs which resolves to the calling addon's own logs via
-    the Supervisor's per-addon token binding — no slug interpolation needed.
-
-    Direct httpx against ``http://supervisor`` is the documented add-on access
-    pattern: it uses the Supervisor token directly (no extra HA hop) and
-    preserves the ``self`` shortcut, which the WebSocket ``supervisor/api``
-    proxy used by other tools may not.
-
-    Returns sanitized log text (last _ADDON_LOG_MAX_CHARS chars, with a
-    truncation marker prepended when truncation occurs), or empty string on
-    failure.
-    """
-    # Redundant with the caller's `install_method == "addon"` gate, but kept
-    # as a defensive guard for any direct callers added later.
-    if not is_running_in_addon():
-        return ""
-
-    try:
-        async with make_supervisor_httpx_client(
-            timeout=10.0, verify=get_global_settings().verify_ssl
-        ) as http_client:
-            resp = await http_client.get("/addons/self/logs")
-            if resp.status_code != 200:
-                logger.info("Addon log fetch returned HTTP %s", resp.status_code)
-                return ""
-
-            # Strip ANSI escape codes first, then sanitize, then truncate.
-            # Sanitizing before truncating prevents secrets that straddle the
-            # truncation boundary from leaking through.
-            cleaned = ANSI_ESCAPE_RE.sub("", resp.text)
-            sanitized = _sanitize_log_text(cleaned)
-            if len(sanitized) > _ADDON_LOG_MAX_CHARS:
-                marker = (
-                    f"[...truncated, showing last {_ADDON_LOG_MAX_CHARS} of "
-                    f"{len(sanitized)} chars...]\n"
-                )
-                return marker + sanitized[-_ADDON_LOG_MAX_CHARS:]
-            return sanitized
-    except httpx.RequestError as e:
-        logger.warning(f"Failed to fetch addon logs: {e}")
-
-    return ""
-
-
-async def _fetch_core_error_log(client: Any) -> str:
-    """Fetch the Home Assistant error log (home-assistant.log) via the client.
-
-    Works on every install type — ``HomeAssistantClient.get_error_log`` routes
-    add-on installs to the Supervisor, supervised/HAOS to the hassio proxy, and
-    container/pip to ``/api/error_log``. Captured over REST, which stays up even
-    when the WebSocket path is failing; that is exactly the failure mode in
-    issue #1694, where the high-value auth lines
-    (``InsecureKeyLengthWarning``, "invalid authentication") only appeared in
-    home-assistant.log, not in the add-on log this tool already captured.
-
-    Best-effort: returns sanitized text (last ``_CORE_LOG_MAX_CHARS`` chars of a
-    ``_CORE_LOG_WINDOW_LINES`` window, with a truncation marker prepended) or an
-    empty string on any failure, so a log-fetch problem never breaks the
-    bug-report path.
-    """
-    try:
-        page = await client.get_error_log(lines=_CORE_LOG_WINDOW_LINES)
-    except Exception as e:  # noqa: BLE001
-        # Broad by design — the bug-report path must stay robust whatever the
-        # client raises (auth, role, connection, transport). Logged at INFO so
-        # a missing error log is visible without alarming on a routine 403.
-        logger.info(
-            "Could not fetch HA error log for bug report: %s (%s)",
-            e,
-            type(e).__name__,
-        )
-        return ""
-
-    if not page.text:
-        return ""
-
-    # Strip ANSI, then sanitize, then truncate — sanitizing before truncating
-    # keeps a secret straddling the cut boundary from leaking through.
-    sanitized = _sanitize_log_text(ANSI_ESCAPE_RE.sub("", page.text))
-    if len(sanitized) > _CORE_LOG_MAX_CHARS:
-        marker = (
-            f"[...truncated, showing last {_CORE_LOG_MAX_CHARS} of "
-            f"{len(sanitized)} chars...]\n"
-        )
-        return marker + sanitized[-_CORE_LOG_MAX_CHARS:]
-    return sanitized
 
 
 # Entry titles assigned by the component's config flow (config_flow.py /
@@ -566,7 +395,7 @@ class LegacyBugReportTools:
                 "component first)"
             )
         if not bootstrap_registered:
-            return "set up, but the component is pre-0.5.0 (update via HACS)"
+            return "set up, but the component is pre-0.5.0 (update via HACS or the Marketplace)"
         return "set up (ha_mcp_tools services registered)"
 
     async def _detect_server_entry_status(self, info: InfoResult | None) -> str | None:
@@ -693,7 +522,12 @@ class LegacyBugReportTools:
         config_toggles = _get_config_toggles()
         tool_policy = await asyncio.to_thread(_tool_policy_summary)
         mcp_transport = _detect_mcp_transport()
-        client_info = _extract_client_info(ctx)
+        client_info = extract_client_info(ctx)
+        (known_identifiers, identifier_warning), ha_install = await asyncio.gather(
+            collect_known_identifiers(self._client), fetch_ha_install(self._client)
+        )
+        mcp_protocol_version = protocol_version(ctx)
+        mcp_capabilities = capability_names(client_capabilities(ctx))
         client_host = (
             await asyncio.to_thread(detect_client_host)
             if mcp_transport == "stdio"
@@ -719,6 +553,8 @@ class LegacyBugReportTools:
             "websockets_dependency": _websockets_dependency_state(),
             "mcp_transport": mcp_transport,
             "mcp_client_info": client_info,
+            "mcp_protocol_version": mcp_protocol_version,
+            "mcp_client_capabilities": mcp_capabilities,
             "mcp_client_host": client_host,
             "http_user_agent": user_agent,
             "config_toggles": config_toggles,
@@ -728,26 +564,31 @@ class LegacyBugReportTools:
             "tool_policy": tool_policy,
             "connection_status": "Unknown",
             "home_assistant_version": "Unknown",
+            "ha_install": ha_install,
             "entity_count": 0,
         }
-        await self._add_home_assistant_info(diagnostic_info)
-        max_log_entries = AVG_LOG_ENTRIES_PER_TOOL * 4 * tool_call_count
-        recent_logs = get_recent_logs(max_entries=max_log_entries)
-        startup_logs = get_startup_logs()
-        addon_logs = ""
-        if install_method == "addon":
-            addon_logs = await _fetch_addon_logs()
-        core_error_log = await _fetch_core_error_log(self._client)
-        return render_report(
-            diagnostic_info,
-            recent_logs,
-            startup_logs,
-            addon_logs,
-            core_error_log,
-            report_type,
-            text,
-            parsed_fields,
-        )
+        with known_identifiers_scope(known_identifiers):
+            await self._add_home_assistant_info(diagnostic_info)
+            max_log_entries = AVG_LOG_ENTRIES_PER_TOOL * 4 * tool_call_count
+            recent_logs = get_recent_logs(max_entries=max_log_entries)
+            startup_logs = get_startup_logs()
+            addon_logs = ""
+            if install_method == "addon":
+                addon_logs = await _fetch_addon_logs()
+            core_error_log = await _fetch_core_error_log(self._client)
+            result = render_report(
+                diagnostic_info,
+                recent_logs,
+                startup_logs,
+                addon_logs,
+                core_error_log,
+                report_type,
+                text,
+                parsed_fields,
+            )
+            if identifier_warning:
+                result["warnings"] = [identifier_warning]
+            return result
 
 
 class BugReportTools(ReportFacade, LegacyBugReportTools):

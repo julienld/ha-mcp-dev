@@ -1,8 +1,8 @@
 """Thin async HTTP client to the dashboard screenshot engine.
 
-The engine (balloob's Puppet add-on, or a docker-compose sidecar)
-authenticates to Home Assistant with its OWN configured long-lived token, so
-this client passes only the dashboard path + render parameters to the engine
+The engine (Puppet, WPE Screenshot Engine, or a sidecar)
+authenticates to Home Assistant with its own configured long-lived token, so
+this client passes only the dashboard path and render parameters to the engine
 — no HA token is ever sent to the engine or exposed to the LLM. The
 :mod:`theme_guard` bracket around each capture batch may hold the engine's
 token in server memory to restore the engine user's saved theme (issue
@@ -29,7 +29,8 @@ from ha_mcp.tool_api import MAX_RESULT_IMAGE_BYTES, MAX_TOOL_IMAGE_BYTES
 
 from ..errors import ErrorCode, create_error_response
 from ..utils.tool_errors import raise_tool_error
-from .provision import TOKEN_HINT, EngineTarget, resolve_engine
+from .engine_compat import is_legacy_puppet
+from .provision import TOKEN_HINT, EngineKind, EngineTarget, resolve_engine
 from .theme_guard import ThemeGuard
 
 _normalize_dashboard_path = legacy_errors_sync(_pure_dashboard_path)
@@ -110,9 +111,9 @@ class CaptureThemeObserver(Protocol):
 class DashboardImageCapture:
     """Image bytes plus metadata describing the render request.
 
-    Puppet returns only an image and its content type. Viewport and frontend
-    context values here therefore describe what ha-mcp requested, not values
-    independently confirmed by the rendered Home Assistant frontend.
+    Screenshot engines return only an image and its content type. Viewport and
+    frontend context values here therefore describe what ha-mcp requested, not
+    values independently confirmed by the rendered Home Assistant frontend.
     """
 
     data: bytes
@@ -502,7 +503,7 @@ async def _read_image_response(
                     "received_content_type": response_mime_type or None,
                 },
                 suggestions=[
-                    "Verify the URL points to the Puppet screenshot engine",
+                    "Verify the URL points to a supported screenshot engine",
                     "Check that the screenshot engine supports the "
                     + f"requested {image_format} format",
                 ],
@@ -567,7 +568,7 @@ async def _read_image_response(
                     "received_signature_hex": image_data[:12].hex(),
                 },
                 suggestions=[
-                    "Verify the URL points to the Puppet screenshot engine",
+                    "Verify the URL points to a supported screenshot engine",
                     "Check whether an authentication or proxy page was returned "
                     + "with an incorrect image Content-Type",
                 ],
@@ -581,7 +582,9 @@ async def _request_viewport_image(
     *,
     url: str,
     path: str,
-    engine: str,
+    engine_url: str,
+    engine_kind: EngineKind | None,
+    engine_version: str | None,
     params: dict[str, str],
     options: _CaptureOptions,
     viewport: _ViewportRequest,
@@ -611,13 +614,13 @@ async def _request_viewport_image(
                         and not fallback_used
                         and request_guard is None
                     ):
-                        # Puppet <2.5.0 does not understand WIDTHxauto.
-                        fallback_used = True
-                        capture_height = MAX_VIEWPORT_DIMENSION
-                        params["viewport"] = (
-                            f"{viewport.width}x{MAX_VIEWPORT_DIMENSION}"
-                        )
-                        continue
+                        if is_legacy_puppet(engine_kind, engine_version):
+                            fallback_used = True
+                            capture_height = MAX_VIEWPORT_DIMENSION
+                            params["viewport"] = (
+                                f"{viewport.width}x{MAX_VIEWPORT_DIMENSION}"
+                            )
+                            continue
                     raise_tool_error(
                         create_error_response(
                             ErrorCode.SERVICE_CALL_FAILED,
@@ -627,6 +630,8 @@ async def _request_viewport_image(
                             context={
                                 **request_context,
                                 "status_code": response.status_code,
+                                "engine_kind": engine_kind or "unknown",
+                                "engine_version": engine_version,
                                 "legacy_full_page_fallback_attempted": fallback_used,
                             },
                             suggestions=[
@@ -654,7 +659,7 @@ async def _request_viewport_image(
                     details=str(exc),
                     context={
                         **request_context,
-                        "engine_url": engine,
+                        "engine_url": engine_url,
                         "render_timeout_seconds": options.render_timeout_seconds,
                     },
                     suggestions=[
@@ -668,16 +673,14 @@ async def _request_viewport_image(
             raise_tool_error(
                 create_error_response(
                     ErrorCode.CONNECTION_FAILED,
-                    f"Could not reach the dashboard screenshot engine at {engine}.",
+                    f"Could not reach the dashboard screenshot engine at {engine_url}.",
                     details=str(exc),
-                    context={**request_context, "engine_url": engine},
+                    context={**request_context, "engine_url": engine_url},
                     suggestions=[
-                        "Ensure the Puppet screenshot add-on (or sidecar) "
-                        + "is installed and running",
+                        "Ensure the screenshot engine app or sidecar is installed and running",
                         "If it is running, its access token is likely "
                         + f"missing or invalid — {TOKEN_HINT}",
-                        "Check HAMCP_DASHBOARD_SCREENSHOT_ENGINE_URL on "
-                        + "Docker/Container deployments",
+                        "Check HAMCP_DASHBOARD_SCREENSHOT_ENGINE_URL for Docker/Container deployments",
                     ],
                 )
             )
@@ -689,7 +692,9 @@ async def _request_or_collect_failure(
     *,
     url: str,
     path: str,
-    engine: str,
+    engine_url: str,
+    engine_kind: EngineKind | None,
+    engine_version: str | None,
     params: dict[str, str],
     options: _CaptureOptions,
     viewport: _ViewportRequest,
@@ -706,7 +711,9 @@ async def _request_or_collect_failure(
             http_client,
             url=url,
             path=path,
-            engine=engine,
+            engine_url=engine_url,
+            engine_kind=engine_kind,
+            engine_version=engine_version,
             params=params,
             options=options,
             viewport=viewport,
@@ -747,7 +754,7 @@ def _viewport_params(
     if options.theme is not None:
         params["theme"] = options.theme
     if options.dark_mode:
-        # Puppet checks only for query-key presence.
+        # Both supported engines interpret an empty `dark` value as true.
         params["dark"] = ""
     if options.language is not None:
         params["lang"] = options.language
@@ -859,8 +866,8 @@ async def capture_dashboard_images(
 
     if engine_target is None:
         engine_target = await resolve_engine()
-    engine = engine_target.url
-    url = f"{engine}/{path}"
+    engine_url = engine_target.url
+    url = f"{engine_url}/{path}"
     mime_type = _MIME_TYPES[options.image_format]
     captures: list[DashboardImageCapture] = []
 
@@ -917,7 +924,9 @@ async def capture_dashboard_images(
                     http_client,
                     url=url,
                     path=path,
-                    engine=engine,
+                    engine_url=engine_url,
+                    engine_kind=engine_target.engine_kind,
+                    engine_version=engine_target.engine_version,
                     params=params,
                     options=options,
                     viewport=viewport,

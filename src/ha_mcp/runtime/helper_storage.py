@@ -14,7 +14,6 @@ from ha_mcp.utils.registry_update_lock import registry_update_lock
 from .errors import raise_failure
 from .helper_params import _prepare_typed_params
 from .helper_payload import (
-    check_core_gaps,
     collection_icon_from_schema,
     merged_update,
     with_create_defaults,
@@ -173,7 +172,6 @@ class HelperStorageTools(BackendTools):
         body = {"name": name, **with_create_defaults(helper_type, fields)}
         if item_icon:
             body["icon"] = item_icon
-        check_core_gaps(helper_type, body)
         registry = _registry_fields(
             icon if item_icon is None else None, area_id, labels, category
         )
@@ -219,6 +217,14 @@ class HelperStorageTools(BackendTools):
             message="helper_id is required for update action",
             context=_simple_helper_error_context(helper_type),
         )
+        if name is not None and not name.strip():
+            raise_failure(
+                create_error_response(
+                    ErrorCode.VALIDATION_INVALID_PARAMETER,
+                    "name cannot be blank. Omit it to keep the current name.",
+                    context=_simple_helper_error_context(helper_type),
+                )
+            )
         async with registry_update_lock(f"helper_{helper_type}", helper_id):
             item = await self._stored_item(helper_type, helper_id, name=name)
             entity_id = item.get("entity_id") or helper_id
@@ -230,7 +236,6 @@ class HelperStorageTools(BackendTools):
                 fields,
                 entity_id,
             )
-            check_core_gaps(helper_type, body, changed=fields)
             backup = await self.backend.execute(
                 "helpers.backup.capture",
                 {

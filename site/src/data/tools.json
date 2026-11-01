@@ -499,7 +499,7 @@
         },
         "python_transform": {
           "type": "str | None",
-          "description": "Python expression to transform existing automation config. Mutually exclusive with config. WARNING: Expressions with infinite loops will hang the server. Examples: Simple: python_transform=\"config['actions'][0]['data']['brightness'] = 255\" Pattern: python_transform=\"for a in config['actions']: if a.get('alias') == 'My Step': a['data']['value'] = 100\" \n\nPYTHON TRANSFORM SECURITY:\n\n✅ ALLOWED:\n- Dictionary/list access: config['views'][0]['cards'][1]\n- Slicing: config['views'][0]['cards'][1:3]\n- Assignment: config['key'] = 'value'\n- Deletion: del config['key'] or config.pop('key')\n- List methods: append, insert, pop, remove, clear, extend\n- Dict methods: update, get, setdefault, keys, values, items\n- Loops: for, if/else, pass, break, continue\n- Comprehensions: [x for x in ...], {k: v for ...}, (x for x in ...)\n- Ternary: x if condition else y\n- Iterable unpacking (* in calls/literals): f(*xs), [*xs, y]\n- Dict unpacking (**) in calls and dict literals: {**d, 'k': v}\n- Keyword arguments: func(key=value)\n- Lambdas (e.g. for `key=`): sorted(items, key=lambda x: x['score'])\n- String methods: startswith, endswith, lower, upper, strip, split, join, replace\n- Safe builtins: isinstance, len, range, enumerate, zip, sorted, reversed,\n  min, max, sum, abs, any, all, round, str, int, float, bool, list, dict,\n  tuple, set\n\n❌ FORBIDDEN:\n- Imports: import, from, __import__\n- File operations: open, read, write\n- Dunder access: __class__, __bases__, __subclasses__\n- Dangerous builtins: eval, exec, compile, getattr, setattr, delattr, hasattr\n- Function definitions: def, class\n- Exception handling: try/except (validate with isinstance/in/.get() instead)\n- While loops: use bounded for loops or comprehensions instead",
+          "description": "Python expression to transform existing automation config. Mutually exclusive with config. WARNING: Expressions with infinite loops will hang the server. Examples: Simple: python_transform=\"config['actions'][0]['data']['brightness'] = 255\" Pattern: python_transform=\"for a in config['actions']: if a.get('alias') == 'My Step': a['data']['value'] = 100\" \n\nPYTHON TRANSFORM SECURITY:\n\n✅ ALLOWED:\n- Dictionary/list access: config['views'][0]['cards'][1]\n- Slicing: config['views'][0]['cards'][1:3]\n- Assignment: config['key'] = 'value'\n- Deletion: del config['key'] or config.pop('key')\n- List methods: append, insert, pop, remove, clear, extend, index, count, sort,\n  reverse\n- Dict methods: update, get, setdefault, keys, values, items, pop, clear\n- Loops: for, if/else, pass, break, continue\n- Comprehensions: [x for x in ...], {k: v for ...}, (x for x in ...)\n- Ternary: x if condition else y\n- Iterable unpacking (* in calls/literals): f(*xs), [*xs, y]\n- Dict unpacking (**) in calls and dict literals: {**d, 'k': v}\n- Keyword arguments: func(key=value)\n- Lambdas (e.g. for `key=`): sorted(items, key=lambda x: x['score'])\n- String methods: startswith, endswith, lower, upper, strip, lstrip, rstrip,\n  removeprefix, removesuffix, split, join, replace, count, index\n- Safe builtins: isinstance, len, range, enumerate, zip, sorted, reversed,\n  min, max, sum, abs, any, all, round, str, int, float, bool, list, dict,\n  tuple, set\n\n❌ FORBIDDEN:\n- Imports: import, from, __import__\n- File operations: open, read, write\n- Dunder access: __class__, __bases__, __subclasses__\n- Dangerous builtins: eval, exec, compile, getattr, setattr, delattr, hasattr\n- Function definitions: def, class\n- Exception handling: try/except (validate with isinstance/in/.get() instead)\n- While loops: use bounded for loops or comprehensions instead",
           "default": null
         },
         "config_hash": {
@@ -811,7 +811,7 @@
   {
     "name": "ha_get_dashboard_screenshot",
     "title": "Get Dashboard Screenshot",
-    "description": "Get rendered images of a Home Assistant Lovelace dashboard view.\n\nWhen not to use: while reading or writing dashboard configuration, use\nha_config_get_dashboard(include_screenshot=True) or\nha_config_set_dashboard(return_screenshot=True) for a single workflow.\n\nUse it for repeatable visual checks, including ordered mobile, tablet,\nand desktop captures. Puppet reports image bytes but does not confirm\nthat the frontend accepted a requested theme or language; structured\nmetadata therefore records the values sent to the engine. A requested\ntheme or dark_mode persists on the engine account's profile; the change\nis reported in warnings but not undone (see ha_manage_theme\naction='set_engine_theme').\n\nTo change the Puppet engine app (add-on) itself (keep_browser_open,\nrestart), use ha_manage_app.",
+    "description": "Get rendered images of a Home Assistant Lovelace dashboard view.\n\nWhen not to use: while reading or writing dashboard configuration, use\nha_config_get_dashboard(include_screenshot=True) or\nha_config_set_dashboard(return_screenshot=True) for a single workflow.\n\nUse it for repeatable visual checks, including ordered mobile, tablet,\nand desktop captures. The engine returns image bytes but does not\nconfirm that the frontend accepted a requested theme or language;\nmetadata records the values sent to the engine. WPE Screenshot Engine\napplies frontend preferences temporarily. Puppet may persist theme or\ndark-mode changes; detected changes are reported in warnings.\n\nTo change the screenshot engine app's options or restart it, use\nha_manage_app.",
     "inputSchema": {
       "properties": {
         "dashboard_path": {
@@ -877,7 +877,7 @@
         },
         "full_page": {
           "type": "bool",
-          "description": "Capture the whole scrollable dashboard instead of just the viewport (use when content runs below the fold). Uses Puppet's native auto-height capture (currently capped at 4000 px); raise wait_ms for lazy cards.",
+          "description": "Capture the whole scrollable dashboard instead of just the viewport (use when content runs below the fold). Height limits are engine-specific: Puppet caps at 4000 px; WPE's configured limit can be up to 12000 px, with a width-dependent effective cap. Raise wait_ms for lazy cards.",
           "default": false
         },
         "theme": {
@@ -1107,7 +1107,7 @@
         },
         "python_transform": {
           "type": "str | None",
-          "description": "Python expression to transform existing dashboard config. Mutually exclusive with config and patch. Requires config_hash for validation. See PYTHON TRANSFORM SECURITY below for allowed operations. Examples: Simple: python_transform=\"config['views'][0]['cards'][0]['icon'] = 'mdi:lamp'\" Pattern: python_transform=\"for card in config['views'][0]['cards']: if 'light' in card.get('entity', ''): card['icon'] = 'mdi:lightbulb'\" Multi-op: python_transform=\"config['views'][0]['cards'][0]['icon'] = 'mdi:lamp'; del config['views'][0]['cards'][2]\" \n\nPYTHON TRANSFORM SECURITY:\n\n✅ ALLOWED:\n- Dictionary/list access: config['views'][0]['cards'][1]\n- Slicing: config['views'][0]['cards'][1:3]\n- Assignment: config['key'] = 'value'\n- Deletion: del config['key'] or config.pop('key')\n- List methods: append, insert, pop, remove, clear, extend\n- Dict methods: update, get, setdefault, keys, values, items\n- Loops: for, if/else, pass, break, continue\n- Comprehensions: [x for x in ...], {k: v for ...}, (x for x in ...)\n- Ternary: x if condition else y\n- Iterable unpacking (* in calls/literals): f(*xs), [*xs, y]\n- Dict unpacking (**) in calls and dict literals: {**d, 'k': v}\n- Keyword arguments: func(key=value)\n- Lambdas (e.g. for `key=`): sorted(items, key=lambda x: x['score'])\n- String methods: startswith, endswith, lower, upper, strip, split, join, replace\n- Safe builtins: isinstance, len, range, enumerate, zip, sorted, reversed,\n  min, max, sum, abs, any, all, round, str, int, float, bool, list, dict,\n  tuple, set\n\n❌ FORBIDDEN:\n- Imports: import, from, __import__\n- File operations: open, read, write\n- Dunder access: __class__, __bases__, __subclasses__\n- Dangerous builtins: eval, exec, compile, getattr, setattr, delattr, hasattr\n- Function definitions: def, class\n- Exception handling: try/except (validate with isinstance/in/.get() instead)\n- While loops: use bounded for loops or comprehensions instead",
+          "description": "Python expression to transform existing dashboard config. Mutually exclusive with config and patch. Requires config_hash for validation. See PYTHON TRANSFORM SECURITY below for allowed operations. Examples: Simple: python_transform=\"config['views'][0]['cards'][0]['icon'] = 'mdi:lamp'\" Pattern: python_transform=\"for card in config['views'][0]['cards']: if 'light' in card.get('entity', ''): card['icon'] = 'mdi:lightbulb'\" Multi-op: python_transform=\"config['views'][0]['cards'][0]['icon'] = 'mdi:lamp'; del config['views'][0]['cards'][2]\" \n\nPYTHON TRANSFORM SECURITY:\n\n✅ ALLOWED:\n- Dictionary/list access: config['views'][0]['cards'][1]\n- Slicing: config['views'][0]['cards'][1:3]\n- Assignment: config['key'] = 'value'\n- Deletion: del config['key'] or config.pop('key')\n- List methods: append, insert, pop, remove, clear, extend, index, count, sort,\n  reverse\n- Dict methods: update, get, setdefault, keys, values, items, pop, clear\n- Loops: for, if/else, pass, break, continue\n- Comprehensions: [x for x in ...], {k: v for ...}, (x for x in ...)\n- Ternary: x if condition else y\n- Iterable unpacking (* in calls/literals): f(*xs), [*xs, y]\n- Dict unpacking (**) in calls and dict literals: {**d, 'k': v}\n- Keyword arguments: func(key=value)\n- Lambdas (e.g. for `key=`): sorted(items, key=lambda x: x['score'])\n- String methods: startswith, endswith, lower, upper, strip, lstrip, rstrip,\n  removeprefix, removesuffix, split, join, replace, count, index\n- Safe builtins: isinstance, len, range, enumerate, zip, sorted, reversed,\n  min, max, sum, abs, any, all, round, str, int, float, bool, list, dict,\n  tuple, set\n\n❌ FORBIDDEN:\n- Imports: import, from, __import__\n- File operations: open, read, write\n- Dunder access: __class__, __bases__, __subclasses__\n- Dangerous builtins: eval, exec, compile, getattr, setattr, delattr, hasattr\n- Function definitions: def, class\n- Exception handling: try/except (validate with isinstance/in/.get() instead)\n- While loops: use bounded for loops or comprehensions instead",
           "default": null
         },
         "config_hash": {
@@ -1177,7 +1177,7 @@
   {
     "name": "ha_config_set_dashboard_resource",
     "title": "Set Dashboard Resource",
-    "description": "Create or update a dashboard resource (inline code or external URL).\n\nProvide exactly one of:\n- content: Inline JavaScript or CSS code (embedded in the resource URL\n  as a data: URI — no file storage or external hosting involved).\n  Supports 'module' and 'css' types only; URLs are\n  deterministic (same content = same URL); up to ~128KB. Content must be\n  self-contained: a data: URI has no base URL, so relative imports inside\n  a module and relative url() references inside CSS cannot resolve (use\n  fully-qualified URLs instead). If Home Assistant is behind a reverse\n  proxy that injects a Content-Security-Policy without 'data:' in\n  script-src/style-src, the browser blocks these resources: this call\n  still succeeds and the card simply never renders. Register the code as\n  a file and use url='/local/...' on such a deployment. (HA itself ships\n  no CSP.)\n- url: External resource URL — /local/... (files in /config/www/),\n  /hacsfiles/... (HACS-installed cards) or https://... (CDN). Supports\n  all types: 'module', 'js', 'css', 'html'.\n\nEXAMPLES:\n- Inline: ha_config_set_dashboard_resource(content=\"class MyCard extends HTMLElement { ... } customElements.define('my-card', MyCard);\", resource_type=\"module\")\n- HACS card (after ha_manage_hacs(action='download')): ha_config_set_dashboard_resource(url=\"/hacsfiles/lovelace-mushroom/mushroom.js\", resource_type=\"module\")\n- Update: ha_config_set_dashboard_resource(url=\"/local/my-card-v2.js\", resource_type=\"module\", resource_id=\"abc123\")\n\nAfter adding a resource, a browser cache clear or hard refresh\n(Ctrl+Shift+R) is needed to load it.",
+    "description": "Create or update a dashboard resource (inline code or external URL).\n\nProvide exactly one of:\n- content: Inline JavaScript or CSS code (embedded in the resource URL\n  as a data: URI — no file storage or external hosting involved).\n  Supports 'module' and 'css' types only; URLs are\n  deterministic (same content = same URL); up to ~128KB. Content must be\n  self-contained: a data: URI has no base URL, so relative imports inside\n  a module and relative url() references inside CSS cannot resolve (use\n  fully-qualified URLs instead). If Home Assistant is behind a reverse\n  proxy that injects a Content-Security-Policy without 'data:' in\n  script-src/style-src, the browser blocks these resources: this call\n  still succeeds and the card simply never renders. Register the code as\n  a file and use url='/local/...' on such a deployment. (HA itself ships\n  no CSP.)\n- url: External resource URL — /local/... (/config/www/; Marketplace\n  cards: /local/community/...), /hacsfiles/... (HACS cards) or\n  https://... (CDN). Supports all types: 'module', 'js', 'css', 'html'.\n\nEXAMPLES:\n- Inline: ha_config_set_dashboard_resource(content=\"class MyCard extends HTMLElement { ... } customElements.define('my-card', MyCard);\", resource_type=\"module\")\n- Store cards need no call: in storage mode HACS and the Marketplace register the resource on install (adding it again duplicates it); with YAML-mode resources, list it under lovelace: resources: in configuration.yaml instead.\n- Update: ha_config_set_dashboard_resource(url=\"/local/my-card-v2.js\", resource_type=\"module\", resource_id=\"abc123\")\n\nAfter adding a resource, a browser cache clear or hard refresh\n(Ctrl+Shift+R) is needed to load it.",
     "inputSchema": {
       "properties": {
         "content": {
@@ -2015,7 +2015,7 @@
   {
     "name": "ha_get_hacs_info",
     "title": "Get HACS Info",
-    "description": "Get cached HACS or Home Assistant Marketplace data — search the store or read repository details.\n\nUse ``action=\"search\"`` to search/browse/list store repositories, or\n``action=\"info\"`` for one repository's full details (README, versions, GitHub\nstats). This tool is read-only; to install or add repositories use\n``ha_manage_hacs``, and for non-HACS entities/config use the domain-specific tools.\n\n**DASHBOARD TIP:** ``action=\"search\", installed_only=True, category=\"lovelace\"``\ndiscovers installed custom cards to wire into ``ha_config_set_dashboard()``.\n\n**Examples:**\n- Search the store: ha_get_hacs_info(action=\"search\", query=\"mushroom\", category=\"lovelace\")\n- List installed: ha_get_hacs_info(action=\"search\", installed_only=True)\n- Repository details: ha_get_hacs_info(action=\"info\", repository_id=\"441028036\")\n\n**Caveats:** ``info`` reads only the already-loaded store cache,\nincluding cached README/additional information when available, and reports\nfreshness. It never refreshes GitHub or clears HACS's new flag. Use\nha_manage_hacs(action=\"update_information\") to refresh explicitly. The\nremote path needs the component cache capability for full details; without\nit, cached catalog fields are returned with an explicit completeness note.\nMarketplace no longer supports appdaemon or python_script repositories.",
+    "description": "Get cached HACS or Home Assistant Marketplace data — search the store or read repository details.\n\nUse ``action=\"search\"`` to search/browse/list store repositories, or\n``action=\"info\"`` for one repository's full details (README, versions, GitHub\nstats). This tool is read-only; to install or add repositories use\n``ha_manage_hacs``, and for non-HACS entities/config use the domain-specific tools.\n\n**DASHBOARD TIP:** ``action=\"search\", installed_only=True, category=\"lovelace\"``\ndiscovers installed custom cards to wire into ``ha_config_set_dashboard()``.\n\n**Examples:**\n- Search the store: ha_get_hacs_info(action=\"search\", query=\"mushroom\", category=\"lovelace\")\n- List installed: ha_get_hacs_info(action=\"search\", installed_only=True)\n- Repository details: ha_get_hacs_info(action=\"info\", repository_id=\"441028036\")\n\n**Caveats:** ``info`` reads only the already-loaded store cache,\nincluding cached README/additional information when available, and reports\nfreshness. By default it never refreshes GitHub or clears HACS's new flag.\ninclude_releases=True explicitly fetches releases and release notes;\nfailures become warnings alongside the cached repository details. Use\nha_manage_hacs(action=\"update_information\") to refresh explicitly. The\nremote path needs the component cache capability for full details; without\nit, cached catalog fields are returned with an explicit completeness note.\nMarketplace no longer supports appdaemon or python_script repositories.",
     "inputSchema": {
       "properties": {
         "action": {
@@ -2028,7 +2028,7 @@
           "default": ""
         },
         "category": {
-          "type": "Literal['integration', 'lovelace', 'theme', 'appdaemon', 'python_script'] | None",
+          "type": "str | None",
           "description": "Filter by category (action='search')",
           "default": null
         },
@@ -2058,6 +2058,11 @@
           "type": "str | None",
           "description": "Numeric HACS ID or 'owner/repo' path (action='info')",
           "default": null
+        },
+        "include_releases": {
+          "type": "bool",
+          "description": "Include release and release-note reads from the store (action=info)",
+          "default": false
         }
       },
       "required": [
@@ -2101,8 +2106,13 @@
           "default": null
         },
         "category": {
-          "type": "Literal['integration', 'lovelace', 'theme', 'appdaemon', 'python_script'] | None",
+          "type": "str | None",
           "description": "Repository category (action='add_repository')",
+          "default": null
+        },
+        "confirm_replace_built_in": {
+          "type": "bool | None",
+          "description": "Marketplace download only: permit replacing a built-in integration after the user confirms",
           "default": null
         }
       },
@@ -2221,7 +2231,7 @@
         },
         "icon": {
           "type": "str | None",
-          "description": "Material Design Icon (e.g., 'mdi:bell'); '' or ' ' clears it, except a zone's stored icon (the icon in the zone's own config, as the Home Assistant UI stores it; ha_get_zone shows it), which cannot be removed. On create, a storage helper's icon goes into its stored config when Home Assistant's schema for the type has an icon field, otherwise (person, tag, a new zone, or without the ha_mcp_tools component) into the entity registry; an update always sets the registry icon, and the stored icon too where the schema has one. Automatic backups hold the registry icon of a person, tag or zone only, so restoring another helper's backup does not bring back an icon kept in the registry; without the component, every storage helper other than a zone keeps its icon there",
+          "description": "Material Design Icon (e.g., 'mdi:bell'); '' or ' ' clears it, except a zone's stored icon (the icon in the zone's own config, as the Home Assistant UI stores it; ha_get_zone shows it), which cannot be removed. On create, a storage helper's icon goes into its stored config when Home Assistant's schema for the type has an icon field, otherwise (person, tag, a new zone, or without the ha_mcp_tools component) into the entity registry; an update always sets the registry icon, and the stored icon too where the schema has one. Restoring a storage helper's automatic backup also puts back its registry icon, unless the backup predates registry icons being recorded; a flow helper's backup holds no icon, so its restore does not set one",
           "default": null
         },
         "area_id": {
@@ -3358,7 +3368,7 @@
         },
         "python_transform": {
           "type": "str | None",
-          "description": "Python expression to transform existing scene config. Mutually exclusive with config. WARNING: Expressions with infinite loops will hang the server. Examples: Add entity: python_transform=\"config['entities']['light.bed'] = {'state': 'on'}\" Update brightness: python_transform=\"config['entities']['light.kitchen']['brightness'] = 50\" Remove entity: python_transform=\"del config['entities']['light.kitchen']\" \n\nPYTHON TRANSFORM SECURITY:\n\n✅ ALLOWED:\n- Dictionary/list access: config['views'][0]['cards'][1]\n- Slicing: config['views'][0]['cards'][1:3]\n- Assignment: config['key'] = 'value'\n- Deletion: del config['key'] or config.pop('key')\n- List methods: append, insert, pop, remove, clear, extend\n- Dict methods: update, get, setdefault, keys, values, items\n- Loops: for, if/else, pass, break, continue\n- Comprehensions: [x for x in ...], {k: v for ...}, (x for x in ...)\n- Ternary: x if condition else y\n- Iterable unpacking (* in calls/literals): f(*xs), [*xs, y]\n- Dict unpacking (**) in calls and dict literals: {**d, 'k': v}\n- Keyword arguments: func(key=value)\n- Lambdas (e.g. for `key=`): sorted(items, key=lambda x: x['score'])\n- String methods: startswith, endswith, lower, upper, strip, split, join, replace\n- Safe builtins: isinstance, len, range, enumerate, zip, sorted, reversed,\n  min, max, sum, abs, any, all, round, str, int, float, bool, list, dict,\n  tuple, set\n\n❌ FORBIDDEN:\n- Imports: import, from, __import__\n- File operations: open, read, write\n- Dunder access: __class__, __bases__, __subclasses__\n- Dangerous builtins: eval, exec, compile, getattr, setattr, delattr, hasattr\n- Function definitions: def, class\n- Exception handling: try/except (validate with isinstance/in/.get() instead)\n- While loops: use bounded for loops or comprehensions instead",
+          "description": "Python expression to transform existing scene config. Mutually exclusive with config. WARNING: Expressions with infinite loops will hang the server. Examples: Add entity: python_transform=\"config['entities']['light.bed'] = {'state': 'on'}\" Update brightness: python_transform=\"config['entities']['light.kitchen']['brightness'] = 50\" Remove entity: python_transform=\"del config['entities']['light.kitchen']\" \n\nPYTHON TRANSFORM SECURITY:\n\n✅ ALLOWED:\n- Dictionary/list access: config['views'][0]['cards'][1]\n- Slicing: config['views'][0]['cards'][1:3]\n- Assignment: config['key'] = 'value'\n- Deletion: del config['key'] or config.pop('key')\n- List methods: append, insert, pop, remove, clear, extend, index, count, sort,\n  reverse\n- Dict methods: update, get, setdefault, keys, values, items, pop, clear\n- Loops: for, if/else, pass, break, continue\n- Comprehensions: [x for x in ...], {k: v for ...}, (x for x in ...)\n- Ternary: x if condition else y\n- Iterable unpacking (* in calls/literals): f(*xs), [*xs, y]\n- Dict unpacking (**) in calls and dict literals: {**d, 'k': v}\n- Keyword arguments: func(key=value)\n- Lambdas (e.g. for `key=`): sorted(items, key=lambda x: x['score'])\n- String methods: startswith, endswith, lower, upper, strip, lstrip, rstrip,\n  removeprefix, removesuffix, split, join, replace, count, index\n- Safe builtins: isinstance, len, range, enumerate, zip, sorted, reversed,\n  min, max, sum, abs, any, all, round, str, int, float, bool, list, dict,\n  tuple, set\n\n❌ FORBIDDEN:\n- Imports: import, from, __import__\n- File operations: open, read, write\n- Dunder access: __class__, __bases__, __subclasses__\n- Dangerous builtins: eval, exec, compile, getattr, setattr, delattr, hasattr\n- Function definitions: def, class\n- Exception handling: try/except (validate with isinstance/in/.get() instead)\n- While loops: use bounded for loops or comprehensions instead",
           "default": null
         },
         "config_hash": {
@@ -3479,7 +3489,7 @@
         },
         "python_transform": {
           "type": "str | None",
-          "description": "Python expression to transform existing script config. Mutually exclusive with config. WARNING: Expressions with infinite loops will hang the server. Examples: Simple: python_transform=\"config['sequence'][0]['data']['message'] = 'Hello'\" Pattern: python_transform=\"for step in config['sequence']: if step.get('alias') == 'My Step': step['data']['value'] = 100\" \n\nPYTHON TRANSFORM SECURITY:\n\n✅ ALLOWED:\n- Dictionary/list access: config['views'][0]['cards'][1]\n- Slicing: config['views'][0]['cards'][1:3]\n- Assignment: config['key'] = 'value'\n- Deletion: del config['key'] or config.pop('key')\n- List methods: append, insert, pop, remove, clear, extend\n- Dict methods: update, get, setdefault, keys, values, items\n- Loops: for, if/else, pass, break, continue\n- Comprehensions: [x for x in ...], {k: v for ...}, (x for x in ...)\n- Ternary: x if condition else y\n- Iterable unpacking (* in calls/literals): f(*xs), [*xs, y]\n- Dict unpacking (**) in calls and dict literals: {**d, 'k': v}\n- Keyword arguments: func(key=value)\n- Lambdas (e.g. for `key=`): sorted(items, key=lambda x: x['score'])\n- String methods: startswith, endswith, lower, upper, strip, split, join, replace\n- Safe builtins: isinstance, len, range, enumerate, zip, sorted, reversed,\n  min, max, sum, abs, any, all, round, str, int, float, bool, list, dict,\n  tuple, set\n\n❌ FORBIDDEN:\n- Imports: import, from, __import__\n- File operations: open, read, write\n- Dunder access: __class__, __bases__, __subclasses__\n- Dangerous builtins: eval, exec, compile, getattr, setattr, delattr, hasattr\n- Function definitions: def, class\n- Exception handling: try/except (validate with isinstance/in/.get() instead)\n- While loops: use bounded for loops or comprehensions instead",
+          "description": "Python expression to transform existing script config. Mutually exclusive with config. WARNING: Expressions with infinite loops will hang the server. Examples: Simple: python_transform=\"config['sequence'][0]['data']['message'] = 'Hello'\" Pattern: python_transform=\"for step in config['sequence']: if step.get('alias') == 'My Step': step['data']['value'] = 100\" \n\nPYTHON TRANSFORM SECURITY:\n\n✅ ALLOWED:\n- Dictionary/list access: config['views'][0]['cards'][1]\n- Slicing: config['views'][0]['cards'][1:3]\n- Assignment: config['key'] = 'value'\n- Deletion: del config['key'] or config.pop('key')\n- List methods: append, insert, pop, remove, clear, extend, index, count, sort,\n  reverse\n- Dict methods: update, get, setdefault, keys, values, items, pop, clear\n- Loops: for, if/else, pass, break, continue\n- Comprehensions: [x for x in ...], {k: v for ...}, (x for x in ...)\n- Ternary: x if condition else y\n- Iterable unpacking (* in calls/literals): f(*xs), [*xs, y]\n- Dict unpacking (**) in calls and dict literals: {**d, 'k': v}\n- Keyword arguments: func(key=value)\n- Lambdas (e.g. for `key=`): sorted(items, key=lambda x: x['score'])\n- String methods: startswith, endswith, lower, upper, strip, lstrip, rstrip,\n  removeprefix, removesuffix, split, join, replace, count, index\n- Safe builtins: isinstance, len, range, enumerate, zip, sorted, reversed,\n  min, max, sum, abs, any, all, round, str, int, float, bool, list, dict,\n  tuple, set\n\n❌ FORBIDDEN:\n- Imports: import, from, __import__\n- File operations: open, read, write\n- Dunder access: __class__, __bases__, __subclasses__\n- Dangerous builtins: eval, exec, compile, getattr, setattr, delattr, hasattr\n- Function definitions: def, class\n- Exception handling: try/except (validate with isinstance/in/.get() instead)\n- While loops: use bounded for loops or comprehensions instead",
           "default": null
         },
         "config_hash": {
@@ -4131,7 +4141,7 @@
         "name": {
           "type": "str | None",
           "default": null,
-          "description": "(snapshot.create) Tarball name. Auto-generated if not provided."
+          "description": "(snapshot.create) Tarball name. Auto-generated if not provided. Home Assistant names a full backup made with its automatic-backup settings itself."
         },
         "backup_id": {
           "type": "str | None",
@@ -4139,9 +4149,49 @@
           "description": "(snapshot.restore / snapshot.delete) Tarball ID (e.g. 'dd7550ed')."
         },
         "restore_database": {
+          "type": "bool | None",
+          "default": null,
+          "description": "(snapshot.restore) Include the database in the restore. Default: restore it when the backup contains it. Must be false for a backup without one; on Supervisor installs it must match the backup."
+        },
+        "restore_addons": {
+          "type": "list[str] | None",
+          "default": null,
+          "description": "(snapshot.restore) Slugs of apps (add-ons) in the backup to restore, from its `addons` in the snapshot list. Default: none. Supervisor installs only."
+        },
+        "restore_folders": {
+          "type": "list[str] | None",
+          "default": null,
+          "description": "(snapshot.restore) Folders in the backup to restore, from its `folders` in the snapshot list (`share`, `addons/local`, `ssl`, `media`). Default: none. Supervisor installs only."
+        },
+        "include_homeassistant": {
+          "type": "bool | None",
+          "default": null,
+          "description": "(snapshot.create) Custom backup: include Home Assistant's configuration."
+        },
+        "include_database": {
+          "type": "bool | None",
+          "default": null,
+          "description": "(snapshot.create) Custom backup: include the database (history); needs include_homeassistant=True."
+        },
+        "include_addons": {
+          "type": "list[str] | None",
+          "default": null,
+          "description": "(snapshot.create) Custom backup: slugs of the installed apps (add-ons) to include. Supervisor installs only."
+        },
+        "include_all_addons": {
+          "type": "bool | None",
+          "default": null,
+          "description": "(snapshot.create) Custom backup: include every app (add-on); not together with include_addons. Supervisor installs only."
+        },
+        "include_folders": {
+          "type": "list[str] | None",
+          "default": null,
+          "description": "(snapshot.create) Custom backup: folders to include (`share`, `addons/local`, `ssl`, `media`). Supervisor installs only."
+        },
+        "safety_backup": {
           "type": "bool",
           "default": false,
-          "description": "(snapshot.restore) Include the database in the restore; otherwise config only."
+          "description": "(snapshot.restore) Back up what the restore replaces (configuration, plus the database, apps and folders it restores) first, as a manual backup on the default location. Off by default; offer it to the user, who decides. Needs the default backup password."
         },
         "confirm": {
           "type": "bool",
@@ -4305,7 +4355,7 @@
   {
     "name": "ha_manage_theme",
     "title": "Manage Frontend Themes",
-    "description": "Manage Home Assistant frontend themes.\n\nWhen NOT to use: themes are YAML files - Home Assistant has no API to\ncreate or edit them. Installing community themes goes through HACS\n(ha_manage_hacs); editing custom theme files goes through\nha_config_set_yaml (beta, edits themes/<name>.yaml keyed by theme name\nand attempts an automatic theme reload).\n\nWhen to use: action='list' discovers installed theme names and the\ncurrent defaults; action='set' selects the backend default theme\n(optionally per light/dark mode).\n\nSCREENSHOT-ENGINE ACTIONS (per-user, not the backend default):\nTaking a dashboard screenshot makes the Puppet engine write the saved\ntheme of the Home Assistant user its token belongs to, which also\nflips that user's live web and mobile sessions. The screenshot tools\nare read-only and only *report* this; use action='set_engine_theme'\nwith the value quoted in their warning to put it back, and\naction='get_engine_theme' to inspect it. These act on that engine\naccount's per-user profile via frontend/set_user_data, which is a\ndifferent layer from the backend default that action='set' changes.\nGiving the engine its own dedicated user and token avoids the issue\nentirely.\n\nCaveats: action='set' changes the backend-selected default only -\nusers who explicitly picked a theme in their profile keep their\nchoice. Theme names are validated by Home Assistant at call time.\n\nEXAMPLES:\n- List themes: ha_manage_theme(action=\"list\")\n- Set default theme: ha_manage_theme(action=\"set\", theme_name=\"nord\")\n- Set dark-mode theme: ha_manage_theme(\n      action=\"set\", theme_name=\"nord\", mode=\"dark\")\n- Restore built-in default: ha_manage_theme(\n      action=\"set\", theme_name=\"default\")\n- Inspect the engine account's theme: ha_manage_theme(\n      action=\"get_engine_theme\")\n- Undo a screenshot's theme change (pass BOTH values from the\n  warning, so a theme changed since then is not overwritten):\n  ha_manage_theme(action=\"set_engine_theme\",\n      value={\"theme\": \"\", \"dark\": False},\n      expected_current={\"theme\": \"default\", \"dark\": True})",
+    "description": "Manage Home Assistant frontend themes.\n\nWhen NOT to use: themes are YAML files - Home Assistant has no API to\ncreate or edit them. Installing community themes goes through HACS\n(the Marketplace on 2026.11+, both via ha_manage_hacs); editing custom theme files goes through\nha_config_set_yaml (beta, edits themes/<name>.yaml keyed by theme name\nand attempts an automatic theme reload).\n\nWhen to use: action='list' discovers installed theme names and the\ncurrent defaults; action='set' selects the backend default theme\n(optionally per light/dark mode).\n\nSCREENSHOT-ENGINE ACTIONS (per-user, not the backend default):\nTaking a dashboard screenshot makes the Puppet engine write the saved\ntheme of the Home Assistant user its token belongs to, which also\nflips that user's live web and mobile sessions. The screenshot tools\nare read-only and only *report* this; use action='set_engine_theme'\nwith the value quoted in their warning to put it back, and\naction='get_engine_theme' to inspect it. These act on that engine\naccount's per-user profile via frontend/set_user_data, which is a\ndifferent layer from the backend default that action='set' changes.\nGiving the engine its own dedicated user and token avoids the issue\nentirely.\n\nCaveats: action='set' changes the backend-selected default only -\nusers who explicitly picked a theme in their profile keep their\nchoice. Theme names are validated by Home Assistant at call time.\n\nEXAMPLES:\n- List themes: ha_manage_theme(action=\"list\")\n- Set default theme: ha_manage_theme(action=\"set\", theme_name=\"nord\")\n- Set dark-mode theme: ha_manage_theme(\n      action=\"set\", theme_name=\"nord\", mode=\"dark\")\n- Restore built-in default: ha_manage_theme(\n      action=\"set\", theme_name=\"default\")\n- Inspect the engine account's theme: ha_manage_theme(\n      action=\"get_engine_theme\")\n- Undo a screenshot's theme change (pass BOTH values from the\n  warning, so a theme changed since then is not overwritten):\n  ha_manage_theme(action=\"set_engine_theme\",\n      value={\"theme\": \"\", \"dark\": False},\n      expected_current={\"theme\": \"default\", \"dark\": True})",
     "inputSchema": {
       "properties": {
         "action": {
@@ -4356,7 +4406,7 @@
   {
     "name": "ha_manage_updates",
     "title": "Manage Updates",
-    "description": "Manage Home Assistant updates (list, details, install, skip) and Repairs issues (ignore).\n\nCovers Core, OS, supervisor, apps (add-ons), device firmware, and HACS\nupdate entities, plus the Repairs issues in Settings > System > Repairs.\nRepairs are listed by ha_get_overview (not here); pass their domain and\nissue_id to 'ignore_repair' / 'unignore_repair'. In Read Only Mode the\nread actions ('list', 'get') stay available; write actions are blocked.\n\n'install' blocks until each update finishes (minutes). One that outlasts\nthe request timeout ends the call with a connection timeout while it\nkeeps running, and a Core update restarts Home Assistant; neither means\nfailure, but later batch targets were not started. Confirm per entity\nwith action='get'; finished updates drop out of 'list'. When hosted in\nHome Assistant, Core/OS installs are scheduled before its process stops;\nthat reply cannot confirm completion and later batch targets are not\nstarted. 'list' may include ha_mcp_update {current, latest,\nupdate_available} when the host has authoritative update information\nfor this MCP server. The native HACS host does not substitute PyPI's\nsidecar release status for this component's own update status.\n\nEXAMPLES:\n- Pre-update analysis: ha_manage_updates(action=\"get\", entity_ids=[\"update.home_assistant_core_update\"], include_release_notes=True)\n- Update everything pending in a category: ha_manage_updates(action=\"install\", categories=[\"addons\", \"hacs\"])\n- Dismiss a repair: ha_manage_updates(action=\"ignore_repair\", repairs=[{\"domain\": \"sun\", \"issue_id\": \"abc\"}])",
+    "description": "Manage Home Assistant updates (list, details, install, skip) and Repairs issues (ignore).\n\nCovers Core, OS, supervisor, apps (add-ons), device firmware, and HACS\nupdate entities, plus the Repairs issues in Settings > System > Repairs.\nRepairs are listed by ha_get_overview (not here); pass their domain and\nissue_id to 'ignore_repair' / 'unignore_repair'. In Read Only Mode the\nread actions ('list', 'get') stay available; write actions are blocked.\n\n'install' blocks until each update finishes (minutes). Any unknown\nservice outcome stops the batch, preserving earlier results and the\ncurrent item's diagnostic; later targets are marked not_attempted.\nAn update may still be running, or Core restarting. Check the affected\nentity with action='get' before retrying. Finished updates drop out of\n'list'. When hosted in\nHome Assistant, Core/OS installs are scheduled before its process stops;\nthat reply cannot confirm completion and later batch targets are not\nstarted. 'list' may include ha_mcp_update {current, latest,\nupdate_available} when the host has authoritative update information\nfor this MCP server. The native HACS host does not substitute PyPI's\nsidecar release status for this component's own update status.\n\nEXAMPLES:\n- Pre-update analysis: ha_manage_updates(action=\"get\", entity_ids=[\"update.home_assistant_core_update\"], include_release_notes=True)\n- Update everything pending in a category: ha_manage_updates(action=\"install\", categories=[\"addons\", \"hacs\"])\n- Dismiss a repair: ha_manage_updates(action=\"ignore_repair\", repairs=[{\"domain\": \"sun\", \"issue_id\": \"abc\"}])",
     "inputSchema": {
       "properties": {
         "action": {
@@ -4468,7 +4518,7 @@
   {
     "name": "ha_get_todo",
     "title": "Get Todo",
-    "description": "Get todo lists or items - list all todo lists or get items from a specific list.\n\nWithout an entity_id: lists every entity in the 'todo' domain (shopping\nlists and other todo-type integrations) with entity_id, friendly_name\nand state (number of incomplete items or current status).\n\nWith an entity_id: returns that list's items — uid, summary, status\n(needs_action or completed), description, and due date where supported\n— optionally filtered by status (None returns all).\n\nEXAMPLES:\n- List all todo lists: ha_get_todo()\n- Get incomplete items: ha_get_todo(\"todo.shopping_list\", status=\"needs_action\")",
+    "description": "Get todo lists or items - list all todo lists or get items from a specific list.\n\nWithout an entity_id: lists every entity in the 'todo' domain (shopping\nlists and other todo-type integrations) with entity_id, friendly_name\nand state (number of incomplete items or current status).\n\nWith an entity_id: returns that list's items as Home Assistant reports\nthem — uid, summary, status, and description, due and completed where\nset.\n\nEXAMPLES:\n- List all todo lists: ha_get_todo()\n- Get incomplete items: ha_get_todo(\"todo.shopping_list\", status=\"needs_action\")",
     "inputSchema": {
       "properties": {
         "entity_id": {
@@ -4477,8 +4527,8 @@
           "default": null
         },
         "status": {
-          "type": "Literal['needs_action', 'completed'] | None",
-          "description": "Filter items by status: 'needs_action' for incomplete, 'completed' for done. Only applies when entity_id is provided.",
+          "type": "str | list[str] | None",
+          "description": "Only items with this status, or with any of a list of statuses: 'needs_action' (open) or 'completed' (done). Only applies when entity_id is provided.",
           "default": null
         }
       }
@@ -4497,7 +4547,7 @@
   {
     "name": "ha_remove_todo_item",
     "title": "Remove Todo Item",
-    "description": "Remove an item from a Home Assistant todo list.\n\nPermanently deletes an item from the specified todo list. To mark it\ncompleted instead, use ha_set_todo_item() with status=\"completed\".\n\nEXAMPLE: ha_remove_todo_item(\"todo.shopping_list\", \"Buy milk\")",
+    "description": "Remove items from a Home Assistant todo list.\n\nGive `item` or `remove_completed=True`, not both. Removal is permanent;\nto mark an item done instead, use ha_set_todo_item() with\nstatus=\"completed\". `removed` lists the items the call asked for that\nare gone afterwards; with remove_completed=True that includes a\ncompleted item another client removed meanwhile. With auto-backup on,\neach item is backed up before it is removed; `warnings` names a backup\nnot taken because the item could not be read or the backup could not\nstart, and with remove_completed=True an item gone afterwards that was\nnot completed when the list was read, so was not backed up.\n\nEXAMPLES:\n- ha_remove_todo_item(\"todo.shopping_list\", \"Buy milk\")\n- ha_remove_todo_item(\"todo.shopping_list\", [\"Buy milk\", \"Bread\"])\n- ha_remove_todo_item(\"todo.shopping_list\", remove_completed=True)",
     "inputSchema": {
       "properties": {
         "entity_id": {
@@ -4505,13 +4555,18 @@
           "description": "Todo list entity ID (e.g., 'todo.shopping_list')"
         },
         "item": {
-          "type": "str",
-          "description": "Item to remove - can be the item UID (from ha_get_todo) or the exact item summary/name"
+          "type": "str | list[str] | None",
+          "description": "Item to remove, or a list of items - each the item UID (from ha_get_todo) or the exact item summary/name. A string that names no item but holds a JSON array of strings is that list.",
+          "default": null
+        },
+        "remove_completed": {
+          "type": "bool",
+          "description": "Remove every completed item",
+          "default": false
         }
       },
       "required": [
-        "entity_id",
-        "item"
+        "entity_id"
       ]
     },
     "annotations": {
@@ -4528,7 +4583,7 @@
   {
     "name": "ha_set_todo_item",
     "title": "Set Todo Item",
-    "description": "Create or update a todo item in Home Assistant.\n\nWithout `item` (create mode): creates a new item; summary is required.\nWith `item` (update mode): updates that item; at least one of rename,\nstatus, description, due_date or due_datetime is required.\n\nEXAMPLES:\n- Add item: ha_set_todo_item(\"todo.tasks\", summary=\"Pay bills\", due_date=\"2024-12-31\")\n- Complete item: ha_set_todo_item(\"todo.shopping_list\", item=\"Buy milk\", status=\"completed\")\n- Rename item: ha_set_todo_item(\"todo.tasks\", item=\"Old task\", rename=\"New task name\")\n\nNot all todo integrations support all features: the Shopping List\nintegration supports summary and status but not descriptions or due dates.",
+    "description": "Create, update or reorder a todo item in Home Assistant.\n\nWithout `item` (create mode): creates a new item from summary.\nWith `item` (update mode): changes the fields given, and moves the item\nwhen `move_after` is given, alone or together with other changes.\nHome Assistant refuses a description or due date the list does not\nsupport, and says which. The reply carries `todo_item`, the item as\nHome Assistant stores it afterwards, uid included, or null with a\nwarning when it cannot be read back. With auto-backup on, an updated\nitem is backed up first; `warnings` names a backup that was not taken\nbecause the item could not be read or the backup could not start.\n\nEXAMPLES:\n- Add item: ha_set_todo_item(\"todo.tasks\", summary=\"Pay bills\", due_date=\"2024-12-31\")\n- Complete item: ha_set_todo_item(\"todo.shopping_list\", item=\"Buy milk\", status=\"completed\")\n- Rename item: ha_set_todo_item(\"todo.tasks\", item=\"Old task\", rename=\"New task name\")\n- Move to top: ha_set_todo_item(\"todo.tasks\", item=\"Pay bills\", move_after=\"\")",
     "inputSchema": {
       "properties": {
         "entity_id": {
@@ -4546,28 +4601,33 @@
           "default": null
         },
         "status": {
-          "type": "Literal['needs_action', 'completed'] | None",
-          "description": "Item status: 'completed' to mark done, 'needs_action' to mark incomplete. Only used in update mode.",
+          "type": "str | None",
+          "description": "Item status: 'completed' to mark done, 'needs_action' to mark incomplete. Update mode only: to add a done item, create it, then update it.",
           "default": null
         },
         "description": {
           "type": "str | None",
-          "description": "Detailed description for the item",
+          "description": "Detailed description for the item. An empty string clears it on update.",
           "default": null
         },
         "due_date": {
           "type": "str | None",
-          "description": "Due date in YYYY-MM-DD format (e.g., '2024-12-25')",
+          "description": "Due date in YYYY-MM-DD format (e.g., '2024-12-25'). An empty string clears the due date on update.",
           "default": null
         },
         "due_datetime": {
           "type": "str | None",
-          "description": "Due datetime in ISO format (e.g., '2024-12-25T14:00:00'). Overrides due_date if both provided.",
+          "description": "Due datetime in ISO format (e.g., '2024-12-25T14:00:00'). An empty string clears the due date on update.",
           "default": null
         },
         "rename": {
           "type": "str | None",
-          "description": "New name/summary for an existing item. Only used in update mode.",
+          "description": "New name/summary for an existing item.",
+          "default": null
+        },
+        "move_after": {
+          "type": "str | None",
+          "description": "Move the item directly below this item (UID or exact summary). An empty string moves it to the top of the list.",
           "default": null
         }
       },

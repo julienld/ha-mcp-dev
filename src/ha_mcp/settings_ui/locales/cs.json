@@ -103,7 +103,7 @@
     "visibility.boundary": "Bez režimu vynucení (níže) jde o redukci šumu, nikoli o řízení přístupu: skrytá entita je stále vrácena přímým čtením jejího entity_id a stále se objevuje v obsahu automatizací, řídicích panelů a šablon. Nespoléhejte se na samotný filtr jako na bezpečnostní hranici.",
     "visibility.enabled": "Povolit filtr viditelnosti entit",
     "visibility.enforce.title": "Režim vynucení",
-    "visibility.enforce.help": "Rozšiřuje filtr z úklidu vyhledávání a přehledu na každé čtení nástroje kromě ha_report_issue ve výchozím nastavení. Přímé čtení skryté entity vrátí „nenalezeno“ a čtení obsahu, které by ji zobrazil, je odmítnuto. Výjimka pro nástroj hlášení se ovládá níže. Jedná se o snahu o skrytí před náhodným vystavením na základě nejlepších možností, nikoli o zabezpečenou bezpečnostní hranici.",
+    "visibility.enforce.help": "Rozšiřuje filtr z přehledového a úklidového vyhledávání na všechna čtení nástrojů kromě ha_report_issue ve výchozím nastavení. Přímé čtení skryté entity vrátí „nenalezeno“ a čtení obsahu, které by ji odhalilo, je odmítnuto. Výjimka pro nástroj pro hlášení se ovládá níže. Jde o snahu o skrytí před náhodným vystavením, nikoli o zabezpečenou bezpečnostní hranici. Může také odmítnout více, než je nutné: čtení, které sdílí pouze klíč nebo ID skrytého skriptu, scény nebo automatizace, může být rovněž odmítnuto.",
     "visibility.enforce.only_enforced": "Udělat skryté entity nečitelnými napříč čteními nástrojů (kromě hlášení problémů ve výchozím nastavení)",
     "visibility.enforce.report_issue_help": "Dokud je toto vypnuto, ha_report_issue a veškerý jeho diagnostický výstup – včetně protokolů – zůstávají mimo režim vynucení při každém volání, a to i když jsou data o viditelnosti v pořádku nebo nedostupná. Zapněte toto nastavení pro prohledání a odmítnutí tohoto nástroje stejně jako u jiných čtení.",
     "visibility.enforce.restrict_report_issue": "Použít režim vynucení na ha_report_issue",
@@ -160,9 +160,9 @@
     "features.enable_code_mode.label": "Povolit sandbox vlastních nástrojů (beta)",
     "features.enable_code_mode.help": "Funkce v beta verzi. Povoluje nástroj ha_manage_custom_tool, který umožňuje AI asistentům vytvářet, spouštět, ukládat a mazat vlastní kód v Pythonu v zabezpečeném sandboxu, když žádný vestavěný nástroj nedokáže požadavek zpracovat. Kód běží v izolovaném interpretu bez přístupu k souborovému systému nebo libovolné síti. Kód v sandboxu může přistupovat k REST API HA (api_get/api_post), odesílat příkazy WebSocket (ws_send), volat existující nástroje MCP (call_tool) nebo odstranit uložený nástroj (delete_saved_tool). Uložené nástroje se ve výchozím nastavení ukládají do /data/saved_tools.json, takže přežijí restarty aplikace (doplňku) a jsou viditelné pro každého klienta, který se může připojit. Známá omezení naleznete v docs/beta.md. K projevům změn je vyžadován restart. VYŽADUJE, aby byl výše uvedený hlavní přepínač „Enable beta features“ zapnutý (a to i ve webovém rozhraní) – v opačném případě bude tento dílčí příznak za běhu ignorován bez ohledu na jeho hodnotu zde.",
     "features.enable_lite_docstrings.label": "Povolit zjednodušené docstringy nástrojů (beta)",
-    "features.enable_lite_docstrings.help": "Beta funkce. Nahrazuje dokumentační řetězce u 15 náročných nástrojů ha-mcp (ha_config_get_automation, ha_config_set_automation, ha_config_get_script, ha_config_set_script, ha_config_get_scene, ha_config_set_scene, ha_config_list_helpers, ha_config_set_helper, ha_config_get_dashboard, ha_config_set_dashboard, ha_call_service, ha_config_set_yaml, ha_search, ha_manage_backup, ha_report_issue) kratšími variantami, které odsouvají podrobnosti schémat a příkladů na nástroj ha_get_skill_guide (nebo jeho zdroj skill://). Jedna výjimka: ha_report_issue se odkazuje na pole instructions ve své vlastní odpovědi. Ladění nastavení Backup-hint funguje v úsporném režimu (lite mode) i nadále. VAROVÁNÍ: toto snižuje spotřebu tokenů v klidovém stavu, ale může snížit výkon LLM — zkrácené popisy spoléhají na to, že LLM skutečně zavolá nástroj dovedností nebo si přečte zdroj dovedností pro podrobnosti, což není zaručeno (některé modely přeskočí dodatečné volání nástroje a skončí s menší nápovědou než dříve). Nejlépe se používá s klientem, který podporuje zdroje MCP nebo s enable_tool_search. Vyžaduje restart, aby se projevilo. VYŽADUJE, aby hlavní přepínač \"Povolit beta funkce\" výše (a ve webovém rozhraní) byl zapnutý — jinak bude tento podpříznak za běhu ignorován bez ohledu na jeho hodnotu zde.",
+    "features.enable_lite_docstrings.help": "Funkce v beta verzi. Nahrazuje dokumentační řetězce u 15 náročných nástrojů ha-mcp (ha_config_get_automation, ha_config_set_automation, ha_config_get_script, ha_config_set_script, ha_config_get_scene, ha_config_set_scene, ha_config_list_helpers, ha_config_set_helper, ha_config_get_dashboard, ha_config_set_dashboard, ha_call_service, ha_config_set_yaml, ha_search, ha_manage_backup, ha_report_issue) kratšími variantami, které přenášejí podrobnosti o schématu a příkladech na nástroj ha_get_skill_guide (nebo jeho zdroj skill://). Jedna výjimka: ha_report_issue odkazuje na pole pokynů ve vlastní odpovědi. VAROVÁNÍ: toto snižuje spotřebu tokenů v klidovém stavu, ale může snížit výkon LLM — ořezané popisy spoléhají na to, že LLM skutečně zavolá nástroj dovednosti nebo si přečte zdroj dovednosti pro podrobnosti, což není zaručeno (některé modely přeskočí dodatečné volání nástroje a skončí s menší podporou než dříve). Nejlépe se používá s klientem, který podporuje zdroje MCP nebo s enable_tool_search. Vyžaduje restart, aby se projevilo. VYŽADUJE, aby byl hlavní přepínač \"Enable beta features\" nahoře (a ve webovém rozhraní) zapnutý — jinak bude tento dílčí příznak za běhu ignorován bez ohledu na jeho hodnotu zde.",
     "features.enable_dashboard_screenshot.label": "Povolit režim snímání obrazovky dashboardu (beta)",
-    "features.enable_dashboard_screenshot.help": "Funkce v beta verzi – ve výchozím nastavení zakázána. Přidává nástroj ha_get_dashboard_screenshot a volby include_screenshot / return_screenshot k nástrojům pro získání/nastavení nástěnek, takže AI asistenti mohou kontrolovat jeden nebo více responzivních obrázků Lovelace (např. pro ověření právě vytvořené nástěnky). Podporuje stabilní pojmenované pohledy, dávky pro mobily/tablety/desktopy a výstup v PNG/JPEG/WebP/BMP. Vykreslování běží v samostatném volitelném enginu – „Puppet“ aplikaci (doplňku) od ballooba, což je headless Chromium –, který nainstalujete jednou (přidáte balloobův repozitář do obchodu s aplikacemi a nainstalujete „Puppet“) a poskytnete mu přístupový token s dlouhou platností; v nasazeních Docker/Container tento engine spustíte jako vedlejší kontejner (sidecar) a nastavíte proměnnou HAMCP_DASHBOARD_SCREENSHOT_ENGINE_URL. Nic náročného se neinstaluje, dokud obojí nepovolíte a nenainstalujete daný engine. K projevům změn je vyžadován restart. VYŽADUJE, aby byl výše uvedený hlavní přepínač „Enable beta features“ zapnutý (a to i ve webovém rozhraní) – v opačném případě bude tento dílčí příznak za běhu ignorován bez ohledu na jeho hodnotu zde.",
+    "features.enable_dashboard_screenshot.help": "BETA funkce — ve výchozím nastavení zakázána. Přidává nástroj ha_get_dashboard_screenshot a volby include_screenshot / return_screenshot k nástrojům pro získání/nastavení nástěnek, takže AI asistenti mohou kontrolovat responzivní obrázky rozhraní Lovelace. Podporuje stabilní pojmenované pohledy, dávky pro mobilní zařízení/tablety/stolní počítače a výstup PNG/JPEG/WebP/BMP. Vykreslování běží v samostatné aplikaci: balloob's Puppet nebo WPE Screenshot Engine. Nainstalujte a nakonfigurujte jeden engine s jeho vlastním dlouhodobým přístupovým tokenem pro Home Assistant. HA OS / Supervised detekuje spuštěný engine přes Supervisor; nasazení v Dockeru / Containeru jej spouštějí jako sidecar a nastavují proměnnou HAMCP_DASHBOARD_SCREENSHOT_ENGINE_URL. Nic náročného se neinstaluje, dokud tuto funkci nepovolíte a nenainstalujete engine. Pro projevení změn je vyžadován restart. VYŽADUJE, aby hlavní přepínač \"Povolit beta funkce\" výše (a ve webovém rozhraní) byl zapnutý — jinak bude tento dílčí příznak za běhu ignorován bez ohledu na jeho zde zadanou hodnotu.",
     "actions.restart_server": "Restartovat server HA-MCP",
     "actions.restart_confirm": "Restartovat HA-MCP nyní? Stránka se automaticky znovu načte, jakmile bude opět online.",
     "actions.view": "Zobrazit",
@@ -458,6 +458,8 @@
     "advanced.max_retries.help": "Rozpočet na opakování pro každé selhání volání REST.",
     "advanced.verify_ssl.label": "Ověřit certifikáty TLS",
     "advanced.verify_ssl.help": "Ověřit certifikát TLS serveru Home Assistant. Vypněte tuto možnost pouze v důvěryhodné síti pro autorsky podepsaný certifikát nebo neshodu názvů hostitelů: oslabuje to zabezpečení přenosu.",
+    "advanced.ipv6_allowed_networks.label": "Další povolené sítě IPv6",
+    "advanced.ipv6_allowed_networks.help": "Klienti IPv6 přistupují k vlastnímu portu tohoto serveru pouze z lokální sítě: loopback, link-local, unique local (fc00::/7) a sítí, ke kterým je hostitel Home Assistant přímo připojen. IPv4 to neovlivňuje. Uveďte další sítě IPv6, které chcete povolit, oddělené čárkami nebo novými řádky (například 2001:db8:5::/48). Přidáním ::/0 povolíte všechny klienty IPv6, včetně přístupu z internetu, pokud váš router propouští příchozí provoz IPv6.",
     "advanced.fuzzy_threshold.label": "Prahová hodnota fuzzy vyhledávání",
     "advanced.fuzzy_threshold.help": "Nižší hodnoty umožňují volnější shodu entit.",
     "advanced.automation_config_time_budget.label": "Časový rozpočet konfigurace automatizace (s)",
@@ -472,14 +474,10 @@
     "advanced.individual_fetch_batch_size.help": "Souběžné načítání konfigurací podle ID. Snižte směrem k 1 na sériových serverech HA.",
     "advanced.enable_history_query_guardrails.label": "Ochrana historických dotazů",
     "advanced.enable_history_query_guardrails.help": "Zamítat dotazy do záznamu (recorder), které překračují konzervativní limity entit a časového rozsahu. Ve výchozím nastavení vypnuto.",
+    "advanced.hacs_refresh_after_update.label": "Po aktualizaci obnovit komponentu v HACS",
+    "advanced.hacs_refresh_after_update.help": "Při spuštění po aktualizaci serveru požádá HACS (Marketplace v Home Assistant 2026.11+) o opětovnou kontrolu repozitáře vlastního doplňku HA-MCP, aby se odpovídající aktualizace zobrazila okamžitě namísto další 48hodinové kontroly. Ve výchozím nastavení vypnuto; instalace, které to již prováděly, si nastavení ponechají zapnuté.",
     "advanced.ha_tool_concurrency.label": "Souběžnost nástrojů Home Assistant",
     "advanced.ha_tool_concurrency.help": "Volitelný limit pro vnější volání nástrojů Home Assistant napříč všemi relacemi. Vnitřní souběh pro REST, WebSocket a rozbočení pro jednotlivé nástroje zůstává nezměněn. 0 zachovává neomezené chování. Volání čekající na kapacitu selže po 60 sekundách.",
-    "advanced.backup_hint.label": "Úroveň nápovědy zálohování",
-    "advanced.backup_hint.help": "Jak důrazně jsou asistenti AI vyzýváni k doporučení úplné zálohy Home Assistant před rizikovými změnami. Mění pouze tuto nápovědu; automatické zálohy úprav mají své vlastní nastavení.",
-    "advanced.backup_hint.choices.strong": "Silná",
-    "advanced.backup_hint.choices.normal": "Normální",
-    "advanced.backup_hint.choices.weak": "Slabá",
-    "advanced.backup_hint.choices.auto": "Automatická",
     "advanced.dashboard_screenshot_engine_url.label": "URL adresa enginu pro snímky obrazovky panelu",
     "advanced.dashboard_screenshot_engine_url.help": "Základní URL enginu pro snímky obrazovky. Ponechte prázdné pro automatické zjišťování Supervisor. Platí okamžitě.",
     "advanced.enable_websocket.label": "Povolit WebSocket",
@@ -856,7 +854,7 @@
     },
     "ha_remove_todo_item": {
       "title": "Odebrat položku úkolu",
-      "description": "Odebrat položku ze seznamu úkolů Home Assistant."
+      "description": "Odstranit položky z úkolového seznamu v Home Assistant."
     },
     "ha_remove_zone": {
       "title": "Odebrat zónu",
@@ -892,7 +890,7 @@
     },
     "ha_set_todo_item": {
       "title": "Nastavit položku úkolu",
-      "description": "Vytvořit nebo aktualizovat položku úkolu v Home Assistant."
+      "description": "Vytvořit, aktualizovat nebo změnit pořadí položky úkolu v Home Assistant."
     },
     "ha_set_zone": {
       "title": "Nastavit zónu",

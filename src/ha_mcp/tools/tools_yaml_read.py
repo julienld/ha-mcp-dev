@@ -49,6 +49,13 @@ class LegacyYamlFiles:
     async def list_files(self, **arguments: Any) -> Any:
         return await self._call("list_files", arguments)
 
+    async def guard_targets(self, paths: list[str]) -> None:
+        from .config_file_visibility import refuse_reading_hidden_definitions
+
+        await refuse_reading_hidden_definitions(
+            self.client, "ha_config_get_yaml", paths
+        )
+
     async def read_file(self, **arguments: Any) -> Any:
         return await self._call("read_file", arguments)
 

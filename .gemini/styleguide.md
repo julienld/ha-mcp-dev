@@ -294,7 +294,7 @@ with magic docstring keywords.
 - Missing examples on tools with obvious single-parameter calls
 - Multi-line docstrings that stay focused and on-topic
 
-Python type hints and async/await usage are canonical in [`AGENTS.md` → Code Conventions](../AGENTS.md#code-conventions); flag unannotated signatures and inconsistent async/await for I/O.
+Python type hints and async/await usage are canonical in [`AGENTS.md` → Code Conventions](../AGENTS.md#code-conventions); flag unannotated signatures outside `tests/` and inconsistent async/await for I/O.
 
 ## Documentation Standards
 
@@ -455,4 +455,4 @@ See AGENTS.md § *Boy Scout Rule — Handling Discovered Improvements* for the a
 
 ## Native Core contracts
 
-Read and write wrappers follow the [native Core contract guidance](../docs/agents/native-core-contracts.md). Native covers Core, the frontend, Supervisor and the hassio proxy alike. Keep domain validation in Core; distinguish wrapper safeguards and incomplete schema descriptions from native validation.
+Read and write wrappers follow the [native Core contract guidance](../docs/agents/native-core-contracts.md). Native covers Core, the frontend, Supervisor and the hassio proxy alike, and the `ha_mcp_tools` component is the in-process route to Core's own objects, served by either of its config entries (the embedded server has it without the File & YAML Tools entry). Keep domain validation in Core; distinguish wrapper safeguards and incomplete schema descriptions from native validation. A hand-copied Core rule, field list or accepted-value set on the server side is a finding whether or not the change touches the component; the fix is a component bridge with a native fallback.

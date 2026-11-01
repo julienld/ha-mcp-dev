@@ -4,7 +4,7 @@ Dashboard resource hosting tools for Home Assistant MCP server.
 Provides tools for managing dashboard resources (custom cards, CSS, JS):
 - Inline resources: Code embedded directly in the resource URL as a
   ``data:`` URI — stored in HA's own resource registry, served by nothing
-- External resources: URLs to /local/, /hacsfiles/, or external CDNs
+- External resources: URLs to /local/ (incl. /local/community/), /hacsfiles/, or CDNs
 
 Inline resources were previously served by a Cloudflare Worker that decoded
 base64 content embedded in its URL, based on issue #71's claim that browsers

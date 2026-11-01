@@ -112,6 +112,10 @@ async def add_timezone_metadata(
     - Naive strings (no offset) are assumed to be UTC before conversion.
     - ``ZoneInfoNotFoundError`` (tzdata not installed) falls back to UTC.
     - Any config-fetch failure also falls back to UTC without conversion.
+
+    A top-level ``warnings`` list in *data* is returned beside ``data`` instead
+    of inside it, ahead of any timezone warning the wrapper adds, and omitted
+    when empty; *data* itself is left unchanged.
     """
     if not include_metadata:
         return data

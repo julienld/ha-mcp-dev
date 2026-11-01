@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import datetime
 from typing import Any
 
 from ha_mcp.tool_api import Backend, CallContext, ToolFailure
@@ -70,19 +69,9 @@ def _fields(config: dict[str, Any], current: dict[str, Any] | None) -> dict[str,
     if due is not None:
         if not isinstance(due, str):
             raise InvalidBackupSnapshotError("Todo snapshot has an invalid due date")
-        try:
-            if len(due) == 10:
-                datetime.date.fromisoformat(due)
-                fields["due_date"] = due
-            else:
-                datetime.datetime.fromisoformat(due)
-                fields["due_datetime"] = due
-        except ValueError as error:
-            raise InvalidBackupSnapshotError(
-                "Todo snapshot has an invalid due date"
-            ) from error
+        fields["due_datetime" if "T" in due else "due_date"] = due
     elif current and current.get("due") is not None:
-        fields["due_date" if len(current["due"]) == 10 else "due_datetime"] = None
+        fields["due_datetime" if "T" in current["due"] else "due_date"] = None
     return fields
 
 
@@ -95,6 +84,7 @@ async def restore_todo(
 ) -> dict[str, Any]:
     """Recreate missing UIDs, or update the captured UID, then verify public fields."""
     entity, uid = todo_identity(entity_id, config)
+    await _require_available(backend, actor, entity)
     fields = _fields(config, before)
     items = await todo_items(backend, actor, entity)
     current = next((item for item in items if item.get("uid") == uid), None)
@@ -130,10 +120,13 @@ async def restore_todo(
                         "Todo lists allow identical items; the removed UID was not recreated again."
                     ],
                 }
-            await backend.execute(
+            await _write_item(
+                backend,
+                actor,
+                "add",
+                config,
                 "todo.item.add",
                 {"data": {"entity_id": entity, "item": config["summary"], **fields}},
-                actor,
             )
             applied = True
             old_ids = {item.get("uid") for item in items}
@@ -162,7 +155,11 @@ async def restore_todo(
                     "The todo item changed during restoration",
                     status="not_started",
                 )
-            await backend.execute(
+            await _write_item(
+                backend,
+                actor,
+                "update",
+                config,
                 "todo.item.update",
                 {
                     "data": {
@@ -174,7 +171,6 @@ async def restore_todo(
                     },
                     "expected_item": current,
                 },
-                actor,
             )
             applied = True
         saved = next(
@@ -210,3 +206,42 @@ async def restore_todo(
             apply_status=status,
             verification_status="unavailable" if applied else "not_run",
         ) from error
+
+
+async def _require_available(backend: Backend, actor: CallContext, entity: str) -> None:
+    states = await backend.execute("states.read", {"entity_ids": [entity]}, actor)
+    state = states["states"].get(entity)
+    if state is not None and state.get("state") == "unavailable":
+        raise BackupRestoreError(
+            "The todo list is unavailable, so nothing was restored",
+            reason="entity_unavailable",
+        )
+
+
+async def _write_item(
+    backend: Backend,
+    actor: CallContext,
+    action: str,
+    config: dict[str, Any],
+    fallback: str,
+    arguments: dict[str, Any],
+) -> Any:
+    data = arguments["data"]
+    payload = {
+        key: value
+        for key, value in data.items()
+        if key not in {"entity_id", "due_date", "due_datetime"}
+    }
+    bridge: dict[str, Any] = {
+        "entity_id": data["entity_id"],
+        "action": action,
+        "due": config.get("due"),
+    }
+    if action == "update":
+        bridge["uid"] = payload.pop("item")
+        bridge["expected_item"] = arguments["expected_item"]
+    bridge["data"] = payload
+    result = await backend.execute("todo.bridge", bridge, actor)
+    if result is not None:
+        return result
+    return await backend.execute(fallback, arguments, actor)

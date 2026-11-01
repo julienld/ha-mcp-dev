@@ -118,6 +118,7 @@ class OverviewTools:
                 ),
             ),
         ] = None,
+        ctx: Any = None,
     ) -> dict[str, Any]:
         """Get AI-friendly system overview with intelligent categorization.
 
@@ -151,7 +152,7 @@ class OverviewTools:
         Omitted for the ``unknown`` version, when ``HA_MCP_DISABLE_UPDATE_CHECK``
         is set, or when the update check itself failed.
         """
-        return await self.overview.get_overview(
+        result = await self.overview.get_overview(
             detail_level=detail_level,
             domains=domains,
             limit=limit,
@@ -163,3 +164,7 @@ class OverviewTools:
             include_dismissed_repairs=include_dismissed_repairs,
             fields=fields,
         )
+        from ha_mcp.mcp_client_context import describe_mcp_client
+
+        result["mcp_client"] = describe_mcp_client(ctx)
+        return result

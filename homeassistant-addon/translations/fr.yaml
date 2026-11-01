@@ -14,12 +14,6 @@ configuration:
       pour toutes les sessions. La concurrence interne pour REST, WebSocket et la
       répartition par outil reste inchangée. 0 conserve un comportement illimité.
       Un appel en attente de capacité échoue après 60 secondes. Plage 0–32.
-  backup_hint:
-    name: Niveau d'indication de sauvegarde
-    description: Avec quelle insistance il est demandé aux assistants IA de suggérer
-      une sauvegarde complète de Home Assistant avant des modifications risquées.
-      Cela ne modifie que cette indication ; les sauvegardes automatiques de modification
-      ont leur propre paramètre.
   custom_instructions:
     name: Instructions personnalisées du serveur
     description: Texte envoyé à chaque assistant IA qui se connecte, dans le cadre
@@ -107,6 +101,15 @@ configuration:
       pour le limiter à une seule application. Nommer un groupe d'options couvre toutes
       les options qu'il contient. Utilisé uniquement lorsque l'option Masquer les
       secrets est active. Vide par défaut.
+  ipv6_allowed_networks:
+    name: Réseaux IPv6 supplémentaires autorisés
+    description: 'Les clients IPv6 atteignent le port propre de ce serveur uniquement
+      depuis le réseau local : bouclage (loopback), lien local (link-local), unique
+      local (fc00::/7) et les réseaux auxquels l''hôte Home Assistant est directement
+      connecté. L''IPv4 n''est pas affectée. Listez les autres réseaux IPv6 à autoriser,
+      séparés par des virgules ou des retours à la ligne (par exemple 2001:db8:5::/48).
+      Ajouter ::/0 autorise tous les clients IPv6, y compris depuis Internet si votre
+      routeur laisse passer le trafic IPv6 entrant.'
   enable_mandatory_bps:
     name: Attacher les compétences de bonnes pratiques aux écritures
     description: 'Interrupteur principal pour la fonction de livraison de contenu

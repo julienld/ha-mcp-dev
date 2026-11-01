@@ -8,6 +8,9 @@ from ha_mcp.tool_api import ToolFailure, UnsupportedOperation
 TODO_OPERATIONS = frozenset(
     {
         "todo.states",
+        "todo.move",
+        "todo.service",
+        "todo.bridge",
         "todo.items",
         "todo.item.prepare",
         "todo.item.add",
@@ -21,6 +24,37 @@ TODO_OPERATIONS = frozenset(
 async def execute_todo_operation(
     client: Any, operation: str, arguments: dict[str, Any]
 ) -> Any:
+    from ha_mcp.client.rest_client import (
+        HomeAssistantCommandNotSent,
+        HomeAssistantConnectionError,
+    )
+    from ha_mcp.runtime.error_classification import classified_error
+
+    try:
+        return await _execute_todo_operation(client, operation, arguments)
+    except HomeAssistantConnectionError as error:
+        data = classified_error(error)
+        raise ToolFailure(
+            data["error"]["code"],
+            data["error"]["message"],
+            data=data,
+            status="not_started"
+            if isinstance(error, HomeAssistantCommandNotSent)
+            else "outcome_unknown",
+        ) from error
+
+
+async def _execute_todo_operation(
+    client: Any, operation: str, arguments: dict[str, Any]
+) -> Any:
+    if operation == "todo.bridge":
+        return await _execute_todo_bridge(client, arguments)
+    command = {
+        "todo.move": {"type": "todo/item/move"},
+        "todo.service": {"type": "call_service", "domain": "todo"},
+    }.get(operation)
+    if command is not None:
+        return await client.send_websocket_message({**command, **arguments})
     if operation == "todo.states":
         return await client.get_states()
     if operation == "todo.items":
@@ -40,10 +74,48 @@ async def execute_todo_operation(
                 data["item"],
                 arguments["expected_item"],
             )
-        return await client.call_service(
-            "todo", operation.rsplit(".", 1)[1] + "_item", arguments["data"]
+        from ha_mcp.runtime.errors import ws_failure_code
+
+        data = dict(arguments["data"])
+        entity_id = data.pop("entity_id")
+        reply = await client.send_websocket_message(
+            {
+                "type": "call_service",
+                "domain": "todo",
+                "service": operation.rsplit(".", 1)[1] + "_item",
+                "target": {"entity_id": entity_id},
+                "service_data": data,
+            }
         )
+        if not reply.get("success"):
+            raise ToolFailure(ws_failure_code(reply).value, str(reply.get("error")))
+        return reply.get("result")
     raise UnsupportedOperation(operation)
+
+
+async def _execute_todo_bridge(client: Any, arguments: dict[str, Any]) -> Any:
+    import json
+
+    from ha_mcp._vendor.fastmcp.exceptions import ToolError
+    from ha_mcp.tools.component_todo import todo_call
+
+    arguments = dict(arguments)
+    expected = arguments.pop("expected_item", None)
+    expected_items = arguments.pop("expected_items", None)
+    entity_id = arguments["entity_id"]
+    if expected is not None:
+        check_todo_target(await _items(client, entity_id), arguments["uid"], expected)
+    if expected_items is not None:
+        items = await _items(client, entity_id)
+        for ref, row in zip(arguments["refs"], expected_items, strict=True):
+            check_todo_target(items, ref, row)
+    try:
+        return await todo_call(client, **arguments)
+    except ToolError as exc:
+        data = json.loads(str(exc))
+        raise ToolFailure(
+            data["error"]["code"], data["error"]["message"], data=data
+        ) from exc
 
 
 async def _items(client: Any, entity_id: str) -> list[dict[str, Any]]:

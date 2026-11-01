@@ -3,7 +3,7 @@
 ``llm_api`` exposes the in-process server's toolset as Home Assistant LLM
 API(s) so conversation agents (and through them the Assist chat UI and voice)
 can drive ha-mcp. These tests cover the registration lifecycle (exposure
-modes, failure containment), the per-turn tool-list fetch with the server's
+modes, failure containment), the per-instance tool-list fetch with the server's
 exposure stamp, the tool-search meta-tools (search + call-time enforcement),
 and the loopback transport error mapping — all hermetically: Home Assistant
 is stubbed via ``_embedded_stubs`` and the MCP client session is faked at the
@@ -309,7 +309,10 @@ class TestSchemaConversionCompatibility:
 
         def _import_module(name):
             imports.append((name, threading.get_ident()))
-            if name.startswith("ha_mcp._vendor.mcp.") or name == "httpcore":
+            if name.startswith("ha_mcp._vendor.mcp.") or name in {
+                "httpcore",
+                "jsonschema",
+            }:
                 return SimpleNamespace()
             if name == "voluptuous_openapi":
                 return legacy
@@ -333,6 +336,7 @@ class TestSchemaConversionCompatibility:
             "ha_mcp._vendor.mcp.client.session",
             "ha_mcp._vendor.mcp.client.streamable_http",
             "httpcore",
+            "jsonschema",
             "voluptuous_openapi",
         ]
         assert all(thread_id != main_thread for _, thread_id in imports)

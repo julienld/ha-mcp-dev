@@ -6,6 +6,7 @@ from typing import Any
 from ha_mcp.errors import ErrorCode, create_error_response
 from ha_mcp.tool_api import ToolFailure as ToolError
 
+from .dashboard_read_contract import NO_STORED_CONFIG_NOTE
 from .dashboard_routes import (
     _RESERVED_VIEW_PATHS,
     DashboardRenderTarget,
@@ -20,7 +21,7 @@ from .dashboard_routes import (
 )
 from .errors import raise_failure as raise_tool_error
 
-DashboardConfigReader = Callable[[str], Awaitable[dict[str, Any]]]
+DashboardConfigReader = Callable[[str], Awaitable[dict[str, Any] | None]]
 
 
 async def _resolve_legacy_dashboard_target(
@@ -43,14 +44,14 @@ async def _resolve_legacy_dashboard_target(
         raw_view = parts[1] if len(parts) > 1 else None
         numeric_index = _numeric_view_index(raw_view) if raw_view is not None else None
         return DashboardRenderTarget(
-            url_path="lovelace",
+            url_path=dashboard_root,
             view_path=None,
             render_path=render_path,
             view_index=numeric_index,
             stable=False,
             warnings=(
-                "Legacy built-in Lovelace routes are accepted without a stored "
-                "dashboard config; the selected view cannot be verified.",
+                "Routes of a dashboard without a stored config are accepted; "
+                "the selected view cannot be verified.",
             ),
         )
     if len(parts) == 1:
@@ -204,10 +205,29 @@ async def resolve_dashboard_render_target(
             stable=False,
             warnings=(
                 "No named view path was supplied; the built-in dashboard base route "
-                "renders the first view visible to Puppet's Home Assistant user.",
+                "renders the first view visible to the screenshot engine's Home Assistant user.",
             ),
         )
     config = await read_config(url_path)
+    if config is None:
+        if view_path is not None:
+            raise_tool_error(
+                create_error_response(
+                    ErrorCode.VALIDATION_INVALID_PARAMETER,
+                    NO_STORED_CONFIG_NOTE,
+                    context={"url_path": url_path, "view_path": view_path},
+                    suggestions=["Omit view_path: there are no static views"],
+                )
+            )
+        base_path = dashboard_frontend_path(url_path)
+        return DashboardRenderTarget(
+            url_path=base_path,
+            view_path=None,
+            render_path=base_path,
+            view_index=None,
+            stable=False,
+            warnings=(NO_STORED_CONFIG_NOTE,),
+        )
     return resolve_dashboard_view(url_path, config, view_path)
 
 
@@ -248,7 +268,7 @@ async def _numeric_view_warning(
         return []
     if config is None:
         config = await read_config(url_path)
-    views = config.get("views")
+    views = (config or {}).get("views")
     if not isinstance(views, list):
         return []
     view_index = index if matched_view_index is None else matched_view_index
