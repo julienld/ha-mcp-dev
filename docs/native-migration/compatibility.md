@@ -4,6 +4,11 @@ Baseline: upstream `2dc504fd97d8416f87b6ea7f2fd8ce0332615956` (22 October 2026).
 The [machine contract](compatibility.json) lists the persisted identifiers. This
 is a preservation target, not a statement that every target is implemented.
 
+Functional parity is not complete. The [functional audit](functional-audit-20261101.json)
+separates global compatibility changes, Native-only gaps and inherited upstream
+changes. In particular, retaining Legacy does not avoid the new component Core
+floor or the changed metadata of automatic entity captures.
+
 ## Supported Core capabilities
 
 The component starts at Core 2026.10.0 and supports the current stable monthly
