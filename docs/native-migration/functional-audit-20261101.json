@@ -14,12 +14,12 @@
       "origin": "Politique élargie après CodeRabbit, commit 67d30381 puis port partagé 527726464.",
       "before_review": "Le backend distant collecte les erreurs par cible et continue les autres cibles; connexion/authentification sont fatales.",
       "review_change": "Toute issue incertaine arrêtait également les autres cibles indépendantes.",
-      "decision": "Retrait de cette extension de politique. Les erreurs API/WS restent incertaines mais les autres cibles sont tentées. Perte de connexion/authentification arrête toujours le lot, et la cible incertaine n'est jamais rejouée.",
+      "decision": "Retrait de cette extension de politique. Les erreurs API/WS restent incertaines mais les autres cibles sont tentées. Perte de connexion/authentification arrête toujours le lot, et la cible incertaine n'est jamais rejouée. Le signal d’erreur MCP et les codes fatals historiques sont conservés; les résultats partiels et les cibles non tentées restent dans le diagnostic.",
       "evidence": [
         "src/ha_mcp/tools/tools_updates.py::_call_update_service",
         "tests/src/unit/test_service_error_consumers.py"
       ],
-      "validation": "Deux régressions rouges avant retrait, deux contrôles transport/auth déjà verts; 68 tests ciblés verts ensuite."
+      "validation": "Régressions rouges sur la continuation et le signal fatal avant correction; 72 tests ciblés verts, incluant progression partielle, cible absente et absence de rejeu."
     },
     {
       "id": "R2",
@@ -56,17 +56,19 @@
     {
       "id": "G2",
       "classification": "rupture_globale",
-      "title": "Identité des nouvelles captures automatiques d'entités",
+      "title": "Historique et restauration des captures d’entités",
       "scope": "Historique des modifications, dans les deux runtimes",
-      "before": "Les captures automatiques sont sélectionnées par domain=entity et l'entity_id HA.",
-      "after": "Les nouvelles captures du registre utilisent domain=entity_registry et la UUID durable; les anciens fichiers ne sont pas renommés. Les filtres restent exacts.",
-      "impact": "Un client ou une UI utilisant les anciens filtres ne trouve plus ces nouvelles captures. Rester en Legacy ne suffit pas à éviter ce changement de métadonnées.",
-      "origin": "Refonte des sauvegardes/identités du portage, pas une nécessité du transport Native.",
-      "recommendation": "Conserver la capture automatique historique et ajouter la capture de registre durable, ou proposer explicitement un format versionné. Une projection de compatibilité peut aider les lectures; ne jamais élargir silencieusement les filtres de suppression. Garder view/restore par fichier et les deux sémantiques distinctes.",
+      "before": "Le baseline 2dc utilise entity pour état/attributs. L’upstream intégré 1c4 utilise aussi entity pour des images de registre (id, réglages, options), indexées par entity_id.",
+      "after": "Le candidat affecte entity aux états et écrit les nouvelles images de registre sous entity_registry avec UUID. Le handler entity par défaut ne sélectionne pas le restore registre pour une ancienne image 1c4.",
+      "impact": "Les anciens filtres ne trouvent plus les nouvelles captures. Des fichiers historiques de registre peuvent aussi être routés vers le mauvais handler de restauration. Un probe de la fonction exacte, avec I/O simulées, produit state=null au lieu de restaurer les réglages; la restauration complète et un effet HA réel ne sont pas revendiqués.",
+      "origin": "Composition du modèle de sauvegardes Native avec plusieurs formats historiques, pas une nécessité du changement de transport.",
+      "recommendation": "Reconnaître le format ancien avant de sélectionner le handler, la cible et la capture de sécurité : état 2dc ou registre 1c4. Préserver les anciens fichiers et le contrat de capture par défaut de l’amont; ajouter l’identité UUID par métadonnée/adaptateur ou version opt-in. À défaut, versionner la nouvelle sémantique avec lecteur rétrocompatible. Ne jamais élargir silencieusement les suppressions.",
       "evidence": [
         "upstream:src/ha_mcp/tools/tools_entities.py",
         "src/ha_mcp/backends/legacy_entity_snapshots.py::capture_entity_registry",
-        "docs/native-migration/compatibility.md"
+        "docs/native-migration/compatibility.md",
+        "upstream:src/ha_mcp/backup_entities.py::fetch_entity",
+        "src/ha_mcp/backup_manager.py::_restore_entity_state"
       ]
     },
     {
@@ -288,14 +290,14 @@
     }
   ],
   "recommended_order": [
-    "Fixer d'abord G1 et G2 si la prochaine version doit être non-breaking pour les utilisateurs existants.",
+    "Traiter d’abord la lecture/restauration multi-format des anciens backups et le minimum Core, si la version doit être non-breaking pour les utilisateurs existants.",
     "Traiter U1 comme une décision amont distincte : préserver l'ancien défaut, ou annoncer explicitement la nouvelle sémantique de restauration.",
     "Garder Native explicitement opt-in pendant la fermeture des écarts, y compris envisager Legacy par défaut pour les nouvelles entrées pendant la transition.",
     "Préflight de migration : détecter URL directe, scripts bruts, comptes/attributions, backups multi-agent et limites utiles avant de changer le runtime.",
     "Ne retirer le marquage breaking qu'après résolution ou acceptation explicite des ruptures documentées; aucune fonctionnalité nouvelle du wizard n'est un prérequis."
   ],
   "validation": {
-    "batch_targeted_passed": 68,
+    "batch_targeted_passed": 72,
     "radio_targeted_passed": 120,
     "catalog_targeted_passed": 20,
     "new_full_local_suite_run": false,
@@ -303,7 +305,8 @@
     "live_radio_or_update_effects_exercised": false,
     "prior_ci_revision": "27d3921d4152e64069e025b9ca7e7bde5b679335",
     "prior_native_live_revision": "3cf72375f7aaf4d08a6adf8afe1729c40f34c198",
-    "note": "Les anciens CI/live gardent leur SHA; la nouvelle CI doit qualifier le rollback. Les propositions de compatibilité restantes ne sont pas implémentées."
+    "note": "Les anciens CI/live gardent leur SHA; la nouvelle CI doit qualifier le rollback. Les propositions de compatibilité restantes ne sont pas implémentées.",
+    "legacy_entity_probe": "Fonction exacte extraite du commit27d, I/O remplacées par AsyncMock uniquement : ancienne image de registre envoyée au handler état produit states/light.example avec state=null. Routage par défaut confirmé statiquement; aucun effet HA ni restauration complète testé."
   },
   "contributors": [
     "01a17809-7a91-7a22-ae32-2477aa97873a"

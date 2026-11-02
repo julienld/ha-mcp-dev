@@ -218,11 +218,16 @@ ID that already exists is rejected before snapshot capture and mutation.
 
 ## Readiness evidence
 
-Entity edit history distinguishes its persisted domains. Historical `entity`
-snapshots retain their original state-and-attributes meaning. New
-`entity_registry` snapshots preserve Core's full registry entry and use its UUID
-as the key, so an `entity_id` rename does not redirect a restore to another
-registration. No global snapshot format version changes.
+Entity edit history currently distinguishes its persisted domains, but historical
+`entity` payloads are not uniform: baseline `2dc504fd` used state/attributes,
+whereas integrated upstream `1c4b4edfc` also writes registry-shaped images there.
+The candidate's default `entity` handler is state-only; routing those older
+registry images correctly before target resolution and safety capture is an
+unresolved compatibility requirement, not evidence of preserved restoration.
+New `entity_registry` snapshots preserve Core's full registry entry and use its
+UUID as the key. Keep existing files unchanged and add shape/version-aware
+reading rather than reinterpreting registry settings as state. No global
+snapshot-file envelope version changes.
 
 This changes the observable metadata of new automatic entity captures in both
 runtimes: `domain="entity", entity_id="light.example"` still selects historical

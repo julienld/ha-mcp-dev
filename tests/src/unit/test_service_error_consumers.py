@@ -2,13 +2,18 @@
 
 import json
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
 
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp.client.rest_client import HomeAssistantClient
+from ha_mcp.errors import (
+    HomeAssistantServiceAuthOutcomeUnknown,
+    HomeAssistantServiceConnectionOutcomeUnknown,
+)
+from ha_mcp.tool_api import ToolFailure
 from ha_mcp.tools.tools_config_automations import AutomationConfigTools
 from ha_mcp.tools.tools_config_scenes import ConfigSceneTools
 from ha_mcp.tools.tools_system import SystemTools
@@ -187,13 +192,18 @@ async def test_update_batch_keeps_independent_targets_without_replaying_unknown_
         monkeypatch.setattr(
             tools, "_verify_targets_exist", AsyncMock(return_value=(targets, []))
         )
-        result = await tools._execute_batch_action("install", targets, None, False)
+        if continue_independent:
+            result = await tools._execute_batch_action("install", targets, None, False)
+        else:
+            with pytest.raises(ToolFailure) as error:
+                await tools._execute_batch_action("install", targets, None, False)
+            assert error.value.status == "outcome_unknown"
+            result = error.value.data
         if failure == "ws":
             assert ws.await_count == 3
         else:
             ws.assert_not_awaited()
     assert effects == (targets if continue_independent else targets[:2])
-    assert effects.count(targets[1]) == 1
     assert result["success"] is False
     assert result["requested"] == 3
     assert result["succeeded"] == (2 if continue_independent else 1)
@@ -210,3 +220,49 @@ async def test_update_batch_keeps_independent_targets_without_replaying_unknown_
         assert "not_attempted" not in result
     else:
         assert result["not_attempted"] == [targets[2]]
+
+
+@pytest.mark.parametrize(
+    "failure,code",
+    [
+        (
+            HomeAssistantServiceConnectionOutcomeUnknown("response lost"),
+            "CONNECTION_FAILED",
+        ),
+        (
+            HomeAssistantServiceAuthOutcomeUnknown("credential lost", status_code=401),
+            "AUTH_INVALID_TOKEN",
+        ),
+    ],
+)
+@pytest.mark.parametrize("missing_target", [False, True])
+async def test_public_update_transport_failure_preserves_error_signal_and_progress(
+    monkeypatch: pytest.MonkeyPatch, failure: Exception, code: str, missing_target: bool
+) -> None:
+    targets = ["update.first", "update.uncertain", "update.unattempted"]
+    missing = (
+        [{"success": False, "entity_id": "update.missing"}] if missing_target else []
+    )
+    requested = [*(["update.missing"] if missing_target else []), *targets]
+    client = MagicMock()
+    client.call_service = AsyncMock(side_effect=[None, failure])
+    tools = UpdateTools(client)
+    monkeypatch.setattr(
+        tools, "_resolve_update_targets", AsyncMock(return_value=requested)
+    )
+    monkeypatch.setattr(
+        tools, "_verify_targets_exist", AsyncMock(return_value=(targets, missing))
+    )
+    with pytest.raises(ToolError) as raised:
+        await tools.ha_manage_updates(action="install", entity_ids=requested)
+    result = json.loads(str(raised.value))
+    assert result["error"]["code"] == code
+    assert result["write_outcome_unknown"] is True
+    assert result["succeeded"] == 1
+    assert result["requested"] == len(requested)
+    assert result["failed"] == len(requested) - 1
+    assert result["results"][: len(missing)] == missing
+    assert result["results"][len(missing)] == {"success": True, "entity_id": targets[0]}
+    assert result["results"][len(missing) + 1]["write_outcome_unknown"] is True
+    assert result["not_attempted"] == [targets[2]]
+    assert client.call_service.await_count == 2

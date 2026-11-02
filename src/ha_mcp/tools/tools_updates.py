@@ -262,8 +262,34 @@ class UpdateTools(UpdateToolsFacade):
             except (HomeAssistantConnectionError, HomeAssistantAuthError) as e:
                 if not is_service_outcome_unknown(e):
                     raise
-                results.append(create_service_item_error(e, context={"entity_id": eid}))
-                break
+                item = create_service_item_error(e, context={"entity_id": eid})
+                results.append(item)
+                # Classify the historical transport/auth family, retaining uncertainty below.
+                legacy_error = (
+                    HomeAssistantAuthError(str(e))
+                    if isinstance(e, HomeAssistantAuthError)
+                    else HomeAssistantConnectionError(str(e))
+                )
+                fatal = exception_to_structured_error(
+                    legacy_error,
+                    context={"action": action, "entity_ids": targets},
+                    raise_error=False,
+                )
+                fatal.update(
+                    update_batch_result(action, len(targets), results, succeeded)
+                )
+                fatal.update(
+                    write_outcome_unknown=True,
+                    not_attempted=targets[len(results) :],
+                )
+                fatal["error"]["suggestion"] = item["error"]["suggestion"]
+                fatal["suggestions"] = [item["error"]["suggestion"]]
+                raise ToolFailure(
+                    fatal["error"]["code"],
+                    fatal["error"]["message"],
+                    data=fatal,
+                    status="outcome_unknown",
+                ) from e
             except Exception as e:  # noqa: BLE001
                 # Batch item failure — collect, don't raise.
                 results.append(create_service_item_error(e, context={"entity_id": eid}))
@@ -285,9 +311,20 @@ class UpdateTools(UpdateToolsFacade):
             targets, not_found = await self._verify_targets_exist(targets)
             results.extend(not_found)
 
-        call_results, succeeded = await self._call_update_service(
-            action, targets, backup
-        )
+        try:
+            call_results, succeeded = await self._call_update_service(
+                action, targets, backup
+            )
+        except ToolFailure as failure:
+            progress = failure.data.get("results")
+            completed = failure.data.get("succeeded")
+            if isinstance(progress, list) and isinstance(completed, int):
+                failure.data.update(
+                    requested=requested,
+                    failed=requested - completed,
+                    results=[*results, *progress],
+                )
+            raise
         results.extend(call_results)
 
         response = update_batch_result(action, requested, results, succeeded)
