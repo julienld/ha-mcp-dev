@@ -136,7 +136,7 @@ async def test_partial_service_consumers_keep_unknown_outcome(
         ("ws", None, "not_found", "WS error after update effect"),
     ],
 )
-async def test_update_batch_retains_prior_results_and_stops_after_unknown_effect(
+async def test_update_batch_keeps_independent_targets_without_replaying_unknown_effect(
     monkeypatch: pytest.MonkeyPatch,
     failure: str,
     http_status: int | None,
@@ -144,12 +144,13 @@ async def test_update_batch_retains_prior_results_and_stops_after_unknown_effect
     diagnostic: str,
 ) -> None:
     effects: list[str] = []
-    targets = ["update.first", "update.uncertain", "update.unattempted"]
+    targets = ["update.first", "update.uncertain", "update.independent"]
+    continue_independent = failure in {"api", "ws"}
 
     def post(request: httpx.Request) -> httpx.Response:
         assert failure != "ws"
         effects.append(json.loads(request.content)["entity_id"])
-        if len(effects) == 1:
+        if effects[-1] != targets[1]:
             return httpx.Response(200, json=[])
         if failure == "timeout":
             raise httpx.ReadTimeout("reply lost after update effect")
@@ -162,7 +163,7 @@ async def test_update_batch_retains_prior_results_and_stops_after_unknown_effect
     async def websocket(message: dict[str, Any]) -> dict[str, Any]:
         assert failure == "ws"
         effects.append(message["service_data"]["entity_id"])
-        if len(effects) == 1:
+        if effects[-1] != targets[1]:
             return {"success": True, "result": {}}
         return {
             "success": False,
@@ -188,13 +189,14 @@ async def test_update_batch_retains_prior_results_and_stops_after_unknown_effect
         )
         result = await tools._execute_batch_action("install", targets, None, False)
         if failure == "ws":
-            assert ws.await_count == 2
+            assert ws.await_count == 3
         else:
             ws.assert_not_awaited()
-    assert effects == targets[:2]
+    assert effects == (targets if continue_independent else targets[:2])
+    assert effects.count(targets[1]) == 1
     assert result["success"] is False
     assert result["requested"] == 3
-    assert result["succeeded"] == 1
+    assert result["succeeded"] == (2 if continue_independent else 1)
     assert result["results"][0] == {"success": True, "entity_id": targets[0]}
     uncertain = result["results"][1]
     assert uncertain["entity_id"] == targets[1]
@@ -203,4 +205,8 @@ async def test_update_batch_retains_prior_results_and_stops_after_unknown_effect
     assert uncertain.get("ha_error_code") == native_code
     assert diagnostic in uncertain["error"]["details"]
     assert "before retrying" in uncertain["error"]["suggestion"]
-    assert result["not_attempted"] == [targets[2]]
+    if continue_independent:
+        assert result["results"][2] == {"success": True, "entity_id": targets[2]}
+        assert "not_attempted" not in result
+    else:
+        assert result["not_attempted"] == [targets[2]]

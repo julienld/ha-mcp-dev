@@ -106,32 +106,61 @@ async def call(radios, radio, action, **kwargs):
 
 
 @pytest.mark.parametrize("action", ["create_network", "set_network", "set_channel"])
-async def test_multiple_otbrs_require_an_address_before_any_effect(
-    radios: Any, monkeypatch: pytest.MonkeyPatch, action: str
+@pytest.mark.parametrize("explicit", [False, True])
+async def test_otbr_selection_preserves_first_router_default_and_explicit_override(
+    radios: Any, monkeypatch: pytest.MonkeyPatch, action: str, explicit: bool
 ) -> None:
     from custom_components.ha_mcp_tools.native_operations import radio_otbr
 
-    first = SimpleNamespace(get_extended_address=AsyncMock(return_value=b"one"))
-    second = SimpleNamespace(get_extended_address=AsyncMock(return_value=b"two"))
+    first = SimpleNamespace(
+        get_extended_address=AsyncMock(return_value=b"one"),
+        url="http://first",
+        set_channel=AsyncMock(),
+    )
+    second = SimpleNamespace(
+        get_extended_address=AsyncMock(return_value=b"two"),
+        url="http://second",
+        set_channel=AsyncMock(),
+    )
     entry = radios.loaded("otbr", first)
     other = copy.copy(entry)
     other.entry_id, other.runtime_data = "second", second
     radios.entries[other.entry_id] = other
-    effect = AsyncMock()
-    monkeypatch.setattr(radios.access.RadioSession, "effect", effect)
-    monkeypatch.setattr(radio_otbr, "_create_network", effect)
-    monkeypatch.setattr(radio_otbr, "_set_network", effect)
+    create, set_network = AsyncMock(), AsyncMock()
+    monkeypatch.setattr(radio_otbr, "_create_network", create)
+    monkeypatch.setattr(radio_otbr, "_set_network", set_network)
+    monkeypatch.setattr(
+        radio_otbr,
+        "loaded_integration_module",
+        lambda *_: SimpleNamespace(
+            is_multiprotocol_url=lambda _: False, PENDING_DATASET_DELAY_TIMER=1000
+        ),
+    )
     radios.command("otbr/" + action)
+    params = {"dataset_id": "fixture", "channel": 15}
+    if explicit:
+        params["extended_address"] = b"two".hex()
     result = await call(
         radios,
         "thread",
         action,
-        params={"dataset_id": "fixture", "channel": 15},
+        params=params,
         confirm=True,
     )
-    assert result.is_error and result.status == "not_started", result
-    assert result.data["error"]["code"] == "VALIDATION_INVALID_PARAMETER", result
-    effect.assert_not_awaited()
+    assert not result.is_error, result
+    expected, untouched = (second, first) if explicit else (first, second)
+    assert result.data["extended_address"] == (b"two" if explicit else b"one").hex()
+    if action == "create_network":
+        assert create.await_count == 1 and create.call_args.args[1] is expected
+        set_network.assert_not_awaited()
+    elif action == "set_network":
+        assert (
+            set_network.await_count == 1 and set_network.call_args.args[1] is expected
+        )
+        create.assert_not_awaited()
+    else:
+        expected.set_channel.assert_awaited_once_with(15)
+        untouched.set_channel.assert_not_awaited()
 
 
 @pytest.mark.parametrize(

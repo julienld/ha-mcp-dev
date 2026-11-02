@@ -103,9 +103,10 @@ class UpdateToolsFacade:
         issue_id to 'ignore_repair' / 'unignore_repair'. In Read Only Mode the
         read actions ('list', 'get') stay available; write actions are blocked.
 
-        'install' blocks until each update finishes (minutes). Any unknown
-        service outcome stops the batch, preserving earlier results and the
-        current item's diagnostic; later targets are marked not_attempted.
+        'install' blocks until each update finishes (minutes). Per-item results
+        preserve earlier successes and uncertain outcomes. When a batch stops,
+        later targets are marked not_attempted; inspect those results before
+        deciding which independent targets still need an operation.
         An update may still be running, or Core restarting. Check the affected
         entity with action='get' before retrying. Finished updates drop out of
         'list'. When hosted in

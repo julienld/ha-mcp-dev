@@ -267,8 +267,6 @@ class UpdateTools(UpdateToolsFacade):
             except Exception as e:  # noqa: BLE001
                 # Batch item failure — collect, don't raise.
                 results.append(create_service_item_error(e, context={"entity_id": eid}))
-                if is_service_outcome_unknown(e):
-                    break
         return results, succeeded
 
     async def _execute_batch_action(

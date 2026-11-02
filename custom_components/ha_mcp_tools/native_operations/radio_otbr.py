@@ -29,12 +29,6 @@ def _target_owner(
     owners: list[tuple[Any, Any, str]], address: str | None
 ) -> tuple[str, Any]:
     if not address:
-        if len(owners) != 1:
-            raise ToolFailure(
-                "VALIDATION_INVALID_PARAMETER",
-                "Several Thread border routers are loaded; pass params.extended_address",
-                status="not_started",
-            )
         address = owners[0][2]
     owner = next((owner for _, owner, item in owners if item == address), None)
     if owner is None:
