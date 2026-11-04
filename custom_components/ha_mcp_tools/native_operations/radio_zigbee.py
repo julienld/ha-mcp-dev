@@ -74,6 +74,7 @@ async def handle_zigbee(
             note="Current Core settings; this read does not start a topology scan.",
         )
     if action == "firmware_update":
+        _ieee(session, args["device_id"])
         entity_id = await session.firmware(args["device_id"], "zha")
         return ok("zigbee", action, entity_id=entity_id, long_running=True)
     if action in {

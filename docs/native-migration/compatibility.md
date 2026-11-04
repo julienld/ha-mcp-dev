@@ -40,6 +40,20 @@ These changes do not close the global Core-floor or historical entity-snapshot
 routing gaps recorded in the earlier audit. That audit and all live evidence
 retain their original revisions.
 
+## Native Zigbee firmware targets, 4 November 2026
+
+Native Zigbee firmware updates require the selected registered device to expose
+its ZHA identifier or IEEE connection. A device without either identity is
+refused before `update.install`. This tightens Native validation relative to the
+Legacy firmware path, which can pass a non-Zigbee device to the shared update
+resolver. No Legacy behavior changes.
+
+For a Zigbee device, the ZHA update entity remains preferred; an update entity
+from another integration on that same device remains a supported fallback.
+The check does not require the update entity's platform to be ZHA. Local owner
+regressions cover refusal and both identity forms; physical firmware installation
+has not been exercised.
+
 ## Supported Core capabilities
 
 The component starts at Core 2026.10.0 and supports the current stable monthly

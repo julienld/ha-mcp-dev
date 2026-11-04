@@ -415,3 +415,97 @@ def test_radio_signature_coercion_and_hints_are_shared_with_legacy(radios):
         {"radio": "zigbee", "action": "permit_join", "params": '{"duration": 0}'}
     )
     assert validated["params"] == {"duration": 0} and validated["confirm"] is False
+
+
+@pytest.fixture
+def zigbee_firmware(radios, monkeypatch):
+    from custom_components.ha_mcp_tools.native_operations import radio_zigbee
+
+    entry = radios.loaded("zha", SimpleNamespace())
+    gateway = SimpleNamespace(application_controller=object())
+    radios.hass.data["firmware_zha"] = SimpleNamespace(
+        gateway_proxy=SimpleNamespace(gateway=gateway)
+    )
+    monkeypatch.setattr(
+        radio_zigbee,
+        "loaded_integration_module",
+        lambda *_: SimpleNamespace(DATA_ZHA="firmware_zha"),
+    )
+    device = SimpleNamespace(
+        identifiers={("zha", "fixture-ieee")},
+        connections=set(),
+        config_entry_id=entry.entry_id,
+        is_composite_device=False,
+    )
+    devices = {"fixture": device}
+    entities = {
+        "update.same_device": SimpleNamespace(
+            entity_id="update.same_device", device_id="fixture", platform="other"
+        ),
+        "update.foreign_zha": SimpleNamespace(
+            entity_id="update.foreign_zha", device_id="different", platform="zha"
+        ),
+    }
+    radios.hass.data["device_registry"] = SimpleNamespace(async_get=devices.get)
+    radios.hass.data["entity_registry"] = SimpleNamespace(
+        entities=entities, async_get=entities.get
+    )
+    registration = SimpleNamespace(schema=None)
+    install = AsyncMock()
+    radios.hass.services = SimpleNamespace(
+        has_service=lambda domain, service: (domain, service) == ("update", "install"),
+        async_services=lambda: {"update": {"install": registration}},
+        async_call=install,
+    )
+    radios.hass.bus = SimpleNamespace(async_listen=lambda *_: lambda: None)
+    return SimpleNamespace(
+        radios=radios, device=device, entities=entities, install=install
+    )
+
+
+async def test_zigbee_firmware_refuses_a_non_zigbee_device_before_install(
+    zigbee_firmware,
+):
+    fixture = zigbee_firmware
+    fixture.device.identifiers = {("tplink", "wifi-plug")}
+    result = await call(
+        fixture.radios, "zigbee", "firmware_update", device_id="fixture"
+    )
+    assert result.is_error and result.status == "not_started", result
+    assert result.data["error"]["code"] == "VALIDATION_INVALID_PARAMETER"
+    fixture.install.assert_not_awaited()
+
+
+@pytest.mark.parametrize("identity", ["zha", "ieee-connection"])
+async def test_zigbee_firmware_keeps_same_device_cross_integration_fallback(
+    zigbee_firmware, identity
+):
+    fixture = zigbee_firmware
+    if identity == "ieee-connection":
+        fixture.device.identifiers = {("mqtt", "zigbee-node")}
+        fixture.device.connections = {("ieee", "fixture-ieee")}
+    result = await call(
+        fixture.radios, "zigbee", "firmware_update", device_id="fixture"
+    )
+    assert not result.is_error and result.data["entity_id"] == "update.same_device", (
+        result
+    )
+    fixture.install.assert_awaited_once()
+    args, kwargs = fixture.install.await_args
+    assert args == ("update", "install", {"entity_id": "update.same_device"})
+    assert kwargs["context"].user_id == "operator" and kwargs["blocking"] is True
+
+
+async def test_zigbee_firmware_prefers_the_same_devices_zha_update(zigbee_firmware):
+    fixture = zigbee_firmware
+    fixture.entities["update.preferred"] = SimpleNamespace(
+        entity_id="update.preferred", device_id="fixture", platform="zha"
+    )
+    result = await call(
+        fixture.radios, "zigbee", "firmware_update", device_id="fixture"
+    )
+    assert not result.is_error and result.data["entity_id"] == "update.preferred", (
+        result
+    )
+    fixture.install.assert_awaited_once()
+    assert fixture.install.await_args.args[2] == {"entity_id": "update.preferred"}
