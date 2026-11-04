@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import builtins
 import copy
 import json
 from collections.abc import Awaitable, Callable
@@ -234,7 +235,7 @@ class NativeResources:
         url: str | None = None,
         resource_type: str = "module",
         resource_id: str | None = None,
-        edits: list[ResourceEdit] | None = None,
+        edits: builtins.list[ResourceEdit] | None = None,
         config_hash: str | None = None,
     ) -> dict[str, Any]:
         try:
@@ -291,7 +292,7 @@ class NativeResources:
             )
             if stored is not None:
                 result["config_hash"] = content_sha256(stored)
-            if patching:
+            if edits is not None:
                 result.update(action="patched", applied=len(edits))
             if warnings:
                 result["warnings"] = warnings
@@ -421,7 +422,7 @@ class NativeResources:
         content: str | None = None,
         expected: Any = _CURRENT,
         capture: bool = True,
-        edits: list[ResourceEdit] | None = None,
+        edits: builtins.list[ResourceEdit] | None = None,
         config_hash: str | None = None,
     ) -> ResourceChange:
         await self._authorize()
@@ -453,6 +454,9 @@ class NativeResources:
                     status="not_started",
                 )
             if edits is not None:
+                assert (
+                    before is not None
+                )  # Patch targets were required and checked above.
                 decoded = _decode_inline_content(before.get("url", ""))
                 if decoded is None:
                     raise ToolFailure(

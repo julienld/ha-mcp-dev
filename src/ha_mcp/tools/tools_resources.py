@@ -17,6 +17,7 @@ content now goes straight into a ``data:`` URI: same storage location
 
 from __future__ import annotations
 
+import builtins
 import logging
 from typing import Any, NoReturn
 
@@ -135,7 +136,7 @@ class LegacyResources:
         url: str | None = None,
         resource_type: str = "module",
         resource_id: str | None = None,
-        edits: list[ResourceEdit] | None = None,
+        edits: builtins.list[ResourceEdit] | None = None,
         config_hash: str | None = None,
     ) -> dict[str, Any]:
         if edits is not None:
@@ -224,7 +225,7 @@ class LegacyResources:
     async def _patch_inline_resource(
         self,
         resource_id: str | None,
-        edits: list[ResourceEdit],
+        edits: builtins.list[ResourceEdit],
         config_hash: str | None,
         other_modes: tuple[str | None, str | None],
     ) -> dict[str, Any]:

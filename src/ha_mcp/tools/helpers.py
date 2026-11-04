@@ -16,7 +16,6 @@ from ha_mcp.runtime.error_text import (
 )
 from ha_mcp.runtime.errors import ws_failure_code
 
-from ..backends.legacy import legacy_errors_sync
 from ..client.rest_client import HomeAssistantAPIError, HomeAssistantAuthError
 from ..client.websocket_client import HomeAssistantWebSocketClient
 from ..errors import (
@@ -328,4 +327,14 @@ async def get_entity_state_or_none(
     return state
 
 
-_parse_json_dict_param = legacy_errors_sync(_shared_parse_json_dict_param)
+def _parse_json_dict_param(
+    data: str | dict[str, Any] | None, *, type_error_message: str
+) -> dict[str, Any] | None:
+    from ..tool_api import ToolFailure
+
+    try:
+        return _shared_parse_json_dict_param(
+            data, type_error_message=type_error_message
+        )
+    except ToolFailure as error:
+        raise_tool_error(error.data)

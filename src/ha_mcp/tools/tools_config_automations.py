@@ -399,6 +399,7 @@ class AutomationConfigTools(LegacyBackendTools, AutomationWriteTools):
         resolved_id: str | None,
         verified: tuple[dict[str, Any], str | None] | None = None,
     ) -> dict[str, Any]:
+        result: dict[str, Any]
         try:
             if resolved_id is not None:
                 result = await self._client.upsert_automation_config(
@@ -556,7 +557,10 @@ class AutomationConfigTools(LegacyBackendTools, AutomationWriteTools):
         reader = RemoteAutomationReads(self._client)
         target = await reader._resolve_target(identifier)
         try:
-            return await self._client.delete_automation_config(target.config_id)
+            result: dict[str, Any] = await self._client.delete_automation_config(
+                target.config_id
+            )
+            return result
         except HomeAssistantAPIError as error:
             if error.status_code == 404:
                 await reader._raise_automation_not_found(identifier, target)

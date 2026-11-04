@@ -100,6 +100,7 @@ async def async_locate_yaml_key_files(hass: HomeAssistant, yaml_path: str) -> li
     config = await hass.async_add_executor_job(
         load_yaml_config_file, str(config_dir / YAML_CONFIG_FILE), Secrets(config_dir)
     )
-    return await hass.async_add_executor_job(
+    files: list[str] = await hass.async_add_executor_job(
         _find_relative_key_files, config, yaml_path, config_dir
     )
+    return files
