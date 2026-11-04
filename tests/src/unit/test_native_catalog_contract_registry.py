@@ -85,13 +85,17 @@ async def test_native_bulk_entity_read_keeps_duplicate_order_and_extended_metada
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Extended reads retain aliases/options while an absent ID remains a row error."""
-    entry = FakeRegEntry("light.a", device_id="device", name="", unique_id="stable")
-    entry.extended_dict = {
-        **entry.as_partial_dict,
-        "aliases": [None, "Desk"],
-        "device_class": "outlet",
-        "options": {"light": {"default_transition": 4}},
-    }
+    entry = FakeRegEntry(
+        "light.a",
+        device_id="device",
+        name="",
+        unique_id="stable",
+        extended_fields={
+            "aliases": [None, "Desk"],
+            "device_class": "outlet",
+            "options": {"light": {"default_transition": 4}},
+        },
+    )
     view = make_view(entity={entry.entity_id: entry})
     monkeypatch.setattr(wsapi, "_resolve_registries", lambda hass: view)
     registry_module = SimpleNamespace(async_get=lambda hass: view.entity)

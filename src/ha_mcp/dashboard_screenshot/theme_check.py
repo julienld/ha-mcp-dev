@@ -15,8 +15,6 @@ from ..runtime.screenshot_theme_validation import (
     validate_requested_theme,
 )
 from ..tool_api import ToolFailure
-from ..tools.helpers import raise_tool_error
-from ..tools.util_helpers import websocket_error_message
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +31,10 @@ async def check_requested_theme(
     """
     if theme is None or client is None or theme == _BUILT_IN_THEME:
         return []
+
+    from ..tools.helpers import raise_tool_error
+    from ..tools.util_helpers import websocket_error_message
+
     try:
         result = await client.send_websocket_message({"type": "frontend/get_themes"})
     except Exception as exc:

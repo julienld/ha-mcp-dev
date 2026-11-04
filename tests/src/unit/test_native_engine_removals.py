@@ -273,7 +273,6 @@ async def test_shared_native_entry_removal_routes_capture_and_uses_core_once(
         config_entry_id="entry",
         unique_id="meter",
     )
-    row.extended_dict = row.as_partial_dict
     registry.entries[row.entity_id] = row
     monkeypatch.setattr(
         wsapi.er,

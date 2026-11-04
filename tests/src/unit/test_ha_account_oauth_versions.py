@@ -181,7 +181,8 @@ async def test_existing_signed_refresh_and_revocation_survive_old_core(
 ) -> None:
     session = _CoreTokenSession()
     monkeypatch.setattr(
-        oauth_ha_auth, "core_token_base_url", lambda _hass: "https://core.example"
+        "custom_components.ha_mcp_tools.loopback_url.derive_loopback_url",
+        lambda _hass: ("https://core.example", None),
     )
     client = await unified_view_client_factory(
         mode="ha_auth",

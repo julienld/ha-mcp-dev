@@ -494,6 +494,19 @@ def _install_frontend_and_selector_stubs(
     )
 
 
+def _install_yaml_provider() -> None:
+    if "annotatedyaml" not in sys.modules:
+        provider = ModuleType("annotatedyaml")
+        provider.SECRET_YAML = "secrets.yaml"
+        provider.Secrets = MagicMock()
+        loader = ModuleType("annotatedyaml.loader")
+        loader.FastSafeLoader = SimpleNamespace(
+            yaml_constructors={"!secret": None, "!input": None}
+        )
+        sys.modules["annotatedyaml"] = provider
+        sys.modules["annotatedyaml.loader"] = loader
+
+
 def install() -> None:
     """Install the stub modules into ``sys.modules`` once.
 
@@ -512,6 +525,8 @@ def install() -> None:
             setattr(mod, key, value)
         sys.modules[name] = mod
         return mod
+
+    _install_yaml_provider()
 
     # Generic MagicMock modules — only if a peer test hasn't already stubbed
     # them, so we never clobber a shape another module set up (e.g. the

@@ -212,6 +212,7 @@ async def test_failed_rest_fallback_reports_skipped_validation_without_false_mis
         "warnings": [],
         "unvalidated_templates": 0,
         "blueprint_skipped": False,
+        "references_unchecked": "REST inventory unavailable",
     }
     reference_chain.client.get_states.assert_awaited_once_with()
     reference_chain.client.get_services.assert_awaited_once_with()
