@@ -4,7 +4,7 @@ from ._backup_snapshot_fakes import FakeWS, _client, _entry, _run
 from .test_helper_response_shape import _assert_warnings_list_shape
 
 
-async def test_backup_restore_warnings_shape() -> None:
+async def test_full_backup_restore_keeps_client_parseable_warning_lists() -> None:
     from ha_mcp.tools.backup import restore_backup
 
     ws = FakeWS(details=_entry("abc"))
