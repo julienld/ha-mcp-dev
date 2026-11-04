@@ -1,12 +1,17 @@
 """YAML fragment lookup shared by local file owners and legacy service adapters."""
 
 import asyncio
+import fnmatch
+import json
+import logging
 import re
 from typing import Any
 
 from ha_mcp.errors import ErrorCode, create_error_response
 
 from .errors import raise_failure
+
+logger = logging.getLogger(__name__)
 
 # fnmatch metacharacters. Matching itself happens component-side (list_files
 # fnmatches on the file name); this only decides single-file vs. glob.
@@ -332,7 +337,9 @@ class YamlLookup:
         include_content: bool = True,
         include_parsed: bool = False,
     ) -> dict[str, Any]:
-        targets, resolve_warnings = await _resolve_target_files(self.files, file)
+        targets, resolve_warnings, discovered_paths = await _resolve_all_targets(
+            self.files, file, yaml_path
+        )
         guard = getattr(self.files, "guard_targets", None)
         if guard is not None:
             await guard([target for target, _ in targets])
@@ -370,6 +377,10 @@ class YamlLookup:
                 files_unreadable += 1
             elif match:
                 matches.append(match)
+            elif target in discovered_paths:
+                warnings.append(
+                    f"{target} is annotated as defining {yaml_path} in Core loaded config, but the dotted path is not readable from that file; a merged include directory may define it."
+                )
 
         result: dict[str, Any] = {
             "success": True,
@@ -387,3 +398,109 @@ class YamlLookup:
         if warnings:
             result["warnings"] = warnings
         return result
+
+
+def _failure_reason(err: Exception) -> str:
+    """Readable resolver failure without the serialized error envelope."""
+    try:
+        payload = json.loads(str(err))
+    except (json.JSONDecodeError, TypeError):
+        return str(err)
+    if isinstance(payload, dict):
+        return _failure_text(payload)
+    return str(err)
+
+
+def _matches_discovered_file(path: str, pattern: str) -> bool:
+    """Match a Core-discovered path against the caller's glob.
+
+    The directory is literal: the tool resolves folders by name, so a bracket
+    in ``pack[a]ges`` must not select the sibling ``packages``. The file name
+    keeps fnmatch expansion, and an exact path is kept because a bracketed name
+    cannot match itself (the same ambiguity ``_resolve_target_files`` handles
+    with its escaped-literal lookup).
+    """
+    if path == pattern:
+        return True
+    directory, _, name = pattern.rpartition("/")
+    if directory and (not path.startswith(directory + "/")):
+        return False
+    candidate = path[len(directory) + 1 :] if directory else path
+    return fnmatch.fnmatch(candidate, name)
+
+
+async def _find_yaml_key_files(
+    files: Any, file: str, yaml_path: str
+) -> list[str] | None:
+    """Use Core's annotated load to find files defining ``yaml_path``.
+
+    ``None`` means the component cannot answer (or the load failed), so the
+    caller keeps the glob fallback. The result is filtered by the caller's
+    ``file`` pattern so a scoped search stays scoped.
+    """
+    try:
+        unwrapped = _unwrap_or_raise(
+            await files.find_yaml_key(yaml_path=yaml_path),
+            "find_yaml_key",
+            {"file": file},
+        )
+    except Exception:
+        logger.debug("find_yaml_key unavailable; using glob fallback", exc_info=True)
+        return None
+    files = unwrapped.get("files")
+    if not isinstance(files, list):
+        return None
+    return sorted(
+        str(path)
+        for path in files
+        if isinstance(path, str) and _matches_discovered_file(str(path), file)
+    )
+
+
+async def _resolve_all_targets(
+    files: Any, file: str, yaml_path: str
+) -> tuple[list[tuple[str, bool]], list[str], set[str]]:
+    """Merge Core-discovered files with the glob resolver's matches.
+
+    Discovery sees only what Core loaded, so a package file Core rejected is
+    absent and the resolver still runs. A resolver failure becomes a warning
+    when discovery already produced targets, because those reads are still
+    valid. Each target keeps the resolver's named-vs-expanded provenance.
+    """
+    targets: list[tuple[str, bool]] = []
+    warnings: list[str] = []
+    discovered_paths: set[str] = set()
+    discovered: list[str] | None = None
+    if _has_glob(file):
+        discovered = await _find_yaml_key_files(files, file, yaml_path)
+        if discovered is None:
+            warnings.append(
+                "Core's loaded YAML could not be searched; files included from packages or subfolders may be missing from this result."
+            )
+        elif discovered:
+            named_literal = _names_a_file(file.rpartition("/")[2])
+            targets = [
+                (path, not (named_literal and path == file)) for path in discovered
+            ]
+            discovered_paths = {path for path, _ in targets}
+    resolved: list[tuple[str, bool]] = []
+    try:
+        resolved, resolver_warnings = await _resolve_target_files(files, file)
+    except Exception as err:
+        if not targets and discovered is None:
+            raise
+        reason = _failure_reason(err).rstrip(". ")
+        resolver_warnings = [
+            f"Glob expansion failed: {reason}. Files matching the pattern may be missing from this result."
+        ]
+        if _names_a_file(file.rpartition("/")[2]) and file not in discovered_paths:
+            resolver_warnings.append(
+                f"{file} was not searched because its listing failed."
+            )
+    warnings.extend(resolver_warnings)
+    seen = {path for path, _ in targets}
+    targets.extend(
+        ((path, expanded) for path, expanded in resolved if path not in seen)
+    )
+    targets.sort(key=lambda target: target[0])
+    return (targets, warnings, discovered_paths)

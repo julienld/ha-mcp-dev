@@ -25,6 +25,8 @@ from ha_mcp.tool_api import ToolFailure
 
 from ..backends.legacy import legacy_errors
 from ..runtime.yaml_lookup import YamlLookup
+from ..runtime.yaml_lookup import _failure_reason as _failure_reason
+from ..runtime.yaml_lookup import _matches_discovered_file as _matches_discovered_file
 from ..runtime.yaml_read_tools import YamlReadTools as YamlReadContractTools
 from .helpers import (
     exception_to_structured_error,
@@ -62,6 +64,9 @@ class LegacyYamlFiles:
     async def _call(self, service: str, arguments: dict[str, Any]) -> Any:
         result = await call_mcp_tools_service(self.client, service, arguments)
         return unwrap_service_response(result) if isinstance(result, dict) else result
+
+    async def find_yaml_key(self, yaml_path: str) -> Any:
+        return await self._call("find_yaml_key", {"yaml_path": yaml_path})
 
 
 class LegacyYamlRead:
@@ -102,7 +107,7 @@ class LegacyYamlRead:
             # raise_tool_error() call CodeQL treats as returning. This try ends
             # in a real return, so the same trailer is provably dead there
             # (py/unreachable-statement).
-            return None
+            return None  # pragma: no cover - CodeQL fallthrough guard
 
 
 class YamlReadTools(YamlReadContractTools, LegacyYamlRead):
@@ -128,3 +133,19 @@ def register_yaml_read_tools(mcp: Any, client: Any, **kwargs: Any) -> None:
         logger.debug("YAML read tool disabled (set HAMCP_ENABLE_FILESYSTEM_TOOLS=true)")
         return
     register_tool_methods(mcp, YamlReadTools(client))
+
+
+async def _find_yaml_key_files(
+    client: Any, file: str, yaml_path: str
+) -> list[str] | None:
+    from ..runtime.yaml_lookup import _find_yaml_key_files as shared
+
+    return await shared(LegacyYamlFiles(client), file, yaml_path)
+
+
+async def _resolve_all_targets(
+    client: Any, file: str, yaml_path: str
+) -> tuple[list[tuple[str, bool]], list[str], set[str]]:
+    from ..runtime.yaml_lookup import _resolve_all_targets as shared
+
+    return await shared(LegacyYamlFiles(client), file, yaml_path)

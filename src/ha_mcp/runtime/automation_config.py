@@ -18,9 +18,18 @@ from .config_normalize import _normalize_config_for_roundtrip
 from .config_reads import _missing_config
 from .config_removals import AutomationRemovalTools
 from .config_write_context import ConfigWriteContext
-from .config_write_errors import reject_invalid_config_inputs, reject_sequence_misroute
+from .config_write_errors import reject_enabled_in_config, reject_sequence_misroute
 from .errors import raise_failure
 from .validation import reject_malformed_list_fields, validate_identifier_not_empty
+
+_ROOT_LIST_KEYS = (
+    "triggers",
+    "trigger",
+    "conditions",
+    "condition",
+    "actions",
+    "action",
+)
 
 
 def _scene_create_in_choose(action: dict[str, Any]) -> bool:
@@ -238,8 +247,6 @@ class AutomationConfigMethods(AutomationRemovalTools, ConfigWriteContext):
         This catches sequential ID reuse. The REST read and write are separate
         requests, so it does not provide atomic protection against other writers.
         """
-        if "alias" not in config:
-            return None  # Required-field validation supplies the actionable error.
         try:
             current = await self._read_automation_config(identifier)
         except HomeAssistantAPIError as exc:
@@ -248,7 +255,7 @@ class AutomationConfigMethods(AutomationRemovalTools, ConfigWriteContext):
             # Entity-ID resolution reports a state 404 as not found. Never retry
             # that as creation: a recovered lookup could overwrite an unchecked target.
             raise
-        if current.get("alias") != config["alias"]:
+        if current.get("alias") != config.get("alias"):
             raise_failure(
                 create_error_response(
                     ErrorCode.VALIDATION_INVALID_PARAMETER,
@@ -256,7 +263,7 @@ class AutomationConfigMethods(AutomationRemovalTools, ConfigWriteContext):
                     f"This write would replace it with {config['alias']!r}. Nothing was written.",
                     context={"identifier": identifier, "parameter": "config_hash"},
                     suggestions=[
-                        "Omit identifier and remove config['id'] to create a separate automation.",
+                        "Omit entity_id (and identifier) and remove config['id'] to create a separate automation.",
                         (
                             "For an intentional rename or replacement, call ha_config_get_automation "
                             "for this identifier, inspect its config, and resubmit with its config_hash."
@@ -324,6 +331,12 @@ class AutomationConfigMethods(AutomationRemovalTools, ConfigWriteContext):
         raw_config, current_config, current_hash = await self._read_automation_snapshot(
             identifier
         )
+        if (
+            current_hash != config_hash
+            and compute_config_hash(raw_config) == config_hash
+        ):
+            current_config = copy.deepcopy(raw_config)
+            current_hash = config_hash
         if current_hash != config_hash:
             raise_failure(
                 create_error_response(
@@ -369,11 +382,8 @@ class AutomationConfigMethods(AutomationRemovalTools, ConfigWriteContext):
                 )
             )
         reject_malformed_list_fields(
-            parsed_config,
-            ("triggers", "trigger", "conditions", "condition", "actions", "action"),
-            {"parameter": "config"},
+            parsed_config, _ROOT_LIST_KEYS, {"parameter": "config"}
         )
-
         return cast(dict[str, Any], parsed_config)
 
     @staticmethod
@@ -381,13 +391,15 @@ class AutomationConfigMethods(AutomationRemovalTools, ConfigWriteContext):
         config_dict: dict[str, Any], identifier: str | None
     ) -> None:
         """Raise if an empty-trigger config wraps scene.create (common model misroute)."""
-        trigger_value = config_dict.get("triggers")
+        trigger_value = config_dict.get("triggers", config_dict.get("trigger"))
         trigger_empty = trigger_value is None or (
             isinstance(trigger_value, list) and not trigger_value
         )
         if not trigger_empty:
             return
-        actions_list = coerce_to_list(config_dict.get("actions"))
+        actions_list = coerce_to_list(
+            config_dict.get("actions", config_dict.get("action"))
+        )
         scene_create_indices = [
             i for i, a in enumerate(actions_list) if _action_contains_scene_create(a)
         ]
@@ -403,7 +415,7 @@ class AutomationConfigMethods(AutomationRemovalTools, ConfigWriteContext):
                         "automation."
                     ),
                     suggestions=[
-                        "ha_config_set_scene(scene_id='...', config={'name': '...', 'entities': {'<entity_id>': {...}}}) creates a scene without a trigger.",
+                        "ha_config_set_scene(scene_id='...', config={'name': '...', 'entities': {'<identifier>': {...}}}) creates a scene without a trigger.",
                         "If the snapshot really should be the result of an event, add the trigger that should fire it and keep the automation.",
                         "For a state-derived value that recomputes when its inputs change, use ha_config_set_helper(helper_type='template') instead.",
                     ],
@@ -443,30 +455,24 @@ class AutomationConfigMethods(AutomationRemovalTools, ConfigWriteContext):
     def _validate_required_fields(
         config_dict: dict[str, Any], identifier: str | None, source: str = "config"
     ) -> None:
-        """Validate required fields and prevent duplicate creation.
+        """Reject the misroutes and duplicate creation HA-MCP guards against.
 
-        A missing required field and a misplaced runtime-only ``enabled`` key
-        surface in ONE rejection (issue #2649).
+        Core validates the automation itself; these are HA-MCP's own checks.
+        On a blueprint automation, empty root lists are deleted from
+        ``config_dict`` in place.
         """
         if "use_blueprint" in config_dict:
-            required_fields = ["alias"]
-            # Strip empty triggers/actions/conditions arrays that would override blueprint
-            for field in ["triggers", "actions", "conditions"]:
-                if field in config_dict and config_dict[field] == []:
-                    del config_dict[field]
-        else:
-            required_fields = ["alias", "triggers", "actions"]
+            # HA-MCP convenience: Core merges the instance config over the
+            # rendered blueprint, so an empty list here would replace the
+            # blueprint's own triggers/conditions/actions.
+            for key in _ROOT_LIST_KEYS:
+                if config_dict.get(key) == []:
+                    del config_dict[key]
 
-        missing_fields = [f for f in required_fields if f not in config_dict]
-        reject_sequence_misroute(config_dict, missing_fields, identifier, source)
-        reject_invalid_config_inputs(config_dict, missing_fields, identifier, source)
+        reject_sequence_misroute(config_dict, identifier, source)
+        reject_enabled_in_config(config_dict)
 
-        # Issue #1169: see _check_scene_create_misroute
         AutomationConfigMethods._check_scene_create_misroute(config_dict, identifier)
-
-        # HA accepts conditions with 'platform' (trigger syntax) but then crashes
-        # with an unhelpful 500 rather than a 400 validation error.
-        AutomationConfigMethods._validate_condition_platform(config_dict)
 
         # Prevent duplicate creation when config contains an existing automation id
         if identifier is None and "id" in config_dict:
@@ -476,7 +482,15 @@ class AutomationConfigMethods(AutomationRemovalTools, ConfigWriteContext):
                     f"Config contains 'id' field ('{existing_id}') but no identifier was provided. "
                     "This would create a duplicate automation instead of updating the existing one.",
                     parameter="identifier",
-                    details=f"To update, pass identifier='{existing_id}' (or the automation's entity_id). "
+                    details=f"To update, pass entity_id='{existing_id}' (identifier='{existing_id}' is also accepted). "
                     "To create a genuinely new automation, remove the 'id' field from the config.",
                 )
             )
+
+    @staticmethod
+    def _check_input_guards(
+        config_dict: dict[str, Any], entity_id: str | None, source: str = "config"
+    ) -> None:
+        AutomationConfigMethods._validate_required_fields(
+            config_dict, entity_id, source
+        )

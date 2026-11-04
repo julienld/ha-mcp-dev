@@ -1,15 +1,26 @@
 """One public resource contract, bound to a native or legacy domain service."""
 
+from __future__ import annotations
+
+import builtins
 from typing import Annotated, Any, Protocol
 
 from pydantic import Field
+
+from ha_mcp.tools.coercion import JSON_STRING_COERCION
+
+from .resource_edits import MAX_EDITS, ResourceEdit
 
 _RESOURCE_TYPE = str
 
 
 class Resources(Protocol):
     async def list(
-        self, include_content: bool = False, limit: int = 100, offset: int = 0
+        self,
+        include_content: bool = False,
+        limit: int = 100,
+        offset: int = 0,
+        include_hash: bool = False,
     ) -> dict[str, Any]: ...
     async def save(
         self,
@@ -17,6 +28,8 @@ class Resources(Protocol):
         url: str | None = None,
         resource_type: str = "module",
         resource_id: str | None = None,
+        edits: builtins.list[ResourceEdit] | None = None,
+        config_hash: str | None = None,
     ) -> dict[str, Any]: ...
     async def delete(self, resource_id: str) -> dict[str, Any]: ...
 
@@ -30,11 +43,13 @@ class ResourceTools:
         include_content: Annotated[
             bool,
             Field(
-                description='Include full decoded content for inline resources in the "_content" '
-                "field. When False, a 150-char preview is shown instead. Rows past the "
-                "per-response content budget carry '_content_truncated': True instead "
-                "of '_content'; request a smaller page before copying content into an "
-                "update."
+                description="Include full decoded content for inline resources in the \"_content\" field. When False, a 150-char preview is shown instead. Rows past the per-response content budget carry '_content_truncated': True instead of '_content'; request a smaller page before copying content into an update."
+            ),
+        ] = False,
+        include_hash: Annotated[
+            bool,
+            Field(
+                description='Add "_config_hash" (SHA-256 hex digest of the decoded UTF-8 content) to each inline resource, e.g. to verify an edit or to pass as config_hash without fetching the content.'
             ),
         ] = False,
         limit: Annotated[
@@ -69,43 +84,58 @@ class ResourceTools:
         EXAMPLES:
         - Next page: ha_config_list_dashboard_resources(offset=100)
         - List with full content: ha_config_list_dashboard_resources(include_content=True)
+        - Verify an edit by hash: ha_config_list_dashboard_resources(include_hash=True)
 
         Home Assistant 2026.6+ exposes resource management in the UI by default;
         API access works regardless of UI availability.
         """
         return await self.resources.list(
-            include_content=include_content, limit=limit, offset=offset
+            include_content=include_content,
+            include_hash=include_hash,
+            limit=limit,
+            offset=offset,
         )
 
     async def ha_config_set_dashboard_resource(
         self,
         content: Annotated[
-            str | None,
-            Field(description="JavaScript or CSS code to host inline."),
+            str | None, Field(description="JavaScript or CSS code to host inline.")
         ] = None,
-        url: Annotated[
-            str | None,
-            Field(description="URL of the resource."),
-        ] = None,
+        url: Annotated[str | None, Field(description="URL of the resource.")] = None,
         resource_type: Annotated[
             _RESOURCE_TYPE,
             Field(
-                description="Resource type, validated by Home Assistant: 'module' for ES6 "
-                "modules (modern cards), 'js' for legacy JavaScript (older custom cards), "
-                "'css' for stylesheets (themes, global styles), 'html' for HTML imports"
+                description="Resource type, validated by Home Assistant: 'module' for ES6 modules (modern cards), 'js' for legacy JavaScript (older custom cards), 'css' for stylesheets (themes, global styles), 'html' for HTML imports"
             ),
         ] = "module",
         resource_id: Annotated[
             str | None,
             Field(
-                description="Resource ID to update. If omitted, creates a new resource. "
-                "Get IDs from ha_config_list_dashboard_resources()"
+                description="Resource ID to update. If omitted, creates a new resource. Get IDs from ha_config_list_dashboard_resources()"
+            ),
+        ] = None,
+        edits: Annotated[
+            Annotated[list[ResourceEdit], Field(min_length=1, max_length=MAX_EDITS)]
+            | None,
+            JSON_STRING_COERCION,
+            Field(
+                description="Search/replace edits for an existing inline resource, applied in order. Requires resource_id; resource_type is ignored and the stored type is kept."
+            ),
+        ] = None,
+        config_hash: Annotated[
+            str | None,
+            Field(
+                description="With edits: refuse the patch unless the stored content has this hash when read, just before the write (the list's _config_hash with include_hash=True, or a previous write response's config_hash). A preflight check only: a change made by another client after that read is not detected and can be overwritten."
             ),
         ] = None,
     ) -> dict[str, Any]:
         """Create or update a dashboard resource (inline code or external URL).
 
         Provide exactly one of:
+        - edits: Search/replace edits on an existing inline resource. Any
+          failing edit (or a config_hash mismatch) aborts the whole call
+          and saves nothing. Prefer this over content= for small changes to a
+          large card: only the changed text is sent.
         - content: Inline JavaScript or CSS code (embedded in the resource URL
           as a data: URI — no file storage or external hosting involved).
           Supports 'module' and 'css' types only; URLs are
@@ -126,6 +156,9 @@ class ResourceTools:
         - Inline: ha_config_set_dashboard_resource(content="class MyCard extends HTMLElement { ... } customElements.define('my-card', MyCard);", resource_type="module")
         - Store cards need no call: in storage mode HACS and the Marketplace register the resource on install (adding it again duplicates it); with YAML-mode resources, list it under lovelace: resources: in configuration.yaml instead.
         - Update: ha_config_set_dashboard_resource(url="/local/my-card-v2.js", resource_type="module", resource_id="abc123")
+        - Patch: ha_config_set_dashboard_resource(resource_id="abc123", edits=[{"old": "color: red", "new": "color: blue"}], config_hash="<_config_hash from the list>")
+
+        Inline writes return the stored content's config_hash.
 
         After adding a resource, a browser cache clear or hard refresh
         (Ctrl+Shift+R) is needed to load it.
@@ -135,6 +168,8 @@ class ResourceTools:
             url=url,
             resource_type=resource_type,
             resource_id=resource_id,
+            edits=edits,
+            config_hash=config_hash,
         )
 
     async def ha_config_delete_dashboard_resource(

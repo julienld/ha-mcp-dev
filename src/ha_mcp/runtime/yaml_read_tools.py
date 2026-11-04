@@ -29,8 +29,8 @@ class YamlReadTools:
                 default="configuration.yaml",
                 description=(
                     "Config-relative file to read. Accepts an fnmatch glob to "
-                    "search several files at once — 'packages/*.yaml' matches one "
-                    "directory level, not a nested tree."
+                    "search several files at once. Core key discovery also follows "
+                    "packages and include directories recursively."
                 ),
             ),
         ] = "configuration.yaml",

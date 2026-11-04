@@ -486,3 +486,28 @@ async def test_repeated_cancellation_drains_screenshot_response_close(renderer):
         release.set()
         await asyncio.gather(task, return_exceptions=True)
     assert closed.is_set() and task.cancelled()
+
+
+@pytest.mark.parametrize("theme", ["missing", "dark-only"])
+async def test_native_render_checks_the_real_theme_catalog_before_request(
+    renderer, monkeypatch, theme
+):
+    from custom_components.ha_mcp_tools.native_operations import frontend_themes
+
+    subject, requests, _status, _active, _png = renderer
+    monkeypatch.setattr(
+        frontend_themes,
+        "theme_image",
+        lambda hass: {"themes": {"dark-only": {"modes": {"dark": {}}}}},
+    )
+    target = SimpleNamespace(render_path="wall-panel/home")
+    if theme == "missing":
+        with pytest.raises(ToolFailure, match="has no theme") as failure:
+            await subject._render(target, {"theme": theme, "dark_mode": False}, None)
+        assert failure.value.status == "not_started" and requests == []
+    else:
+        captures, warnings = await subject._render(
+            target, {"theme": theme, "dark_mode": False}, None
+        )
+        assert len(captures) == 1 and len(requests) == 1
+        assert any("only a dark mode" in warning for warning in warnings)

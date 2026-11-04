@@ -23,6 +23,9 @@ def events(native, monkeypatch):
     class Context:
         user_id: str
 
+        def as_dict(self):
+            return {"id": "event-context", "user_id": self.user_id}
+
     core = sys.modules["homeassistant.core"]
     monkeypatch.setattr(
         sys.modules["homeassistant.const"],
@@ -46,7 +49,11 @@ def events(native, monkeypatch):
     def fire(event_type, data, actual_origin, context):
         calls.append((event_type, data, actual_origin, context))
 
-    hass = SimpleNamespace(bus=SimpleNamespace(async_fire=fire))
+    hass = SimpleNamespace(
+        bus=SimpleNamespace(
+            async_fire=fire, async_listeners=lambda: {"custom_event": 2, "*": 1}
+        )
+    )
     backend = SimpleNamespace(authorize=AsyncMock())
     manager = SimpleNamespace(hass=hass, backend=backend)
     engine = Engine(backend, [event_definition(manager)])
@@ -87,6 +94,10 @@ async def test_payload_detached_and_event_authority_is_a_fresh_actor_context(eve
         "success": True,
         "event_type": "custom_event",
         "message": "Event custom_event fired.",
+        "context": {"id": "event-context", "user_id": "actor"},
+        "context_id": "event-context",
+        "listener_count": 2,
+        "wildcard_listener_count": 1,
     }
     assert len(calls) == 1
     assert calls[0][2] is origin and calls[0][3].user_id == "actor"
@@ -109,7 +120,7 @@ async def test_state_changed_payload_uses_core_state_conversion(events):
     assert calls[0][1]["old_state"].state == "off"
 
 
-@pytest.mark.parametrize("event_type", ["", " ", "bad/path", "bad\\path"])
+@pytest.mark.parametrize("event_type", ["", " "])
 async def test_invalid_event_type_never_reaches_bus(events, event_type):
     _, engine, calls, _ = events
     result = await engine.call(
@@ -174,3 +185,14 @@ async def test_actor_refused_at_dispatch_cannot_emit(events):
     )
     assert result.is_error and result.status == "not_started"
     assert calls == []
+
+
+async def test_core_event_type_is_not_restricted_by_a_rest_url(events):
+    _, engine, calls, _ = events
+    result = await engine.call(
+        "ha_call_event", {"event_type": "custom/type?value"}, CallContext("actor")
+    )
+    assert not result.is_error
+    assert calls[0][0] == "custom/type?value"
+    assert result.data["listener_count"] == 0
+    assert result.data["warnings"]

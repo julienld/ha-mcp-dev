@@ -254,7 +254,7 @@ class EntityWriteTools:
         NOT the same as "turning off" an entity.
 
         For automations and scripts, enabled=False is blocked. For automations,
-        use ha_config_set_automation(identifier="automation.xxx", enabled=False)
+        use ha_config_set_automation(entity_id="automation.xxx", enabled=False)
         (or enabled=True to re-enable).
         For scripts, ha_config_set_script(script_id="script.xxx", run="stop")
         only stops a currently running execution; it does not disable the script.

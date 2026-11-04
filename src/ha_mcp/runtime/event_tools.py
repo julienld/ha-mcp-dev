@@ -25,14 +25,6 @@ def validate_event_type(event_type: str) -> None:
                 "event_type cannot be empty or whitespace", parameter="event_type"
             )
         )
-    if "/" in event_type or "\\" in event_type:
-        raise_failure(
-            create_validation_error(
-                "event_type cannot contain path separators",
-                parameter="event_type",
-                details=f"Received: {event_type!r}",
-            )
-        )
 
 
 def event_result(event_type: str, response: dict[str, Any]) -> dict[str, Any]:
@@ -40,6 +32,7 @@ def event_result(event_type: str, response: dict[str, Any]) -> dict[str, Any]:
         "success": True,
         "event_type": event_type,
         "message": response.get("message", f"Event {event_type} fired."),
+        **response,
     }
 
 

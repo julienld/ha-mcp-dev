@@ -41,6 +41,8 @@ from unittest.mock import MagicMock
 import pytest
 
 from ._component_ws_fakes import (
+    FakeRegEntry,
+    FakeServices,
     _FakeConnection,
     _FakeWSApi,
     _Unauthorized,
@@ -156,17 +158,6 @@ class FakeConfigEntries:
         return None
 
 
-class FakeServices:
-    """Stand-in for ``hass.services`` (``async_services`` mapping)."""
-
-    def __init__(self, services):
-        # services: {domain: {service_name: <anything>}}
-        self._services = {d: dict(s) for d, s in dict(services).items()}
-
-    def async_services(self):
-        return dict(self._services)
-
-
 class FakeHass:
     def __init__(
         self, states=(), data=None, config_entries=(), services=None, config=None
@@ -183,70 +174,6 @@ class FakeHass:
         # The real hass runs ``func`` in a thread pool; the tests run it inline
         # (the point under test is that the WS prep offloads it, not the pool).
         return func(*args)
-
-
-class FakeRegEntry:
-    def __init__(
-        self,
-        entity_id,
-        aliases=(),
-        area_id=None,
-        device_id=None,
-        labels=(),
-        hidden_by=None,
-        name=None,
-        unique_id=None,
-        original_name=None,
-        categories=None,
-        config_entry_id=None,
-        entity_category=None,
-        platform=None,
-        disabled_by=None,
-    ):
-        self.entity_id = entity_id
-        self.aliases = set(aliases)
-        self.area_id = area_id
-        self.device_id = device_id
-        self.labels = set(labels)
-        self.hidden_by = hidden_by
-        self.name = name
-        self.unique_id = unique_id
-        self.original_name = original_name
-        self.categories = dict(categories or {})
-        self.config_entry_id = config_entry_id
-        self.entity_category = entity_category
-        self.platform = platform
-        self.disabled_by = disabled_by
-
-    @property
-    def as_partial_dict(self):
-        # Mirrors core ``RegistryEntry.as_partial_dict`` (one
-        # ``config/entity_registry/list`` element): the shape device_get's
-        # include_entities join returns VERBATIM. Sets rendered to lists as core
-        # does; timestamps fixed floats (value irrelevant to the consumers).
-        return {
-            "area_id": self.area_id,
-            "categories": dict(self.categories),
-            "config_entry_id": self.config_entry_id,
-            "config_subentry_id": None,
-            "created_at": 0.0,
-            "device_id": self.device_id,
-            "disabled_by": self.disabled_by,
-            "entity_category": self.entity_category,
-            "entity_id": self.entity_id,
-            "has_entity_name": False,
-            "hidden_by": self.hidden_by,
-            "icon": None,
-            "id": self.unique_id,
-            "labels": sorted(self.labels),
-            "modified_at": 0.0,
-            "name": self.name,
-            "options": {},
-            "original_name": self.original_name,
-            "platform": self.platform,
-            "translation_key": None,
-            "unique_id": self.unique_id,
-        }
 
 
 class FakeEntityReg:
@@ -1916,6 +1843,7 @@ _ALL_COMMANDS = [
     "ha_mcp_tools/system_snapshot",
     "ha_mcp_tools/entity_lookup",
     "ha_mcp_tools/registries",
+    "ha_mcp_tools/call_event",
 ]
 
 # Required fields per command, so the admin gate and wrappers reach the handler.
@@ -1931,6 +1859,7 @@ _CMD_MSG_EXTRA: dict[str, dict[str, object]] = {
     # registry_lookup now REQUIRES a target (entity_ids or config_entry_id) —
     # a neither-present request raises HomeAssistantError (issue #1813 M2).
     "ha_mcp_tools/registry_lookup": {"entity_ids": ["light.x"]},
+    "ha_mcp_tools/call_event": {"event_type": "probe_event"},
     # config_entries / system_snapshot need no required params.
 }
 
@@ -1966,6 +1895,7 @@ class TestRegistrationAndAdminGate:
             # test_component_ws_phase2_async.py, test_component_template_diagnose.py,
             # _oauth_callbacks_ws.py and test_component_ws_logbook.py.
             wsapi.WS_SERVER_ENTRY_UPDATE,
+            wsapi.WS_CALL_EVENT,
             wsapi.WS_CALL_SERVICE,
             wsapi.WS_BULK_CALL_SERVICE,
             wsapi.WS_TEMPLATE_DIAGNOSE,
@@ -1977,8 +1907,8 @@ class TestRegistrationAndAdminGate:
             "ha_mcp_tools/statistics_units",
             wsapi.card_definitions.WS_DASHBOARD_CARDS,  # test_card_definitions.py
             wsapi.todo_items.WS_TODO_ITEM,  # test_component_todo_items.py
+            wsapi.automation_config.WS_AUTOMATION_CONFIG,
         }
-        # config_get is withdrawn: no handler is registered for it.
         assert "ha_mcp_tools/config_get" not in functional_ws.registered
 
     @pytest.mark.parametrize("command", _ALL_COMMANDS)
@@ -2014,7 +1944,13 @@ class TestRegistrationAndAdminGate:
             with pytest.raises(_StubHomeAssistantError):
                 handler(FakeHass(), conn, msg)
             return
-        handler(FakeHass(), conn, msg)
+        hass = FakeHass()
+        if command == wsapi.WS_CALL_EVENT:
+            hass.bus = SimpleNamespace(
+                async_fire=lambda *args, **kwargs: None,
+                async_listeners=dict,
+            )
+        handler(hass, conn, msg)
         assert 9 in conn.results
         assert isinstance(conn.results[9], dict)
 

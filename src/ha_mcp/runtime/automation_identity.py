@@ -37,3 +37,35 @@ def automation_write_body(
         config = {**config, "id": unique_id}
 
     return config
+
+
+def compatible_automation_identifier(
+    identifier: str | None, entity_id: str | None, *, required: bool = False
+) -> str | None:
+    from ha_mcp.errors import create_validation_error
+
+    from .errors import raise_failure
+
+    if identifier is not None and entity_id is not None and identifier != entity_id:
+        raise_failure(
+            create_validation_error(
+                "identifier and entity_id name different automations",
+                parameter="entity_id",
+            ),
+            status="not_started",
+        )
+    selected = entity_id if entity_id is not None else identifier
+    if required and selected is None:
+        raise_failure(
+            create_validation_error(
+                "Provide entity_id or identifier", parameter="entity_id"
+            ),
+            status="not_started",
+        )
+    if selected is not None:
+        from .validation import validate_identifier_not_empty
+
+        validate_identifier_not_empty(
+            selected, "entity_id" if entity_id is not None else "identifier"
+        )
+    return selected

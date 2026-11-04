@@ -10,7 +10,7 @@ from ha_mcp.errors import (
     HomeAssistantAPIError,
     create_error_response,
 )
-from ha_mcp.tool_api import ToolFailure
+from ha_mcp.tool_api import ToolFailure, UnsupportedOperation
 from ha_mcp.tool_api.parameters import BestPracticeKeyParam
 from ha_mcp.tools.best_practice_checker import BestPracticeCheckResult
 from ha_mcp.tools.best_practice_checker import (
@@ -28,7 +28,7 @@ from .automation_config import (
     _strip_redundant_identifier_echo,
     _validate_automation_identifier,
 )
-from .automation_identity import automation_write_body
+from .automation_identity import automation_write_body, compatible_automation_identifier
 from .automation_runtime import (
     _RUNTIME_ERRORS,
     AutomationRuntimeTools,
@@ -36,7 +36,6 @@ from .automation_runtime import (
     _sync_post_write_automation_result,
 )
 from .blueprint_substitute import validate_write_modes
-from .config_normalize import _normalize_automation_config
 from .config_reload import config_reload_waiter
 from .config_reload_status import note_reload_outcome
 from .config_write_context import merge_validation_meta
@@ -55,6 +54,30 @@ NOT_VERIFIED_WARNING_PREFIX = (
 
 
 class AutomationWriteTools(AutomationRuntimeTools):
+    async def _validate_core_automation(
+        self,
+        config: dict[str, Any],
+        identifier: str | None,
+        bp_warnings: BestPracticeCheckResult,
+    ) -> None:
+        try:
+            verdict = await self.backend.execute(
+                "config.automation.validate", {"config": config}, self.context
+            )
+        except UnsupportedOperation:
+            return  # The persisted-config write owner still validates the body.
+
+        if verdict.get("status") in (None, "ok", "unavailable"):
+            return
+        raise_failure(
+            create_error_response(
+                ErrorCode.VALIDATION_FAILED,
+                str(verdict.get("error") or verdict["status"]),
+                context={"entity_id": identifier, "status": verdict["status"]},
+            ),
+            status="not_started",
+        )
+
     def _config_reload_waiter(self, *, enabled: bool) -> Any:
         return config_reload_waiter(
             self.backend, self.context, "automation_reloaded", enabled=enabled
@@ -121,12 +144,15 @@ class AutomationWriteTools(AutomationRuntimeTools):
             self.context,
         )
         result.update(
-            {"unique_id": key, "operation": "created" if allocated else "updated"}
+            {
+                "unique_id": key,
+                "operation": "created" if previous is None else "updated",
+            }
         )
         result.pop("automation_id", None)
         result.setdefault("entity_id", None)
         if (
-            allocated
+            previous is None
             and not result.get("entity_id")
             and not result.get("entity_not_verified")
         ):
@@ -148,53 +174,34 @@ class AutomationWriteTools(AutomationRuntimeTools):
             dict[str, Any] | None,
             JSON_STRING_COERCION,
             Field(
-                description="Complete automation configuration. "
-                "Purpose-specific triggers/conditions (HA 2026.7+ default: 'trigger': '<domain>.<name>' "
-                "with 'target'/'options') are valid config. "
-                "Mutually exclusive with python_transform.",
+                description="Complete automation configuration. Purpose-specific triggers/conditions (HA 2026.7+ default: 'trigger': '<domain>.<name>' with 'target'/'options') are valid config. Mutually exclusive with python_transform.",
                 default=None,
             ),
         ] = None,
         identifier: Annotated[
             str | None,
             Field(
-                description="Target automation entity_id or HA config 'id' (unique_id). "
-                "Omit for creation with a generated ID. Values such as 'new' are literal IDs, not placeholders.",
+                description="Target automation entity_id or HA config 'id' (unique_id). Omit for creation with a generated ID. Values such as 'new' are literal IDs, not placeholders.",
                 default=None,
             ),
         ] = None,
         python_transform: Annotated[
             str | None,
             Field(
-                description="Python expression to transform existing automation config. "
-                "Mutually exclusive with config. "
-                "WARNING: Expressions with infinite loops will hang the server. "
-                "Examples: "
-                "Simple: python_transform=\"config['actions'][0]['data']['brightness'] = 255\" "
-                "Pattern: python_transform=\"for a in config['actions']: "
-                "if a.get('alias') == 'My Step': a['data']['value'] = 100\" "
-                "\n\n" + get_security_documentation(),
+                description="Python expression to transform existing automation config. Mutually exclusive with config. WARNING: Expressions with infinite loops will hang the server. Examples: Simple: python_transform=\"config['actions'][0]['data']['brightness'] = 255\" Pattern: python_transform=\"for a in config['actions']: if a.get('alias') == 'My Step': a['data']['value'] = 100\" \n\n"
+                + get_security_documentation()
             ),
         ] = None,
         config_hash: Annotated[
             str | None,
             Field(
-                description="Config hash from ha_config_get_automation for optimistic locking. "
-                "Required for python_transform and when a config update changes an "
-                "existing automation's alias; otherwise optional for config updates "
-                "(validates before full replacement if provided).",
+                description="Config hash from ha_config_get_automation for optimistic locking. Required for python_transform and when a config update changes an existing automation's alias; otherwise optional for config updates (validates before full replacement if provided)."
             ),
         ] = None,
         take_control_of_blueprint: Annotated[
             bool,
             Field(
-                description="Convert a blueprint-backed automation into an editable "
-                'standalone one -- the UI\'s "Take control". Renders the blueprint '
-                "with its current inputs and saves the result over the same "
-                "automation, which keeps its entity_id, alias and description and "
-                "then has its own triggers/conditions/actions and no "
-                "'use_blueprint'. Requires identifier; mutually exclusive with "
-                "config and python_transform.",
+                description="Convert a blueprint-backed automation into an editable standalone one -- the UI's \"Take control\". Renders the blueprint with its current inputs and saves the result over the same automation, which keeps its entity_id, alias and description and then has its own triggers/conditions/actions and no 'use_blueprint'. Requires identifier; mutually exclusive with config and python_transform.",
                 default=False,
             ),
         ] = False,
@@ -208,42 +215,32 @@ class AutomationWriteTools(AutomationRuntimeTools):
         wait: Annotated[
             bool,
             Field(
-                description="Wait for automation to be queryable before returning. Set to False for"
-                " bulk operations.",
+                description="Wait for automation to be queryable before returning. Set to False for bulk operations.",
                 default=True,
             ),
         ] = True,
         enabled: Annotated[
             bool | None,
             Field(
-                description=(
-                    "Turn the automation on (True) or off (False) after an optional config "
-                    "update; None leaves it unchanged. Not written into the stored config: Home Assistant keeps "
-                    "the state across restarts, but a config 'initial_state' overrides it "
-                    "whenever the automation is reloaded or HA starts."
-                ),
+                description="Turn the automation on (True) or off (False) after an optional config update; None leaves it unchanged. Not written into the stored config: Home Assistant keeps the state across restarts, but a config 'initial_state' overrides it whenever the automation is reloaded or HA starts.",
                 default=None,
             ),
         ] = None,
         run_actions: Annotated[
             bool,
             Field(
-                description=(
-                    "Run the automation's actions now, skipping its triggers and "
-                    "conditions (automation.trigger, the UI's Run actions). Applied "
-                    "after `enabled` and after any config write. Can be used "
-                    "standalone with identifier and no config."
-                ),
+                description="Run the automation's actions now, skipping its triggers and conditions (automation.trigger, the UI's Run actions). Applied after `enabled` and after any config write. Can be used standalone with identifier and no config.",
                 default=False,
             ),
         ] = False,
-        MandatoryBPS: Annotated[
-            bool,
-            Field(default=True),
-        ] = True,
-        # BestPracticeKey (#1779): consumed by StrictBpsMiddleware, never read
-        # here — see strict_bps.py for the declaration contract.
+        MandatoryBPS: Annotated[bool, Field(default=True)] = True,
         BestPracticeKey: BestPracticeKeyParam = None,
+        entity_id: Annotated[
+            str | None,
+            Field(
+                description="Automation entity_id or config id; compatible alias of identifier."
+            ),
+        ] = None,
     ) -> dict[str, Any]:
         """Create or update a Home Assistant automation.
 
@@ -300,15 +297,11 @@ class AutomationWriteTools(AutomationRuntimeTools):
         `took_control_of_blueprint`. To preview the rendering without writing
         anything, use ha_manage_blueprints(action="substitute", path=..., input=...).
         """
+        identifier = compatible_automation_identifier(
+            identifier, entity_id, required=False
+        )
         bp_warnings: BestPracticeCheckResult = BestPracticeCheckResult()
         try:
-            # ``identifier`` is optional (omit → create new with generated
-            # unique_id; pass → update existing). When provided, reject
-            # empty/whitespace up-front so the caller gets a structured
-            # parameter error instead of a misleading ``RESOURCE_NOT_FOUND``
-            # from the downstream lookup. The ``not identifier`` check
-            # further down the python_transform branch still handles the
-            # explicit ``identifier is None`` case for that mode.
             _validate_automation_identifier(identifier)
             validate_write_modes(
                 "automation",
@@ -318,19 +311,12 @@ class AutomationWriteTools(AutomationRuntimeTools):
                 python_transform,
                 take_control_of_blueprint,
             )
-
             detached_blueprint: str | None = None
             if take_control_of_blueprint:
                 taken = await self._take_control_config(identifier)
                 config = taken.config
                 detached_blueprint = taken.blueprint_path
-                # Take control is a read-modify-write the TOOL performs, so it
-                # owns the consistency guarantee the caller could not supply:
-                # without this, an edit landing between that read and this
-                # write is silently overwritten. An explicit caller hash still
-                # wins, so it can still lock against a config it read itself.
                 config_hash = config_hash or taken.config_hash
-
             runtime_only_response = await self._maybe_set_runtime_only(
                 identifier,
                 config,
@@ -348,7 +334,6 @@ class AutomationWriteTools(AutomationRuntimeTools):
                     referenced_files=bp_warnings.referenced_files,
                 )
                 return runtime_only_response
-
             if python_transform is not None:
                 response, bp_warnings = await self._run_python_transform(
                     identifier,
@@ -361,7 +346,6 @@ class AutomationWriteTools(AutomationRuntimeTools):
                     run_actions=run_actions,
                 )
                 return response
-
             if config is None:
                 return raise_failure(
                     create_error_response(
@@ -374,32 +358,11 @@ class AutomationWriteTools(AutomationRuntimeTools):
                         context={"action": "set", "identifier": identifier},
                     )
                 )
-
             config_dict = self._parse_and_validate_config(config)
-
-            # Extract category before sending to HA REST API (which rejects unknown keys).
-            # Parameter takes precedence over config dict value.
             config_category = config_dict.pop("category", None)
             effective_category = category if category is not None else config_category
-
-            # Detect conflicting singular+plural root keys BEFORE normalization
-            # drops the singular alias (surface rather than silently discard).
-            conflict_warnings = _detect_conflicting_root_keys(config_dict)
-
-            # Normalize field names to HA's canonical plural root keys
-            # (trigger -> triggers, action -> actions, condition -> conditions).
-            config_dict = _normalize_automation_config(config_dict)
-
-            # Purely local input checks run before the tool's own reads, so
-            # a malformed config rejects without spending the hash check's
-            # or the alias guard's GETs. (The auto-backup wrapper may take
-            # its pre-write snapshot first on updates; that read is outside
-            # this tool's control.)
+            conflict_warnings: list[str] = []
             self._validate_required_fields(config_dict, identifier)
-
-            # Both the hash check and alias guard read the resolved storage key.
-            # Reuse it for the write to avoid a second entity-ID lookup (#1813).
-            # Creation and responses without an id retain the existing fallback.
             resolved_id: str | None = None
             verified: tuple[dict[str, Any], str | None] | None = None
             if identifier and config_hash:
@@ -410,15 +373,10 @@ class AutomationWriteTools(AutomationRuntimeTools):
             elif identifier:
                 verified = await self._guard_alias_replacement(identifier, config_dict)
                 resolved_id = verified[1] if verified is not None else None
-
             bp_warnings = _check_best_practices(config_dict)
+            await self._validate_core_automation(config_dict, identifier, bp_warnings)
             validation_meta = await self._validate_references(config_dict)
-
-            # Issue #2159: the category is applied post-upsert via
-            # ``apply_entity_category``, which HA accepts unchecked. Reject an
-            # unknown one here so no automation is created under it.
             await self._validate_categories({"automation": effective_category})
-
             return await self._run_config_update(
                 config_dict,
                 identifier,
@@ -434,7 +392,6 @@ class AutomationWriteTools(AutomationRuntimeTools):
                 run_actions=run_actions,
                 verified=verified,
             )
-
         except ToolFailure as failure:
             raise await self._augment_failure(failure, bp_warnings) from None
         except Exception as error:  # noqa: BLE001 - facade-specific classification
@@ -514,11 +471,13 @@ class AutomationWriteTools(AutomationRuntimeTools):
         # drops the singular alias.
         conflict_warnings = _detect_conflicting_root_keys(transformed_config)
 
-        transformed_config = _normalize_automation_config(transformed_config)
         self._validate_required_fields(
             transformed_config, identifier, source="python_transform"
         )
         bp_warnings = _check_best_practices(transformed_config)
+        await self._validate_core_automation(
+            transformed_config, identifier, bp_warnings
+        )
 
         # Issue #2159: reject an unknown category before the write, so a
         # transform never lands under a category that does not exist.
@@ -593,6 +552,20 @@ class AutomationWriteTools(AutomationRuntimeTools):
         )
         return response, bp_warnings
 
+    async def _read_back_config_hash(
+        self, storage_id: str | None, result: dict[str, Any]
+    ) -> str | None:
+        if not storage_id:
+            return None
+        try:
+            _, value = await self._get_automation_config_internal(str(storage_id))
+            return value
+        except Exception as error:  # noqa: BLE001 - an acknowledged write stays acknowledged
+            result.setdefault("warnings", []).append(
+                f"Saved; reading it back failed ({error}), re-read it for a config_hash"
+            )
+            return None
+
     async def _run_config_update(
         self,
         config_dict: dict[str, Any],
@@ -631,6 +604,8 @@ class AutomationWriteTools(AutomationRuntimeTools):
             result = await self._upsert_automation(
                 config_dict, identifier, resolved_id, verified
             )
+            stored_id = result.get("unique_id") or resolved_id or identifier
+            result["config_hash"] = await self._read_back_config_hash(stored_id, result)
             reloaded = await wait_for_reload()
             note_reload_outcome(
                 result, reloaded, domain="automation", requested=enabled is not None

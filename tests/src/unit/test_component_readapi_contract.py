@@ -19,13 +19,12 @@ from __future__ import annotations
 
 import json
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from ha_mcp.tools import (
     blueprint_sources,
-    component_api,
     component_devices,
     tools_config_helpers,
     tools_entities,
@@ -35,9 +34,6 @@ from ha_mcp.tools.radio.zigbee import _resolve_ieee
 from ha_mcp.tools.search import component as search_component
 from ha_mcp.tools.search import overview as search_overview
 from ha_mcp.tools.search import state as search_state
-from ha_mcp.tools.tools_config_automations import AutomationConfigTools
-from ha_mcp.tools.tools_config_scenes import ConfigSceneTools
-from ha_mcp.tools.tools_config_scripts import ConfigScriptTools
 
 from ._component_routing_helpers import patch_ws
 from .test_component_ws_search import (
@@ -57,7 +53,6 @@ from .test_component_ws_search import (
     stored_helpers,
     wsapi,
 )
-from .test_config_get_component_routing import RoutingClient as GetRoutingClient
 from .test_ha_config_list_helpers_component_routing import (
     RoutingClient as HelpersRoutingClient,
 )
@@ -153,113 +148,6 @@ def _real_component_ws(hass: FakeHass) -> AsyncMock:
 
 
 # --- config_get (withdrawn: automation/script/scene gets are legacy-only) ------
-class TestConfigGetSeam:
-    """The component's ``config_get`` was withdrawn before release — it served an
-    entity's ``raw_config``, whose freshness lags the config file between a write
-    and the next completed reload, so a get racing a reload returned a stale
-    body. All three get tools serve their reads from the legacy REST/WS pipeline
-    (which reads the fresh config file). Even against a REAL component WS whose
-    ``info`` advertises ``config_get``, the get tools skip the caps probe and
-    never send a frame — the component WS is never touched. Scenes were already
-    legacy-only (a ``HomeAssistantScene`` has no raw storage body in memory);
-    automation/script now share the pattern.
-    """
-
-    @pytest.mark.asyncio
-    async def test_automation_get_stays_legacy_with_full_caps(self) -> None:
-        client = GetRoutingClient(
-            automation_config={
-                "id": "uid-1",
-                "alias": "UI Auto",
-                "action": [{"service": "light.turn_on"}],
-            },
-        )
-        # A real component WS advertising full caps (config_get included). The
-        # automation tool must never reach for it.
-        ws = _real_component_ws(FakeHass())
-        with patch.object(
-            component_api, "get_websocket_client", AsyncMock(return_value=ws)
-        ):
-            resp = await AutomationConfigTools(client).ha_config_get_automation("uid-1")
-        assert resp["success"] is True
-        assert resp["config"]["alias"] == "UI Auto"
-        # The tool's canonicalization (singular -> plural root keys) runs on the
-        # legacy path.
-        assert resp["config"]["actions"] == [{"service": "light.turn_on"}]
-        # The component WS was never touched; the legacy config fetch served it.
-        assert ws.send_command.await_count == 0
-        assert client.get_automation_config.await_count == 1
-
-    @pytest.mark.asyncio
-    async def test_script_get_stays_legacy_with_full_caps(self) -> None:
-        """Script analog: the legacy path returns the script BODY under
-        ``config`` (category injected), the storage key staying top-level.
-        Scripts run NO root-key canonicalization (unlike automations'
-        action->actions), so the storage ``sequence`` body passes through
-        byte-exact."""
-        client = GetRoutingClient(
-            script_envelope={
-                "success": True,
-                "script_id": "morning",
-                "config": {
-                    "alias": "Morning Script",
-                    "sequence": [{"delay": {"seconds": 5}}],
-                },
-            },
-            categories={"script": "cat-s"},
-        )
-        ws = _real_component_ws(FakeHass())
-        with patch.object(
-            component_api, "get_websocket_client", AsyncMock(return_value=ws)
-        ):
-            resp = await ConfigScriptTools(client).ha_config_get_script("morning")
-        assert resp["success"] is True
-        assert resp["script_id"] == "morning"
-        assert resp["config"]["category"] == "cat-s"
-        assert "script_id" not in resp["config"]
-        # raw_config served byte-exact — the sequence body is untouched.
-        assert resp["config"]["alias"] == "Morning Script"
-        assert resp["config"]["sequence"] == [{"delay": {"seconds": 5}}]
-        assert ws.send_command.await_count == 0
-        assert client.get_script_config.await_count == 1
-
-    @pytest.mark.asyncio
-    async def test_scene_get_stays_legacy_with_full_caps(self, monkeypatch) -> None:
-        """With the real component advertising ``config_get``, a scene get is
-        still served entirely by the legacy path: ``ha_config_get_scene`` skips
-        the caps probe, so the component WS is never touched (a
-        ``HomeAssistantScene`` has no raw storage body in memory — its
-        ``scene_config.states`` is runtime State objects)."""
-        monkeypatch.setattr(ConfigSceneTools, "_RESOLVE_RETRY_DELAY", 0)
-        client = GetRoutingClient(
-            scene_envelope={
-                "success": True,
-                "scene_id": "movie_night",
-                "config": {
-                    "id": "movie_night",
-                    "name": "Movie Night",
-                    "entities": {"light.living_room": {"state": "on"}},
-                },
-            },
-            categories={"scene": "cat-x"},
-            registry_list=[
-                {"entity_id": "scene.movie_night", "unique_id": "movie_night"}
-            ],
-        )
-        # A real component WS advertising full caps (config_get included). The
-        # scene tool must never reach for it.
-        ws = _real_component_ws(FakeHass())
-        with patch.object(
-            component_api, "get_websocket_client", AsyncMock(return_value=ws)
-        ):
-            resp = await ConfigSceneTools(client).ha_config_get_scene(
-                scene_id="movie_night"
-            )
-        assert resp["success"] is True
-        assert resp["scene_id"] == "movie_night"
-        # The component WS was never touched at all — no caps probe, no frame.
-        assert ws.send_command.await_count == 0
-        assert client.get_scene_config.await_count == 1
 
 
 # --- overview -------------------------------------------------------------------

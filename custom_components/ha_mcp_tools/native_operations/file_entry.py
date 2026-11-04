@@ -77,3 +77,11 @@ class NativeFileEntry:
         await self.guard(writes)
         assert self.owner is not None
         return self.owner
+
+    async def find_yaml_key(self, yaml_path: str) -> dict[str, Any]:
+        from ..yaml_find import async_locate_yaml_key_files
+
+        await self.guard(False)
+        files = await async_locate_yaml_key_files(self.manager.hass, yaml_path)
+        await self.guard(False)
+        return {"success": True, "files": files}

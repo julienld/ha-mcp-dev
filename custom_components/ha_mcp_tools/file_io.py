@@ -5,6 +5,7 @@ from __future__ import annotations
 import fnmatch
 import hashlib
 import os
+import posixpath
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -13,6 +14,8 @@ from typing import Any
 from ha_mcp.tool_api import ToolFailure
 
 from .const import DENY_PATH_SEGMENTS, DENY_READ_BASENAMES
+from .file_paths import _volume_root_for
+from .volume_mounts import on_mounted_volume
 
 TAILED_LOG_FILES = frozenset({"home-assistant.log", "home-assistant.log.fault"})
 
@@ -189,6 +192,9 @@ def _write_file_sync(
     state: FileWriteState | None = None,
 ) -> dict[str, Any]:
     """Bundle write_file blocking I/O for a single executor offload."""
+    root = _volume_root_for(posixpath.normpath(str(target_file)))
+    if root is not None and not on_mounted_volume(target_file, root):
+        return {"_error": "not_mounted", "parent": root}
     _check_file_image(target_file, expected)
     exists = target_file.exists()
     if exists and not overwrite:

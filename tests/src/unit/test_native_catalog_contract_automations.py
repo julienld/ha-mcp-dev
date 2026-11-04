@@ -314,11 +314,18 @@ async def test_remote_automation_create_and_transform_reuse_the_existing_client(
         "ha_mcp.config.get_global_settings",
         lambda: SimpleNamespace(enable_auto_backup=False, enable_mandatory_bps=False),
     )
+    monkeypatch.setattr(
+        "ha_mcp.tools.component_automation.automation_validate",
+        AsyncMock(return_value=None),
+    )
     client = HomeAssistantClient.__new__(HomeAssistantClient)
     client.base_url, client.token = "http://synthetic.local", "placeholder"
     stored = {}
     posts = []
     client.get_states = AsyncMock(return_value=[])
+    client.send_websocket_message = AsyncMock(
+        return_value={"success": True, "result": []}
+    )
     client._poll_for_automation_entity = AsyncMock(return_value="automation.assigned")
 
     async def request(method: str, path: str, **arguments: Any) -> dict:

@@ -141,6 +141,28 @@ class TestSetDashboardMetadataUpdate:
         assert "Permission denied" in error_data["error"]["message"]
 
     @pytest.mark.asyncio
+    async def test_core_rejection_of_a_metadata_value_is_reported_as_invalid_input(
+        self, set_tool: Any, mock_client: MagicMock
+    ) -> None:
+        """A bad icon on an existing dashboard is the caller's input, as on create."""
+        mock_client.send_websocket_message.side_effect = [
+            self._make_dashboard_list("my-dashboard"),
+            {
+                "success": False,
+                "error": "Command failed: Icons should be specified in the form "
+                "\"prefix:name\" at 'icon'. Got 'not an icon'",
+                "error_code": "invalid_format",
+            },
+        ]
+
+        with pytest.raises(ToolError) as exc_info:
+            await set_tool(url_path="my-dashboard", icon="not an icon")
+
+        body = json.loads(str(exc_info.value))
+        assert body["error"]["code"] == "VALIDATION_INVALID_PARAMETER"
+        assert "prefix:name" in body["error"]["message"]
+
+    @pytest.mark.asyncio
     async def test_blank_view_path_rejected_before_write_on_return_screenshot(
         self, set_tool, mock_client
     ):
@@ -542,20 +564,39 @@ class TestSetDashboardUrlPathCreationContract:
         }
 
     @pytest.mark.asyncio
-    async def test_create_forwards_given_metadata_and_omits_blank_icon(
+    async def test_create_without_title_preserves_the_historical_default(
         self, set_tool: Any, mock_client: MagicMock
     ) -> None:
-        mock_client.send_websocket_message.side_effect = [
-            {"result": []},
-            {"success": True, "result": {"id": "new_map"}},
-            {"result": {"views": []}},
-        ]
+        async def command(message):
+            if message["type"] == "lovelace/dashboards/list":
+                return {"result": []}
+            assert message["type"] == "lovelace/dashboards/create"
+            if "title" not in message:
+                return {
+                    "success": False,
+                    "error": "required key not provided at title",
+                    "error_code": "invalid_format",
+                }
+            return {
+                "success": True,
+                "result": {
+                    "id": "new-dashboard",
+                    "url_path": "new-map",
+                    "title": message["title"],
+                },
+            }
 
-        await set_tool(
+        mock_client.send_websocket_message.side_effect = command
+        result = await set_tool(
             url_path="new-map", icon="", require_admin=True, show_in_sidebar=False
         )
-
-        assert mock_client.send_websocket_message.call_args_list[1].args[0] == {
+        assert result["success"] is True
+        create = next(
+            c.args[0]
+            for c in mock_client.send_websocket_message.call_args_list
+            if c.args[0]["type"] == "lovelace/dashboards/create"
+        )
+        assert create == {
             "type": "lovelace/dashboards/create",
             "url_path": "new-map",
             "title": "New Map",

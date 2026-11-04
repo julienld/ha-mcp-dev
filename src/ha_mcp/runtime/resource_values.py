@@ -1,6 +1,7 @@
 """Pure resource encoding, preview bounds and public value projections."""
 
 import base64
+import hashlib
 import re
 from typing import Any
 from urllib.parse import urlsplit
@@ -96,7 +97,7 @@ MAX_CONTENT_SIZE = 128_000
 _HA_CONFIG_YAML_MARKERS: dict[str, str | None] = {
     "automation": "ha_config_set_automation",
     "script": "ha_config_set_script",
-    "scene": None,  # Tracked in #995 — scene CRUD tools not yet shipped
+    "scene": "ha_config_set_scene",
     "group": "ha_config_set_group",
     "input_boolean": "ha_config_set_helper(helper_type='input_boolean', ...)",
     "input_number": "ha_config_set_helper(helper_type='input_number', ...)",
@@ -104,7 +105,9 @@ _HA_CONFIG_YAML_MARKERS: dict[str, str | None] = {
     "input_text": "ha_config_set_helper(helper_type='input_text', ...)",
     "input_datetime": "ha_config_set_helper(helper_type='input_datetime', ...)",
     "input_button": "ha_config_set_helper(helper_type='input_button', ...)",
-    "template": None,
+    "template": "ha_config_set_helper(helper_type='template', ...) "
+    "(trigger-based templates are YAML-only: ha_config_set_yaml when YAML "
+    "config editing is enabled, otherwise the HA UI or YAML packages)",
     "homeassistant": None,
     "sensor": None,
     "binary_sensor": None,
@@ -365,6 +368,8 @@ def _process_resource_list(
     resources: list[Any],
     decoded_page: list[tuple[str, bool] | None],
     include_content: bool,
+    *,
+    include_hash: bool = False,
 ) -> tuple[list[dict[str, Any]], int]:
     """Render one page of resources. Returns ``(rows, truncated_count)``.
 
@@ -391,6 +396,8 @@ def _process_resource_list(
             content_bytes = len(content.encode("utf-8"))
             res["_inline"] = True
             res["_size"] = content_bytes
+            if include_hash:
+                res["_config_hash"] = content_sha256(content)
             if is_legacy:
                 # The full remediation text lives once at response level;
                 # repeating it per resource wasted ~330 chars each.
@@ -477,6 +484,7 @@ def resource_list_result(
     limit: int,
     offset: int,
     resource_mode: str | None,
+    include_hash: bool = False,
 ) -> dict[str, Any]:
     by_type_counts, inline_count, decoded_by_index = _summarize_resources(
         resources, offset, offset + limit
@@ -486,7 +494,7 @@ def resource_list_result(
     page = resources[offset : offset + limit]
     page_decoded = [decoded_by_index.get(offset + i) for i in range(len(page))]
     paginated, truncated_count = _process_resource_list(
-        page, page_decoded, include_content
+        page, page_decoded, include_content, include_hash=include_hash
     )
 
     response: dict[str, Any] = {
@@ -516,3 +524,8 @@ def resource_list_result(
 
 
 __all__ = ["MAX_CONTENT_SIZE", "_RESOURCE_TYPE", "resource_list_result"]
+
+
+def content_sha256(content: str) -> str:
+    """SHA-256 hex digest over the UTF-8 bytes of decoded resource content."""
+    return hashlib.sha256(content.encode("utf-8")).hexdigest()

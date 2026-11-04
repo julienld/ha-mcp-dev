@@ -145,22 +145,6 @@ _TARGET_FIELDS = ("entity_id", "device_id", "area_id", "floor_id", "label_id")
 # ``service:`` (legacy) and ``action:`` (modern, 2024+) for the same field.
 _SERVICE_KEYS = ("service", "action")
 
-# Purpose-specific trigger/condition keys renamed in HA 2026.7 — the old keys
-# no longer load (home-assistant/core#174463).
-_RENAMED_TRIGGER_KEYS = {
-    "battery.low": "battery.became_low",
-    "battery.not_low": "battery.no_longer_low",
-    "lawn_mower.docked": "lawn_mower.returned_to_dock",
-    "schedule.turned_on": "schedule.block_started",
-    "schedule.turned_off": "schedule.block_ended",
-    "timer.time_remaining": "timer.remaining_time_reached",
-    "update.update_became_available": "update.became_available",
-    "vacuum.docked": "vacuum.returned_to_dock",
-}
-_RENAMED_CONDITION_KEYS = {
-    "climate.target_temperature": "climate.is_target_temperature",
-    "climate.target_humidity": "climate.is_target_humidity",
-}
 # Trigger ``options.behavior`` values renamed in HA 2026.7: any→each,
 # last→all (home-assistant/core#173259). The old values still load but raise
 # an HA repair issue and face removal. Condition ``options.behavior`` keeps
@@ -184,8 +168,8 @@ def check_automation_config(
     back-compat (so ``result == []`` and iteration work unchanged), and
     additionally exposes ``referenced_files`` — the set of skill file
     paths (relative to the skill root, e.g.
-    ``"references/triggers-and-conditions.md"``) referenced by at least one
-    emitted warning. Callers use that set to fetch the bodies via
+    ``"references/triggers-and-conditions.md"``) that the emitted warnings
+    cite or name. Callers use that set to fetch the bodies via
     :func:`ha_mcp.utils.skill_loader.resolve_skill_files` and embed them
     in the response under ``skill_content``.
 
@@ -202,10 +186,8 @@ def check_automation_config(
 
     warnings = BestPracticeCheckResult()
 
-    # Read the canonical 2024.10+ plural root keys, falling back to the singular
-    # aliases. The internal pipeline always pre-normalizes to plural, so the
-    # fallback is defensive for direct/public callers of check_automation_config
-    # (HA accepts both forms). Mirrors _check_triggers' platform/trigger tolerance.
+    # The config is checked as the caller wrote it, so either root form may
+    # carry the lists.
     # Condition templates
     _check_condition_templates(
         config.get("conditions", config.get("condition", [])), warnings, skill_prefix
@@ -267,23 +249,6 @@ def _check_condition_templates(
             # Shorthand template condition
             _check_template_string(cond, warnings, skill_prefix, "condition")
         elif isinstance(cond, dict):
-            # 2026.7 renamed purpose-specific condition keys — old keys no
-            # longer load.
-            condition_key = cond.get("condition")
-            renamed_condition = (
-                _RENAMED_CONDITION_KEYS.get(condition_key)
-                if isinstance(condition_key, str)
-                else None
-            )
-            if renamed_condition:
-                _emit(
-                    warnings,
-                    f"Condition key `{condition_key}` was renamed to "
-                    f"`{renamed_condition}` in HA 2026.7 and the old key no "
-                    f"longer loads — use `condition: {renamed_condition}`.",
-                    skill_prefix,
-                    "triggers-and-conditions.md#native-conditions",
-                )
             if cond.get("condition") == "template":
                 vt = cond.get("value_template", "")
                 if isinstance(vt, str):
@@ -353,6 +318,12 @@ def _check_template_string(
             "instead. Templates fail silently at runtime and bypass schema validation.",
             skill_prefix,
             "template-guidelines.md#when-to-avoid-templates",
+            # The table there covers state, numeric_state, time and sun; these
+            # cover the two other native conditions the message names.
+            also_embed=(
+                "triggers-and-conditions.md#zone-condition",
+                "triggers-and-conditions.md#device-trigger-use-sparingly",
+            ),
         )
 
 
@@ -690,10 +661,9 @@ def _check_triggers(
 ) -> None:
     """Check triggers for device_id and template anti-patterns.
 
-    Per-trigger detection is split into focused helpers (renamed-key check,
-    deprecated-behavior check, template-trigger check, numeric_state-trigger
-    check) purely to keep this function's complexity low. They run in the
-    same order as before.
+    Per-trigger detection is split into focused helpers (deprecated-behavior
+    check, template-trigger check, numeric_state-trigger check) purely to keep
+    this function's complexity low.
     """
     for trigger in _as_list(triggers):
         if not isinstance(trigger, dict):
@@ -701,7 +671,6 @@ def _check_triggers(
 
         platform = trigger.get("platform", trigger.get("trigger", ""))
 
-        _check_renamed_trigger_key(platform, warnings, skill_prefix)
         _check_deprecated_trigger_behavior(trigger, warnings, skill_prefix)
 
         # Device trigger → prefer entity_id-based triggers
@@ -727,24 +696,6 @@ def _check_triggers(
             _check_numeric_state_trigger(trigger, warnings, skill_prefix)
 
 
-def _check_renamed_trigger_key(
-    platform: Any, warnings: BestPracticeCheckResult, skill_prefix: str | None
-) -> None:
-    """Flag HA 2026.7 purpose-specific trigger key renames (old keys no longer load)."""
-    renamed_trigger = (
-        _RENAMED_TRIGGER_KEYS.get(platform) if isinstance(platform, str) else None
-    )
-    if renamed_trigger:
-        _emit(
-            warnings,
-            f"Trigger key `{platform}` was renamed to `{renamed_trigger}` "
-            "in HA 2026.7 and the old key no longer loads — use "
-            f"`trigger: {renamed_trigger}`.",
-            skill_prefix,
-            "triggers-and-conditions.md#trigger-types",
-        )
-
-
 def _check_deprecated_trigger_behavior(
     trigger: dict[str, Any], warnings: BestPracticeCheckResult, skill_prefix: str | None
 ) -> None:
@@ -762,7 +713,7 @@ def _check_deprecated_trigger_behavior(
             "will be removed. Valid trigger values: `each`, `first`, "
             "`all` (conditions keep `any`/`all`).",
             skill_prefix,
-            "triggers-and-conditions.md#trigger-types",
+            "triggers-and-conditions.md#purpose-specific-triggers--conditions-default-since-20267",
         )
 
 
@@ -788,7 +739,7 @@ def _check_template_trigger(
             "use native `numeric_state` trigger instead "
             "(e.g., `platform: numeric_state, entity_id: sensor.temp, above: 30`).",
             skill_prefix,
-            "triggers-and-conditions.md#trigger-types",
+            "triggers-and-conditions.md#numeric-state-trigger",
         )
     if _RE_IS_STATE.search(vt):
         _emit(
@@ -797,7 +748,7 @@ def _check_template_trigger(
             "native `state` trigger instead "
             "(e.g., `platform: state, entity_id: light.x, to: 'on'`).",
             skill_prefix,
-            "triggers-and-conditions.md#trigger-types",
+            "triggers-and-conditions.md#state-trigger",
         )
     if duration_match:
         _emit(
@@ -809,7 +760,7 @@ def _check_template_trigger(
             "to: 'off', for: {minutes: 5}`). Native `for:` is event-driven "
             "and doesn't re-evaluate on every state change.",
             skill_prefix,
-            "triggers-and-conditions.md#trigger-types",
+            "triggers-and-conditions.md#state-trigger",
         )
     # Generic fallback for unmatched template triggers.
     if len(warnings) == initial and _RE_ANY_TEMPLATE.search(vt):
@@ -820,7 +771,17 @@ def _check_template_trigger(
             "`event`), use that instead. Native triggers are event-driven; "
             "template triggers re-evaluate on every state change.",
             skill_prefix,
-            "triggers-and-conditions.md#trigger-types",
+            "triggers-and-conditions.md#template-trigger",
+            # One section per native trigger the message names; `time_pattern`
+            # is covered under Time Trigger.
+            also_embed=(
+                "triggers-and-conditions.md#state-trigger",
+                "triggers-and-conditions.md#numeric-state-trigger",
+                "triggers-and-conditions.md#time-trigger",
+                "triggers-and-conditions.md#sun-trigger",
+                "triggers-and-conditions.md#zone-trigger",
+                "triggers-and-conditions.md#event-trigger",
+            ),
         )
 
 
@@ -842,7 +803,7 @@ def _check_numeric_state_trigger(
             "to: 'off', for: {minutes: 5}`). Native `for:` is event-driven "
             "and doesn't re-evaluate on every state change.",
             skill_prefix,
-            "triggers-and-conditions.md#trigger-types",
+            "triggers-and-conditions.md#state-trigger",
         )
 
 

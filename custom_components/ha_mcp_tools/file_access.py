@@ -36,6 +36,7 @@ from .file_paths import (
 from .file_views import _shape_read_file_response
 from .package_dirs import _detect_package_dirs
 from .runtime_generation import capture_component_generation
+from .volume_mounts import PARENT_ERRORS, os_error_text
 
 capture_component_generation(ToolFailure, await_owned_io, registry_update_lock)
 
@@ -420,7 +421,7 @@ class FileAccess:
             _LOGGER.error("Error listing files in %s: %s", rel_path, err)
             return {
                 "success": False,
-                "error": str(err),
+                "error": os_error_text(err, rel_path),
                 "files": [],
             }
 
@@ -512,7 +513,7 @@ class FileAccess:
             _LOGGER.error("Error reading file %s: %s", rel_path, err)
             return {
                 "success": False,
-                "error": str(err),
+                "error": os_error_text(err, rel_path),
             }
 
         err_kind = result.get("_error")
@@ -587,7 +588,7 @@ class FileAccess:
             _LOGGER.error("Error writing file %s: %s", rel_path, err)
             return {
                 "success": False,
-                "error": str(err),
+                "error": os_error_text(err, rel_path),
             }
 
         err_kind = result.get("_error")
@@ -596,10 +597,10 @@ class FileAccess:
                 "success": False,
                 "error": f"File already exists: {rel_path}. Set overwrite=true to replace.",
             }
-        if err_kind == "no_parent":
+        if err_kind in PARENT_ERRORS:
             return {
                 "success": False,
-                "error": f"Parent directory does not exist: {result['parent']}",
+                "error": PARENT_ERRORS[err_kind].format(result["parent"]),
             }
 
         size = result["size"]
@@ -661,7 +662,7 @@ class FileAccess:
             _LOGGER.error("Error deleting file %s: %s", rel_path, err)
             return {
                 "success": False,
-                "error": str(err),
+                "error": os_error_text(err, rel_path),
             }
 
         err_kind = result.get("_error")

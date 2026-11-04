@@ -8,6 +8,7 @@ from pydantic import Field
 from ha_mcp.errors import ErrorCode, create_error_response
 from ha_mcp.tool_api import BackendTools, ToolFailure
 
+from .automation_identity import compatible_automation_identifier
 from .config_read_errors import raise_scene_config_missing
 from .config_reads import (
     AutomationReadTools,
@@ -106,11 +107,11 @@ class AutomationRemovalTools(AutomationReadTools, ConfigRemovalTools):
     async def ha_config_remove_automation(
         self,
         identifier: Annotated[
-            str,
+            str | None,
             Field(
-                description="Automation entity_id (e.g., 'automation.old_automation') or unique_id to delete"
+                description="Automation entity_id or config id; identifier remains accepted."
             ),
-        ],
+        ] = None,
         wait: Annotated[
             bool,
             Field(
@@ -118,6 +119,12 @@ class AutomationRemovalTools(AutomationReadTools, ConfigRemovalTools):
                 default=True,
             ),
         ] = True,
+        entity_id: Annotated[
+            str | None,
+            Field(
+                description="Automation entity_id or config id; compatible alias of identifier."
+            ),
+        ] = None,
     ) -> dict[str, Any]:
         """Delete a Home Assistant automation permanently.
 
@@ -130,8 +137,11 @@ class AutomationRemovalTools(AutomationReadTools, ConfigRemovalTools):
         - Delete automation: ha_config_remove_automation("automation.old_automation")
         - Delete by unique_id: ha_config_remove_automation("my_unique_id")
         """
+        identifier = compatible_automation_identifier(
+            identifier, entity_id, required=True
+        )
+        assert identifier is not None
         try:
-            # Empty/whitespace would surface as a misleading HA delete-failure.
             validate_identifier_not_empty(
                 identifier,
                 "identifier",
@@ -140,7 +150,6 @@ class AutomationRemovalTools(AutomationReadTools, ConfigRemovalTools):
                 ],
                 context={"operation": "remove_automation"},
             )
-            # Resolve entity_id for wait verification (identifier may be a unique_id)
             entity_id_for_wait = await self._resolve_automation_entity_id(
                 identifier, allow_component=True
             )
@@ -148,24 +157,20 @@ class AutomationRemovalTools(AutomationReadTools, ConfigRemovalTools):
                 logger.warning(
                     f"Could not resolve unique_id '{identifier}' to entity_id -- wait verification will be skipped"
                 )
-
             result = await self._delete_automation(identifier)
-
-            # Wait for entity to be removed
             if wait and entity_id_for_wait:
                 await self._verify_removed(entity_id_for_wait, result)
-
             return {
                 "success": True,
                 "action": "delete",
-                "automation_id": (
-                    entity_id_for_wait or identifier or result.get("unique_id")
-                ),
+                "automation_id": entity_id_for_wait
+                or identifier
+                or result.get("unique_id"),
                 **{key: value for key, value in result.items() if key != "identifier"},
             }
         except ToolFailure:
             raise
-        except Exception as e:  # noqa: BLE001 - facade-specific error classification
+        except Exception as e:  # noqa: BLE001 - facade-specific classification
             await self._map_remove_error(e, identifier)
 
 

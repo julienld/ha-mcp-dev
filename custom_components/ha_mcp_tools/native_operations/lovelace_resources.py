@@ -12,6 +12,11 @@ from homeassistant.helpers.json import json_bytes
 
 from ha_mcp.errors import ErrorCode, create_error_response
 from ha_mcp.runtime.mutation_guard import check_mutation_admission
+from ha_mcp.runtime.resource_edits import (
+    ResourceEdit,
+    apply_resource_edits,
+    check_config_hash,
+)
 from ha_mcp.runtime.resource_values import (
     _YAML_MODE_MESSAGE,
     _data_uri_for,
@@ -19,6 +24,7 @@ from ha_mcp.runtime.resource_values import (
     _is_preview_of,
     _looks_like_preview,
     _require_created_resource_id,
+    content_sha256,
     resource_list_result,
 )
 from ha_mcp.runtime.resource_write_values import (
@@ -195,7 +201,11 @@ class NativeResources:
             raise UnsupportedOperation("resources.collection_owner")
 
     async def list(
-        self, include_content: bool = False, limit: int = 100, offset: int = 0
+        self,
+        include_content: bool = False,
+        limit: int = 100,
+        offset: int = 0,
+        include_hash: bool = False,
     ) -> dict[str, Any]:
         try:
             owner, mode = await self._loaded()
@@ -204,7 +214,13 @@ class NativeResources:
             rows = [dict(row) for row in owner.async_items()]
             result: dict[str, Any] = await await_owned_io(
                 self.hass.async_add_executor_job(
-                    resource_list_result, rows, include_content, limit, offset, mode
+                    resource_list_result,
+                    rows,
+                    include_content,
+                    limit,
+                    offset,
+                    mode,
+                    include_hash,
                 )
             )
             await self._authorize()
@@ -218,12 +234,28 @@ class NativeResources:
         url: str | None = None,
         resource_type: str = "module",
         resource_id: str | None = None,
+        edits: list[ResourceEdit] | None = None,
+        config_hash: str | None = None,
     ) -> dict[str, Any]:
         try:
-            validate_choice(content, url)
-            size = (
-                validate_inline(content, resource_type) if content is not None else None
-            )
+            patching = edits is not None
+            if patching:
+                if content is not None or url is not None or resource_id is None:
+                    raise ToolFailure(
+                        "VALIDATION_INVALID_PARAMETER",
+                        "edits requires resource_id and cannot be combined with content or url",
+                        status="not_started",
+                    )
+            else:
+                if config_hash is not None:
+                    raise ToolFailure(
+                        "VALIDATION_INVALID_PARAMETER",
+                        "config_hash only applies together with edits",
+                        status="not_started",
+                    )
+                validate_choice(content, url)
+                if content is not None:
+                    validate_inline(content, resource_type)
             if resource_id is not None:
                 validate_identifier_not_empty(
                     resource_id, "resource_id", context={"action": "set"}
@@ -232,24 +264,35 @@ class NativeResources:
                 _data_uri_for(content, resource_type) if content is not None else url
             )
             action = "create" if resource_id is None else "update"
+            fields = (
+                {} if patching else {"url": resource_url, "res_type": resource_type}
+            )
             row, warnings = await self._change(
                 action,
                 resource_id,
-                {"url": resource_url, "res_type": resource_type},
+                fields,
                 content=content,
+                edits=edits,
+                config_hash=config_hash,
             )
             assert row is not None
             identifier = row.get("id", resource_id)
             _require_created_resource_id(
                 identifier, "created" if action == "create" else "updated"
             )
+            decoded = _decode_inline_content(row.get("url", ""))
+            stored = decoded[0] if decoded else None
             result = resource_set_result(
                 identifier,
-                resource_type,
+                row.get("type", resource_type),
                 "created" if action == "create" else "updated",
-                size=size,
-                url=url,
+                size=len(stored.encode("utf-8")) if stored is not None else None,
+                url=row.get("url") if stored is None else None,
             )
+            if stored is not None:
+                result["config_hash"] = content_sha256(stored)
+            if patching:
+                result.update(action="patched", applied=len(edits))
             if warnings:
                 result["warnings"] = warnings
             return result
@@ -378,11 +421,14 @@ class NativeResources:
         content: str | None = None,
         expected: Any = _CURRENT,
         capture: bool = True,
+        edits: list[ResourceEdit] | None = None,
+        config_hash: str | None = None,
     ) -> ResourceChange:
         await self._authorize()
         initial, _mode = self._owner()
         self._storage(initial)
-        fields = self._validated_fields(initial, action, fields)
+        if edits is None:
+            fields = self._validated_fields(initial, action, fields)
         owner, _mode = await self._loaded()
         async with registry_update_lock("lovelace_resources", "write"):
             await self._admit()
@@ -406,8 +452,26 @@ class NativeResources:
                     "The resource changed after its safety snapshot",
                     status="not_started",
                 )
+            if edits is not None:
+                decoded = _decode_inline_content(before.get("url", ""))
+                if decoded is None:
+                    raise ToolFailure(
+                        "VALIDATION_INVALID_PARAMETER",
+                        "Only an inline resource can be patched",
+                        status="not_started",
+                    )
+                stored, _legacy = decoded
+                check_config_hash(stored, config_hash)
+                content = apply_resource_edits(stored, edits)
+                resource_type = before.get("type", "module")
+                validate_inline(content, resource_type)
+                fields = {
+                    "url": _data_uri_for(content, resource_type),
+                    "res_type": resource_type,
+                }
             fields = self._validated_fields(owner, action, fields)
-            self._check_preview(content, before)
+            if edits is None:
+                self._check_preview(content, before)
             warnings: list[str] = []
             if capture and before is not None and self.backup is not None:
                 result = await self.backup(

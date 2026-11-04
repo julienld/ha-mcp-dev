@@ -175,3 +175,43 @@ async def test_native_yaml_theme_reload_carries_the_actual_actor_context(
     assert result["post_action"] == "reload_performed" and result["written"]
     assert reload.call_args.args[:2] == ("frontend", "reload_themes")
     assert reload.call_args.kwargs["context"].user_id == "owner"
+
+
+@pytest.mark.parametrize("revoke", [False, True])
+async def test_native_yaml_discovery_follows_nested_files_and_rechecks_authority(
+    yaml_files, monkeypatch, revoke
+):
+    from custom_components.ha_mcp_tools import yaml_find
+
+    _edit, read, manager, target = yaml_files
+    nested = target.parent / "packages" / "nested" / "child.yaml"
+    nested.parent.mkdir(parents=True)
+    nested.write_text("mqtt:\n  password: !secret mqtt_password\n")
+    before = target.read_bytes(), nested.read_bytes()
+    spy = AsyncMock(wraps=read.files.read_file)
+    monkeypatch.setattr(read.files, "read_file", spy)
+
+    async def discover(hass, yaml_path):
+        assert hass is manager.hass and yaml_path == "mqtt"
+        if revoke:
+            manager.backend.authorize = AsyncMock(
+                side_effect=PermissionError("revoked")
+            )
+        return ["packages/nested/child.yaml"]
+
+    monkeypatch.setattr(yaml_find, "async_locate_yaml_key_files", discover)
+    if revoke:
+        with pytest.raises(ToolFailure):
+            await read.get(
+                yaml_path="mqtt", file="packages/*.yaml", include_parsed=True
+            )
+        assert spy.await_count == 0
+    else:
+        result = await read.get(
+            yaml_path="mqtt", file="packages/*.yaml", include_parsed=True
+        )
+        assert result["files_searched"] == 1 and result["files_unreadable"] == 0
+        assert result["matches"][0]["file"] == "packages/nested/child.yaml"
+        assert result["matches"][0]["parsed"] == {"password": "!secret mqtt_password"}
+    assert (target.read_bytes(), nested.read_bytes()) == before
+    assert not manager.snapshots._store().list_snapshots(domain="yaml")

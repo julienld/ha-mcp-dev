@@ -58,6 +58,7 @@ async def execute_config_mutation(
                 None if arguments.get("allocated") else key,
                 _resolved=True,
                 **({"_new_unique_id": key} if arguments.get("allocated") else {}),
+                wait_for_entity=bool(arguments.get("allocated")),
             )
             return automation
         if operation == "config.script.write":

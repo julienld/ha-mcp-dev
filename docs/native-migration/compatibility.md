@@ -9,6 +9,37 @@ separates global compatibility changes, Native-only gaps and inherited upstream
 changes. In particular, retaining Legacy does not avoid the new component Core
 floor or the changed metadata of automatic entity captures.
 
+## Upstream continuity, 3 November 2026
+
+The integration target is upstream `c6d0248e46f306cefa0bf67bae39382e1200d05d`.
+The following adapters preserve existing valid calls while carrying its new
+Core operations into both runtimes:
+
+- Automation tools accept both `identifier` and `entity_id`. Conflicting targets
+  are refused, and visibility checks inspect both names before approval.
+- Automation reads keep the historical normalized view by default.
+  `config_format="stored"` returns the persisted Core keys verbatim. Hashes from
+  either view are accepted without replacing the invocation-local raw CAS image.
+  Writes reach Core as supplied; Core owns validation and storage conversions.
+- A dashboard create without `title` still derives its display name from
+  `url_path`. This explicit wrapper policy preserves the previous optional-title
+  contract; Core still validates the full create request.
+- Inline resources support bounded exact edits and content hashes. Native edits
+  run under the existing owner lock before safety capture and dispatch.
+- Event replies include Core context and listener counts. YAML key discovery
+  follows Core-loaded includes through the same guarded file owner. Screenshot
+  theme checks read the actual frontend catalog without constructing an HA client.
+
+The upstream filesystem correction removes `/backup` from the offered sibling
+volume roots. Container volume writes require a real mount; read-only mount
+errors are identified explicitly. This is an inherited support restriction,
+not an automatic change to an operator's installation. An explicit alternative
+operator-directory policy would need its own support decision and tests.
+
+These changes do not close the global Core-floor or historical entity-snapshot
+routing gaps recorded in the earlier audit. That audit and all live evidence
+retain their original revisions.
+
 ## Supported Core capabilities
 
 The component starts at Core 2026.10.0 and supports the current stable monthly

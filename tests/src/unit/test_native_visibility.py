@@ -107,6 +107,11 @@ def hide_renamed_items(manager: Any, monkeypatch: pytest.MonkeyPatch) -> dict[st
         ("ha_config_get_script", {"script_id": "PrivateKey"}),
         ("ha_config_get_scene", {"scene_id": "1700000000001"}),
         ("ha_config_get_automation", {"identifier": "1700000000002"}),
+        ("ha_config_get_automation", {"entity_id": "1700000000002"}),
+        (
+            "ha_config_get_automation",
+            {"identifier": "1700000000002", "entity_id": "visible"},
+        ),
         ("ha_get_automation_traces", {"automation_id": "automation.1700000000002"}),
         ("ha_call_service", {"domain": "script", "service": "privatekey"}),
         (

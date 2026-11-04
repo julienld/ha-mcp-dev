@@ -54,33 +54,15 @@ def validate_choice(content: str | None, url: str | None) -> None:
 def raise_yaml_misroute(detected_yaml: str, resource_type: str) -> NoReturn:
     """Raise the structured error for HA-config YAML misrouted as inline resource content."""
     right_tool = _HA_CONFIG_YAML_MARKERS[detected_yaml]
-    suggestions = ["This tool stores Lovelace JavaScript/CSS resources only"]
     if right_tool:
-        suggestions.insert(
-            0,
-            f"For `{detected_yaml}:` configuration, use {right_tool} instead",
-        )
-    elif detected_yaml == "scene":
-        suggestions.insert(
-            0,
-            "Scene configuration tools are tracked in #995; "
-            "until they ship, scenes can only be created via the HA UI",
-        )
+        first = f"For `{detected_yaml}:` configuration, use {right_tool} instead"
     else:
-        suggestions.insert(
-            0,
-            f"No direct tool exists for `{detected_yaml}:` config; "
-            "configure it via the HA UI or YAML packages",
-        )
+        first = f"`{detected_yaml}:` is YAML configuration: ha_config_set_yaml writes the keys it allows when YAML config editing is enabled; otherwise use the HA UI or YAML packages"
+    suggestions = [first, "This tool stores Lovelace JavaScript/CSS resources only"]
     raise_tool_error(
         create_error_response(
             code=ErrorCode.VALIDATION_INVALID_PARAMETER,
-            message=(
-                f"Content starts with HA-configuration YAML "
-                f"(`{detected_yaml}:`) — this tool only accepts Lovelace "
-                f"JavaScript or CSS resources, not Home Assistant config "
-                f"(see issue #1072)."
-            ),
+            message=f"Content starts with HA-configuration YAML (`{detected_yaml}:`) — this tool only accepts Lovelace JavaScript or CSS resources, not Home Assistant config.",
             context={
                 "detected_marker": f"{detected_yaml}:",
                 "resource_type": resource_type,
@@ -119,7 +101,7 @@ def validate_inline(content: str, resource_type: str) -> int:
             create_error_response(
                 code=ErrorCode.VALIDATION_INVALID_PARAMETER,
                 message=f"Content too large: {content_size:,} bytes (max {MAX_CONTENT_SIZE:,})",
-                context={"size": content_size},
+                context={"size": content_size, "limit": MAX_CONTENT_SIZE},
                 suggestions=[
                     "Minify the code to reduce size",
                     "Split into multiple smaller modules",

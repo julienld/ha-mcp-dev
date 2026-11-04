@@ -8,6 +8,7 @@ from homeassistant.core import HomeAssistant
 
 from ha_mcp.runtime.event_tools import event_result, validate_event_type
 from ha_mcp.tool_api import CallContext, ToolFailure
+from ha_mcp.tools.event_listener_fields import event_listener_fields
 
 from .registry_access import Authorize, admit_registry_write, registry_failure
 
@@ -38,6 +39,7 @@ class NativeEvents:
             raise registry_failure(error, {"event_type": event_type}) from error
 
         context = Context(user_id=self.actor.user_id)
+        listeners = self.hass.bus.async_listeners()
         try:
             self.hass.bus.async_fire(event_type, payload, EventOrigin.remote, context)
         except Exception as error:
@@ -46,4 +48,11 @@ class NativeEvents:
                 f"Core raised {type(error).__name__} during event emission. The event may have been delivered; inspect its subscribers before retrying.",
                 status="outcome_unknown",
             ) from error
-        return event_result(event_type, {})
+        return event_result(
+            event_type,
+            {
+                "context": context.as_dict(),
+                "context_id": context.as_dict()["id"],
+                **event_listener_fields(listeners, event_type),
+            },
+        )

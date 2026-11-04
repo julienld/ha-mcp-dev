@@ -9,6 +9,7 @@ from ha_mcp.tool_api import ToolFailure, UnsupportedOperation
 CONFIG_READ_OPERATIONS = frozenset(
     {
         "config.automation.read",
+        "config.automation.validate",
         "config.script.read",
         "config.scene.read",
         "config.scene.resolve",
@@ -29,6 +30,10 @@ async def _read_item(
     )
     from ha_mcp.tools.util_helpers import list_visible_registry_ids
 
+    if operation == "config.automation.read" and arguments.get("include_details"):
+        from .remote_automation_reads import RemoteAutomationReads
+
+        return await RemoteAutomationReads(client).read(arguments["identifier"])
     identifier = arguments["identifier"]
     domain = operation.split(".")[1]
     try:
@@ -96,6 +101,12 @@ async def execute_config_operation(
     from ha_mcp.tools.helpers import exception_to_structured_error
 
     try:
+        if operation == "config.automation.validate":
+            from ha_mcp.tools.component_automation import automation_validate
+
+            return await automation_validate(client, arguments["config"]) or {
+                "status": "unavailable"
+            }
         if operation == "scenes.inventory":
             from ha_mcp.tools.scene_discovery import _inventory
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Annotated, Any, NoReturn
+from typing import Annotated, Any, Literal, NoReturn
 
 from pydantic import Field
 
@@ -11,6 +11,7 @@ from ha_mcp.errors import ErrorCode, create_error_response
 from ha_mcp.tool_api import BackendTools, ToolFailure
 from ha_mcp.utils.config_hash import compute_config_hash
 
+from .automation_identity import compatible_automation_identifier
 from .config_normalize import _normalize_config_for_roundtrip
 from .errors import raise_failure
 from .validation import validate_identifier_not_empty
@@ -73,11 +74,23 @@ class AutomationReadTools(ConfigReadTools):
     async def ha_config_get_automation(
         self,
         identifier: Annotated[
-            str,
+            str | None,
             Field(
-                description="Automation entity_id (e.g., 'automation.morning_routine') or unique_id"
+                description="Automation entity_id or config id; identifier remains accepted."
             ),
-        ],
+        ] = None,
+        entity_id: Annotated[
+            str | None,
+            Field(
+                description="Automation entity_id or config id; compatible alias of identifier."
+            ),
+        ] = None,
+        config_format: Annotated[
+            Literal["compatible", "stored"],
+            Field(
+                description="compatible preserves the historical normalized view; stored returns Core persisted keys verbatim. Hashes can be used for safe updates in either view."
+            ),
+        ] = "compatible",
     ) -> dict[str, Any]:
         """
         Get Home Assistant automation configuration.
@@ -96,13 +109,11 @@ class AutomationReadTools(ConfigReadTools):
 
         For comprehensive automation documentation, use ha_get_skill_guide.
         """
+        identifier = compatible_automation_identifier(
+            identifier, entity_id, required=True
+        )
+        assert identifier is not None
         try:
-            # Empty/whitespace identifier would propagate to the internal
-            # config lookup and surface as a misleading
-            # ``RESOURCE_NOT_FOUND``. Structured ``VALIDATION_INVALID_PARAMETER``
-            # naming the parameter is cleaner — extension of the #1312
-            # validate_identifier_not_empty pattern to the automations
-            # family per #1313.
             validate_identifier_not_empty(
                 identifier,
                 "identifier",
@@ -112,40 +123,45 @@ class AutomationReadTools(ConfigReadTools):
                     "Use ha_search(domain_filter='automation') to list automations",
                 ],
             )
-
-            # Read persisted content through its authoritative owner. Entity
-            # raw_config remains stale until a reload finishes and is never used.
-            return await self._read_automation(identifier)
+            return await self._read_automation(identifier, config_format=config_format)
         except ToolFailure:
             raise
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # noqa: BLE001 - facade-specific classification
             self._map_read_error(e, identifier)
 
-    async def _read_automation(self, identifier: str) -> dict[str, Any]:
-        """Build the existing response from a fresh persisted configuration read."""
-        normalized_config, config_hash = await self._get_automation_config_internal(
-            identifier
+    async def _read_automation(
+        self, identifier: str, *, config_format: str = "compatible"
+    ) -> dict[str, Any]:
+        data = await self.backend.execute(
+            "config.automation.read",
+            {"identifier": identifier, "include_details": True},
+            self.context,
         )
-
-        # Resolve entity_id and fetch category from entity registry
-        # (injected after hash so transient registry failures don't affect the hash)
-        entity_id = await self._resolve_automation_entity_id(identifier)
-        cat_warnings: list[str] = []
-        if entity_id:
-            cat_id = await self._fetch_category(entity_id, "automation", cat_warnings)
-            if cat_id:
-                normalized_config["category"] = cat_id
-
-        response: dict[str, Any] = {
+        if not data["found"]:
+            _missing_config("automation", identifier, data.get("available_ids", []))
+        config = (
+            dict(data["config"])
+            if config_format == "stored"
+            else _normalize_config_for_roundtrip(data["config"])
+        )
+        config_hash = compute_config_hash(config)
+        entity = data.get("entity")
+        category = (entity or {}).get("categories", {}).get("automation")
+        if category is not None:
+            config["category"] = category
+        result = {
             "success": True,
             "action": "get",
-            "automation_id": entity_id or identifier,
-            "config": normalized_config,
+            "automation_id": data.get("entity_id") or identifier,
+            "config": config,
             "config_hash": config_hash,
+            "entity": entity,
+            "validation": data.get("validation"),
+            "references": data.get("references"),
         }
-        if cat_warnings:
-            response.setdefault("warnings", []).extend(cat_warnings)
-        return response
+        if data.get("warnings"):
+            result["warnings"] = data["warnings"]
+        return result
 
 
 class ScriptReadTools(ConfigReadTools):

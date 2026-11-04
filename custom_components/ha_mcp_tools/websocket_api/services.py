@@ -26,7 +26,9 @@ def _do_services_list(
 
 
 def _do_reference_data(hass: HomeAssistant, params: dict[str, Any]) -> dict[str, Any]:
-    return reference_data(hass, params.get("include_states", True))
+    return reference_data(
+        hass, params.get("include_states", True), params.get("include_targets", False)
+    )
 
 
 __all__ = [

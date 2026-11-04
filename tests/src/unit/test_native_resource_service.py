@@ -303,3 +303,49 @@ async def test_inline_resources_are_not_returned_after_revocation_during_project
     assert result.is_error and result.status == "not_started"
     assert result.data["error"]["code"] == "AUTH_FORBIDDEN"
     assert "resources" not in result.data and owner.loads == 0
+
+
+async def test_native_inline_edits_preserve_concurrent_changes_and_return_stored_hash(
+    resources,
+):
+    from ha_mcp.runtime.resource_values import (
+        _data_uri_for,
+        _decode_inline_content,
+        content_sha256,
+    )
+
+    _manager, engine, owner, _user, capture, _module = resources
+    owner.data["existing"]["url"] = _data_uri_for("const a = 1; const b = 2;", "module")
+    actor = CallContext("owner")
+    listed = await engine.call(
+        "ha_config_list_dashboard_resources", {"include_hash": True}, actor
+    )
+    assert not listed.is_error
+    initial_hash = listed.data["resources"][0]["_config_hash"]
+    first, second = await asyncio.gather(
+        *[
+            engine.call(
+                "ha_config_set_dashboard_resource",
+                {"resource_id": "existing", "edits": [{"old": old, "new": new}]},
+                actor,
+            )
+            for old, new in [("a = 1", "a = 3"), ("b = 2", "b = 4")]
+        ]
+    )
+    assert not first.is_error and not second.is_error
+    stored = _decode_inline_content(owner.data["existing"]["url"])[0]
+    assert stored == "const a = 3; const b = 4;"
+    assert second.data["config_hash"] == content_sha256(stored)
+    assert first.data["action"] == second.data["action"] == "patched"
+    assert owner.calls == ["update", "update"] and capture.await_count == 2
+    refused = await engine.call(
+        "ha_config_set_dashboard_resource",
+        {
+            "resource_id": "existing",
+            "edits": [{"old": "a = 3", "new": "a = 9"}],
+            "config_hash": initial_hash,
+        },
+        actor,
+    )
+    assert refused.is_error and refused.status == "not_started"
+    assert owner.calls == ["update", "update"] and capture.await_count == 2

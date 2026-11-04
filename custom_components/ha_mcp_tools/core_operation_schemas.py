@@ -62,6 +62,7 @@ def services_list_parameters(vol: Any) -> dict[Any, Any]:
 def reference_data_parameters(vol: Any) -> dict[Any, Any]:
     return {
         vol.Optional("include_states", default=True): bool,
+        vol.Optional("include_targets", default=False): bool,
     }
 
 

@@ -4,10 +4,14 @@ Read this before changing tools that wrap Home Assistant APIs, whether they
 read or write. Core owns its request schemas, defaults, conversions and
 response fields. HA-MCP owns tool orchestration and safety policies.
 
-Native covers Core, the frontend, Supervisor and the hassio proxy alike. When a
-tool has more than one native path (Core REST vs WebSocket, Supervisor vs
-Core), a migration keeps every capability the current tool has and adds the
-native ones; it never trades one native capability for another.
+Native covers Core, the frontend, Supervisor and the hassio proxy alike. A
+migration rebuilds the tool on the native path that serves it best; the
+transport, parameters and response shape the tool has today are not
+constraints. When more than one native path exists (Core REST vs WebSocket,
+Supervisor vs Core), compare what each accepts and returns (error text and
+codes, contexts, fields) and build on the one that does more, keeping the other
+only for a capability the first lacks. Every capability an agent has today
+stays reachable; how the old tool reached it does not have to.
 
 A tool not yet migrated under #2632 gets no piecemeal changes to its non-native
 paths, and that includes bug fixes. The whole tool is redone when it is
@@ -106,6 +110,113 @@ unknown: an HTTP status or proxy-looking message alone cannot prove refusal.
 Native error provenance is not execution-stage evidence either: Core catches
 validation, not-found and authorization errors around the service call, after
 a handler may have begun work. Keep those outcomes unknown after dispatch.
+
+`ha_call_event` prefers the component's `ha_mcp_tools/call_event` bridge
+(capability `call_event`). The bridge reads `hass.bus.async_listeners()` and
+calls `hass.bus.async_fire()` in one pass, returning the event's context and
+the exact-event and `MATCH_ALL` listener counts. Without the component the tool
+fires Core's WebSocket `fire_event`, which returns the same context; listener
+counts come from `GET /api/events` before the fire. `state_changed` stays on the
+REST `POST /api/events/{event_type}` route because only `APIEventView` rebuilds
+its `old_state`/`new_state` dicts into State objects. A WebSocket command that
+provably was not sent falls back to that REST route and says so in `warnings`;
+a timeout or dropped socket after the send returns `partial` rather than an
+error that invites a retry. `context_id` is the event context's `id`; an
+automation triggered by the event records it as `parent_id` in its trace.
+
+Todo item adds, updates and removals by name prefer the component's
+`ha_mcp_tools/todo_item` bridge (capability `todo_item`). It resolves an item
+value with Core's own `_find_by_uid_or_summary`, calls Core's todo services in
+process (so their schema, feature checks and context apply) and reads the
+stored rows back from the list entity. An update goes by the uid it resolved,
+and the bridge refuses the update when an item listed before it is named after
+that uid, since Core would change that item instead. An update that also moves
+the item hands the bridge the uid to put it below: the bridge checks the list's
+reorder feature first, writes the update on the order Core resolves it in, then
+moves the item by uid as `todo/item/move` does, and a move that fails after the
+update says the update was applied. It also refuses a write to an unavailable
+list (see below). Only Core's schema and validation errors that left the rows
+unchanged come back as a refusal; any other error leaves the outcome unknown. A
+restore hands it the snapshot's `due`, and it picks `due_date` or
+`due_datetime` with Core's own date validator. Without the component the tools
+call Core's todo services through WebSocket `call_service`, so Core's schema
+rejections reach the caller with their text (the REST service endpoint answers
+them with a bare 400); on that path a move goes to `todo/item/move` before the
+update. A move alone takes `todo/item/move` and `remove_completed` takes Core's
+`remove_completed_items` on both paths.
+`ha_get_todo` filters with `todo.get_items`. Core's services skip an
+unavailable list, answering a write with success and `todo.get_items` with no
+match, so the tools refuse a write to one and read its items with
+`todo/item/list`, which still answers for a loaded list entity. A list that
+Core holds only as its `restored` placeholder state (no loaded entity, for
+example while its integration is not set up) is refused, as `todo/item/list`
+answers it with "Entity not found"; a restore to it is refused as not applied.
+With auto-backup on, the tools back up each item an update or a removal
+changes, under its uid (its summary when it has none). A todo item backup
+restores an edited item with `todo.update_item` under its uid, which the safety
+backup and the diff also follow. The snapshot holds no position and Core's
+services cannot set a uid, so a removed item comes back through `todo.add_item`
+with a new uid, at the place the list gives new items.
+
+The automation config tools prefer the component's
+`ha_mcp_tools/automation_config` bridge (capability `automation_config`).
+Its `validate` runs Core's own automation validator in process and answers
+Core's validation status and humanized error, so a config Core would refuse
+is refused before the write, naming the section Core failed on. Its
+`describe` returns Core's registered trigger or condition descriptions;
+when Core's error names an unknown trigger or condition key, the closest
+live keys and the matched description come from there, never from a
+hand-kept list. Its `lookup` returns the automation's entity registry row
+(the row `config/entity_registry/get` sends), whether Core has loaded the
+automation (`loaded`), the load failure Core recorded in its
+`{entity_id}_validation_*` repair issue, and the entities, devices, areas,
+floors, labels and blueprint Core says the automation references. References
+are None while Core has not loaded the automation (disabled, or it failed to
+load), and the get tool's `warnings` says so; the unavailable placeholder
+entity Core adds for a failed automation, whose reference readers answer
+empty sets, counts as not loaded. Without the component the config goes to
+Core's REST config endpoint and its 400 text leads the error; WebSocket
+`validate_config` then names the failed section, the closest keys come from
+the first event of `trigger_platforms/subscribe` or
+`condition_platforms/subscribe`, the registry row from
+`config/entity_registry/get` and the load failure from
+`repairs/list_issues`, and references are not available. On both paths the
+config reaches Core as written and Core's text is never rewritten: no root
+key is pluralised, no alias or trigger key is required or renamed by the
+tool. Core does its own renaming while it validates a write (Core's
+backward-compat validators: `cv.renamed` for the root keys, the service
+schema's own rename for `service`; both rename in place and the config view
+stores that dict), so a body written with legacy keys is stored and read back
+in Core's form; a trigger's `platform` key stays. The stored body comes from
+REST `GET /api/config/automation/config/<id>`, which Core reads under its
+mutation lock; WebSocket `automation/config`
+returns the entity's `raw_config`, which stays stale until the reload after
+a write completes. An `automation.x` entity_id resolves to its config id
+through the entity registry first, so a registry-disabled automation, which
+has no state, still resolves; the state's `id` attribute is the fallback.
+`operation` is `created` when Core held no config under the id before the
+write and `updated` otherwise, and an `automation.x` that does not resolve
+is not found, never a create. Core's DELETE answers 400 "Resource not
+found" for a missing id, which the remove tool reports as not found. An
+automation the registry resolves but Core's config API answers "Resource not
+found" for is defined in YAML or a package, outside `automations.yaml`; the
+get, set and remove tools report it as CONFIG_NOT_FOUND. A config id with no
+registry row returns the body Core stores under it, with `entity` None; only
+an id Core stores nothing under is not found. The reference validator also
+checks
+device, area, floor and label targets when the component's `reference_data`
+advertises `reference_data_targets`, and entities and services only
+otherwise, naming the target kinds it could not check in
+`validation.unchecked_target_kinds` (a failed fetch is
+`validation.references_unchecked`). With targets, `reference_data` also
+carries Core's match sentinels (`ENTITY_MATCH_NONE` / `ENTITY_MATCH_ALL` from
+`homeassistant.const`), which the validator never reports as missing. The tools' own checks are HA-MCP
+policies, not Core rules: the `config_hash` optimistic lock, the
+alias-replacement guard, the guard against a config `id` passed without an
+entity_id, the config-`id` mismatch guard, write-mode exclusivity, keeping
+the `enabled` and `category` parameters out of the stored config, blueprint
+empty-list stripping, the best-practice checker and the reference
+validator.
 
 Some API meanings are not discoverable as schemas: Core declares Energy
 statistic references as plain strings. The optional metadata enrichment uses

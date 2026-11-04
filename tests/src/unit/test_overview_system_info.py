@@ -8,6 +8,19 @@ import pytest
 from ha_mcp.tools.tools_search import register_search_tools
 
 
+@pytest.fixture(autouse=True)
+def component_probe_has_a_local_test_world(monkeypatch):
+    socket = SimpleNamespace(
+        send_command=AsyncMock(
+            return_value={"success": False, "error": {"code": "unknown_command"}}
+        )
+    )
+    monkeypatch.setattr(
+        "ha_mcp.tools.component_api.get_websocket_client",
+        AsyncMock(return_value=socket),
+    )
+
+
 class TestHaGetOverviewSystemInfo:
     """Test system_info field assembly in ha_get_overview at detail_level='full'."""
 
@@ -539,7 +552,7 @@ class TestHaGetOverviewSettingsUrl:
         """Sidecar URL file present → field appears verbatim in the result."""
         url = "http://127.0.0.1:8099/private_abc/settings"
         monkeypatch.setattr(
-            "ha_mcp.stdio_settings_sidecar.read_sidecar_url",
+            "ha_mcp.stdio_settings_sidecar.live_sidecar_url",
             lambda: url,
         )
         result = await overview_tool(detail_level="minimal")
@@ -556,7 +569,7 @@ class TestHaGetOverviewSettingsUrl:
         overview call is caught.
         """
         monkeypatch.setattr(
-            "ha_mcp.stdio_settings_sidecar.read_sidecar_url",
+            "ha_mcp.stdio_settings_sidecar.live_sidecar_url",
             lambda: None,
         )
         result = await overview_tool(detail_level="minimal")
@@ -578,7 +591,7 @@ class TestHaGetOverviewSettingsUrl:
         """
         url = "http://127.0.0.1:8099/private_abc/settings"
         monkeypatch.setattr(
-            "ha_mcp.stdio_settings_sidecar.read_sidecar_url",
+            "ha_mcp.stdio_settings_sidecar.live_sidecar_url",
             lambda: url,
         )
         result = await overview_tool(fields=["system_info"])
@@ -599,7 +612,7 @@ class TestHaGetOverviewSettingsUrl:
         references the mount path + startup logs rather than a guessed URL.
         """
         monkeypatch.setattr(
-            "ha_mcp.stdio_settings_sidecar.read_sidecar_url", lambda: None
+            "ha_mcp.stdio_settings_sidecar.live_sidecar_url", lambda: None
         )
         monkeypatch.setattr(
             "ha_mcp.settings_ui.get_http_settings_prefix", lambda: "/mcp"
@@ -615,7 +628,7 @@ class TestHaGetOverviewSettingsUrl:
         """No sidecar URL and no HTTP mount (stdio with the sidecar disabled)
         → neither settings field is emitted."""
         monkeypatch.setattr(
-            "ha_mcp.stdio_settings_sidecar.read_sidecar_url", lambda: None
+            "ha_mcp.stdio_settings_sidecar.live_sidecar_url", lambda: None
         )
         monkeypatch.setattr("ha_mcp.settings_ui.get_http_settings_prefix", lambda: None)
         result = await overview_tool(detail_level="minimal")
@@ -633,7 +646,7 @@ class TestHaGetOverviewSettingsUrl:
         monkeypatch.delenv("HA_MCP_EMBEDDED", raising=False)
         monkeypatch.delenv("SUPERVISOR_TOKEN", raising=False)
         monkeypatch.setattr(
-            "ha_mcp.stdio_settings_sidecar.read_sidecar_url", lambda: None
+            "ha_mcp.stdio_settings_sidecar.live_sidecar_url", lambda: None
         )
         monkeypatch.setattr(settings_ui, "_http_settings_prefix", None)
         monkeypatch.setattr(settings_ui, "_http_settings_mounted", False)
@@ -661,7 +674,7 @@ class TestHaGetOverviewSettingsUrl:
         prefix; the hint uses ``rstrip('/')`` to collapse it.
         """
         monkeypatch.setattr(
-            "ha_mcp.stdio_settings_sidecar.read_sidecar_url", lambda: None
+            "ha_mcp.stdio_settings_sidecar.live_sidecar_url", lambda: None
         )
         monkeypatch.setattr(
             "ha_mcp.settings_ui.get_http_settings_prefix", lambda: "/mcp/"
@@ -678,7 +691,7 @@ class TestHaGetOverviewSettingsUrl:
         """Like ``settings_url``, the HTTP hint is emitted post-projection so a
         narrow ``fields=`` request still surfaces it."""
         monkeypatch.setattr(
-            "ha_mcp.stdio_settings_sidecar.read_sidecar_url", lambda: None
+            "ha_mcp.stdio_settings_sidecar.live_sidecar_url", lambda: None
         )
         monkeypatch.setattr(
             "ha_mcp.settings_ui.get_http_settings_prefix", lambda: "/mcp"

@@ -16,12 +16,16 @@ from ha_mcp.runtime.error_text import (
 )
 from ha_mcp.runtime.errors import ws_failure_code
 
+from ..backends.legacy import legacy_errors_sync
 from ..client.rest_client import HomeAssistantAPIError, HomeAssistantAuthError
 from ..client.websocket_client import HomeAssistantWebSocketClient
 from ..errors import (
     ErrorCode,
     create_auth_error,
     create_connection_error,
+)
+from ..runtime.action_params import (
+    _parse_json_dict_param as _shared_parse_json_dict_param,
 )
 from ..runtime.error_classification import classified_error
 from ..tool_api.parameters import HIDDEN_PARAM, hidden_param_names
@@ -322,3 +326,6 @@ async def get_entity_state_or_none(
             raise
         return None
     return state
+
+
+_parse_json_dict_param = legacy_errors_sync(_shared_parse_json_dict_param)

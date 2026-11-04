@@ -179,12 +179,13 @@ class SearchTools(LegacyBackendTools, ComponentSearchMixin, OverviewMixin, State
                     ]
                 ),
             }
-        from ..stdio_settings_sidecar import read_sidecar_url
 
         projected = project_fields(
             result, parsed_fields, available_fields=_OVERVIEW_AVAILABLE_FIELDS
         )
-        sidecar_url = read_sidecar_url()
+        from ..stdio_settings_sidecar import live_sidecar_url
+
+        sidecar_url = live_sidecar_url()
         if sidecar_url:
             projected["settings_url"] = sidecar_url
         else:

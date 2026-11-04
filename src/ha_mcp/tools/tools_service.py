@@ -35,9 +35,6 @@ from ..errors import (
 )
 from ..read_only import require_write_access
 from ..runtime.action_constants import _NON_ENVELOPE_WARNING
-from ..runtime.action_params import (
-    _parse_json_dict_param as _shared_parse_json_dict_param,
-)
 from ..runtime.actions import ServiceCallTools as SharedServiceCallTools
 from ..runtime.bulk_params import BulkControlOperation
 from ..runtime.bulk_params import (
@@ -70,6 +67,9 @@ from .component_api import (
     get_component_caps,
     invalidate_caps,
     is_unknown_command,
+)
+from .helpers import (
+    _parse_json_dict_param as _parse_json_dict_param,
 )
 from .helpers import (
     exception_to_structured_error,
@@ -163,15 +163,6 @@ class _AmbiguousDispatch(NamedTuple):
     """An uncertain component write, retaining diagnostics without allowing replay."""
 
     error: Exception
-
-
-def _parse_json_dict_param(data: Any, *, type_error_message: str) -> Any:
-    try:
-        return _shared_parse_json_dict_param(
-            data, type_error_message=type_error_message
-        )
-    except ToolFailure as exc:
-        return raise_tool_error(exc.data)
 
 
 logger = logging.getLogger(__name__)

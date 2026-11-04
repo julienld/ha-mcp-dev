@@ -295,6 +295,7 @@ from .yaml_editing import (
 from .yaml_editing import (
     _serialize_and_validate_edit as _serialize_and_validate_edit,
 )
+from .yaml_find import SERVICE_FIND_YAML_KEY, register_find_yaml_key
 from .yaml_rt import (
     apply_seq_indent,
     detect_seq_indent,
@@ -1348,7 +1349,7 @@ async def _async_setup_tools_entry(hass: HomeAssistant, entry: ConfigEntry) -> b
                 type(err).__name__,
                 err,
             )
-
+    register_find_yaml_key(hass, _caller_token_ok, _unauthorized_response)
     # Register all services with response support
     for service, schema, build_handler in (
         (
@@ -1403,7 +1404,6 @@ async def _async_setup_tools_entry(hass: HomeAssistant, entry: ConfigEntry) -> b
             schema=schema,
             supports_response=SupportsResponse.ONLY,
         )
-
     # Register the in-process ha_mcp_tools/* WebSocket commands (info + search)
     # the server calls behind a capability gate. Idempotent, and independent of
     # the caller-token gate above — HA core authenticates the WS connection and
@@ -1412,7 +1412,6 @@ async def _async_setup_tools_entry(hass: HomeAssistant, entry: ConfigEntry) -> b
     # install has it as well; on a dual-entry install both entries register it
     # and the second registration simply overwrites the first.
     async_register_commands(hass)
-
     # Entry-level finalization: pick up the #1853 rename on existing installs and
     # give the tools entry a device. Both are cosmetic to the integration's core
     # value; the device's manifest version read degrades rather than blocking
@@ -1435,9 +1434,9 @@ async def _async_setup_tools_entry(hass: HomeAssistant, entry: ConfigEntry) -> b
 
 async def _async_unload_tools_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload the File & YAML services (tools entry) config entry."""
-    # Remove all services
     hass.services.async_remove(DOMAIN, SERVICE_EDIT_YAML_CONFIG)
     hass.services.async_remove(DOMAIN, SERVICE_LIST_FILES)
+    hass.services.async_remove(DOMAIN, SERVICE_FIND_YAML_KEY)
     hass.services.async_remove(DOMAIN, SERVICE_READ_FILE)
     hass.services.async_remove(DOMAIN, SERVICE_WRITE_FILE)
     hass.services.async_remove(DOMAIN, SERVICE_DELETE_FILE)

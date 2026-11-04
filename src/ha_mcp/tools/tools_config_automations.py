@@ -38,9 +38,16 @@ from ..utils.python_sandbox import (
     safe_execute,
 )
 from .auto_backup import automation_backup_target, with_auto_backup
+from .automation_errors import (
+    core_rejection_text,
+    failed_section_from_core,
+    raise_core_rejection,
+    section_from_status,
+)
 from .best_practice_checker import (
     BestPracticeCheckResult,
 )
+from .component_automation import automation_validate
 from .component_config_reads import fetch_entity_lookup_via_component
 from .config_helpers.registry import validate_registry_ids
 from .config_write_helpers import (
@@ -156,6 +163,26 @@ async def _set_automation_enabled(client: Any, entity_id: str, enabled: bool) ->
 
 
 class AutomationConfigTools(LegacyBackendTools, AutomationWriteTools):
+    async def _validate_core_automation(
+        self,
+        config: dict[str, Any],
+        entity_id: str | None,
+        bp_warnings: BestPracticeCheckResult,
+    ) -> None:
+        """Raise Core's own validation failure before writing, when the component runs it."""
+        verdict = await automation_validate(self._client, config) or {}
+        status = verdict.get("status")
+        if status in (None, "ok"):
+            return
+        await raise_core_rejection(
+            self._client,
+            str(verdict.get("error") or status),
+            config,
+            failed_section=section_from_status(status),
+            context={"entity_id": entity_id},
+            bp_warnings=bp_warnings,
+        )
+
     """Configuration management tools for Home Assistant automations."""
 
     def __init__(self, client: Any) -> None:
@@ -372,25 +399,31 @@ class AutomationConfigTools(LegacyBackendTools, AutomationWriteTools):
         resolved_id: str | None,
         verified: tuple[dict[str, Any], str | None] | None = None,
     ) -> dict[str, Any]:
-        """Upsert, threading a pre-resolved unique_id when available.
-
-        When ``resolved_id`` is set the caller already resolved ``identifier``
-        (via the hash check or alias guard); pass it with ``_resolved=True`` so the
-        REST client skips the redundant entity_id→unique_id lookup (issue #1813
-        Phase 0). Otherwise fall back to the raw ``identifier`` and let the REST
-        client resolve — creation and fetched configs without an id use this
-        fallback.
-
-        ``verified`` belongs to the shared runtime's CAS path; this historical
-        client override retains its existing upsert contract.
-        """
-        result: dict[str, Any]
-        if resolved_id is not None:
-            result = await self._client.upsert_automation_config(
-                config, resolved_id, _resolved=True
+        try:
+            if resolved_id is not None:
+                result = await self._client.upsert_automation_config(
+                    config,
+                    resolved_id,
+                    _resolved=True,
+                    wait_for_entity=verified is None,
+                )
+            else:
+                result = await self._client.upsert_automation_config(
+                    config, identifier, wait_for_entity=verified is None
+                )
+        except HomeAssistantAPIError as error:
+            core_text = core_rejection_text(error)
+            if core_text is None:
+                raise
+            await raise_core_rejection(
+                self._client,
+                core_text,
+                config,
+                failed_section=await failed_section_from_core(self._client, config),
+                context={"entity_id": identifier},
+                bp_warnings=BestPracticeCheckResult(),
             )
-        else:
-            result = await self._client.upsert_automation_config(config, identifier)
+        result["operation"] = "created" if verified is None else "updated"
         return result
 
     _take_control_config = legacy_errors(
@@ -473,13 +506,25 @@ class AutomationConfigTools(LegacyBackendTools, AutomationWriteTools):
         legacy_errors_sync(AutomationConfigMethods._validate_condition_platform)
     )
 
+    _check_input_guards = staticmethod(
+        legacy_errors_sync(AutomationConfigMethods._check_input_guards)
+    )
+
     _validate_required_fields = staticmethod(
         legacy_errors_sync(AutomationConfigMethods._validate_required_fields)
     )
 
     async def _read_automation_config(self, identifier: str) -> dict[str, Any]:
-        result: dict[str, Any] = await self._client.get_automation_config(identifier)
-        return result
+        from ..backends.remote_automation_reads import RemoteAutomationReads
+
+        reader = RemoteAutomationReads(self._client)
+        target = await reader._resolve_target(identifier, with_entity=False)
+        body = await reader._read_stored(target.config_id)
+        if body is None:
+            if target.entity_id:
+                await reader._raise_automation_not_found(identifier, target)
+            raise HomeAssistantAPIError("Resource not found", 404)
+        return body
 
     async def _render_blueprint(
         self, domain: str, path: str, inputs: dict[str, Any]
@@ -498,7 +543,7 @@ class AutomationConfigTools(LegacyBackendTools, AutomationWriteTools):
             "Remove Automation", destructive=True, idempotent=True, open_world=False
         ),
     )(
-        with_auto_backup(domain="automation", id_param="identifier")(
+        with_auto_backup(domain="automation", id_fn=automation_backup_target)(
             log_tool_usage(
                 legacy_errors(AutomationRemovalTools.ha_config_remove_automation)
             )
@@ -506,8 +551,16 @@ class AutomationConfigTools(LegacyBackendTools, AutomationWriteTools):
     )
 
     async def _delete_automation(self, identifier: str) -> dict[str, Any]:
-        result: dict[str, Any] = await self._client.delete_automation_config(identifier)
-        return result
+        from ..backends.remote_automation_reads import RemoteAutomationReads
+
+        reader = RemoteAutomationReads(self._client)
+        target = await reader._resolve_target(identifier)
+        try:
+            return await self._client.delete_automation_config(target.config_id)
+        except HomeAssistantAPIError as error:
+            if error.status_code == 404:
+                await reader._raise_automation_not_found(identifier, target)
+            raise
 
     async def _verify_removed(self, entity_id: str, result: dict[str, Any]) -> None:
         await verify_entity_removed(self._client, entity_id, result)

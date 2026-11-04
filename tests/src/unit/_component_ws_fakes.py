@@ -47,6 +47,10 @@ class _FakeContext:
     def __init__(self, user_id: str | None) -> None:
         self.user_id = user_id
 
+    def as_dict(self) -> dict[str, Any]:
+        """Mirror Core's ``Context.as_dict`` for the call_event reply."""
+        return {"id": None, "user_id": self.user_id}
+
 
 class _FakeConnection:
     def __init__(
@@ -228,3 +232,88 @@ class _FakeBulkServices:
     @property
     def call_count(self) -> int:
         return len(self.calls)
+
+
+class FakeRegEntry:
+    def __init__(
+        self,
+        entity_id,
+        aliases=(),
+        area_id=None,
+        device_id=None,
+        labels=(),
+        hidden_by=None,
+        name=None,
+        unique_id=None,
+        original_name=None,
+        categories=None,
+        config_entry_id=None,
+        entity_category=None,
+        platform=None,
+        disabled_by=None,
+    ):
+        self.entity_id = entity_id
+        self.aliases = set(aliases)
+        self.area_id = area_id
+        self.device_id = device_id
+        self.labels = set(labels)
+        self.hidden_by = hidden_by
+        self.name = name
+        self.unique_id = unique_id
+        self.original_name = original_name
+        self.categories = dict(categories or {})
+        self.config_entry_id = config_entry_id
+        self.entity_category = entity_category
+        self.platform = platform
+        self.disabled_by = disabled_by
+
+    @property
+    def as_partial_dict(self):
+        # Core's ``config/entity_registry/list`` row; sets as lists, fixed floats.
+        return {
+            "area_id": self.area_id,
+            "categories": dict(self.categories),
+            "config_entry_id": self.config_entry_id,
+            "config_subentry_id": None,
+            "created_at": 0.0,
+            "device_id": self.device_id,
+            "disabled_by": self.disabled_by,
+            "entity_category": self.entity_category,
+            "entity_id": self.entity_id,
+            "has_entity_name": False,
+            "hidden_by": self.hidden_by,
+            "icon": None,
+            "id": self.unique_id,
+            "labels": sorted(self.labels),
+            "modified_at": 0.0,
+            "name": self.name,
+            "options": {},
+            "original_name": self.original_name,
+            "platform": self.platform,
+            "translation_key": None,
+            "unique_id": self.unique_id,
+        }
+
+    @property
+    def extended_dict(self):  # Core's ``config/entity_registry/get`` row
+        extra = (
+            "capabilities",
+            "device_class",
+            "original_device_class",
+            "original_icon",
+        )
+        return {
+            **self.as_partial_dict,
+            "aliases": sorted(self.aliases),
+        } | dict.fromkeys(extra)
+
+
+class FakeServices:
+    """Stand-in for ``hass.services`` (``async_services`` mapping)."""
+
+    def __init__(self, services: Mapping[str, Mapping[str, Any]]) -> None:
+        # services: {domain: {service_name: <anything>}}
+        self._services = {d: dict(s) for d, s in dict(services).items()}
+
+    def async_services(self) -> dict[str, dict[str, Any]]:
+        return dict(self._services)

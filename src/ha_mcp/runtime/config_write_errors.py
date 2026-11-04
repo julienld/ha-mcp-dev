@@ -70,47 +70,31 @@ def _missing_field_guidance(
 
 def reject_sequence_misroute(
     config_dict: dict[str, Any],
-    missing_fields: list[str],
-    identifier: str | None,
+    entity_id: str | None,
     source: str = "config",
 ) -> None:
-    """Raise when a 'sequence' key shows the config is really a script.
+    """Raise when a 'sequence' key without actions shows the config is a script.
 
-    Returns silently when the config does not look script-shaped, so the
-    caller stays a one-liner. A runtime-only ``enabled`` key folds into the
-    same rejection instead of costing another round trip.
+    A runtime-only ``enabled`` key folds into the same rejection instead of
+    costing another round trip.
     """
-    if not (
-        missing_fields
-        and "sequence" in config_dict
-        and ("triggers" in missing_fields or "actions" in missing_fields)
-    ):
+    if "sequence" not in config_dict or {"actions", "action"} & config_dict.keys():
         return
-    context: dict[str, Any] = {"missing_fields": missing_fields}
-    if identifier:
-        context["identifier"] = identifier
-    message = f"Missing required fields: {', '.join(missing_fields)}"
+    context: dict[str, Any] = {"found_key": "sequence"}
+    if entity_id:
+        context["entity_id"] = entity_id
+    message = "Config has 'sequence' and no 'actions'"
     if source == "python_transform":
         automation_fix = (
-            "In the python_transform expression, replace 'sequence' with "
-            "'actions' and add 'triggers'."
+            "In the python_transform expression, replace 'sequence' with 'actions'"
         )
-        if "alias" in missing_fields:
-            automation_fix += (
-                " Set 'alias' in the expression too, e.g. config['alias'] = '...'."
-            )
     else:
-        automation_fix = (
-            "For an automation, replace 'sequence' with 'actions' and add 'triggers'."
-        )
-        if "alias" in missing_fields:
-            automation_fix += (
-                " Put 'alias' inside `config` too, e.g. "
-                f"{_missing_fields_shape(is_blueprint=False)}."
-            )
+        automation_fix = "For an automation, replace 'sequence' with 'actions'"
+    if not {"triggers", "trigger"} & config_dict.keys():
+        automation_fix += " and add 'triggers'"
     suggestions = [
         "Did you mean ha_config_set_script? Scripts use 'sequence' directly.",
-        automation_fix,
+        f"{automation_fix}.",
     ]
     if config_has_enabled(config_dict):
         context["invalid_key"] = "enabled"
@@ -170,6 +154,21 @@ def reject_invalid_config_inputs(
                 context=context or None,
             )
         )
+    raise_failure(
+        create_error_response(
+            ErrorCode.VALIDATION_INVALID_PARAMETER,
+            "'enabled' is a runtime-only tool parameter, not a valid "
+            "automation config key",
+            suggestions=[ENABLED_REMOVE_SUGGESTION, ENABLED_UNCHANGED_SUGGESTION],
+            context={"action": "set", "invalid_key": "enabled"},
+        )
+    )
+
+
+def reject_enabled_in_config(config_dict: dict[str, Any]) -> None:
+    """Raise when the runtime-only ``enabled`` key sits inside the config."""
+    if not config_has_enabled(config_dict):
+        return
     raise_failure(
         create_error_response(
             ErrorCode.VALIDATION_INVALID_PARAMETER,

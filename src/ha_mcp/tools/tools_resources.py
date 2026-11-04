@@ -15,6 +15,8 @@ content now goes straight into a ``data:`` URI: same storage location
 (the resource registry), no third-party hop on dashboard loads.
 """
 
+from __future__ import annotations
+
 import logging
 from typing import Any, NoReturn
 
@@ -24,6 +26,9 @@ from ha_mcp.backends.legacy import legacy_errors, legacy_errors_sync
 from ha_mcp.runtime.resource_tools import ResourceTools as ResourceContractTools
 from ha_mcp.runtime.resource_values import (
     _ALLOWED_DATA_URI_PREFIXES as _ALLOWED_DATA_URI_PREFIXES,
+)
+from ha_mcp.runtime.resource_values import (
+    _HA_CONFIG_YAML_MARKERS as _HA_CONFIG_YAML_MARKERS,
 )
 from ha_mcp.runtime.resource_values import (
     _RESOURCE_TYPE,
@@ -66,6 +71,15 @@ from .helpers import (
     validate_identifier_not_empty,
     ws_failure_code,
 )
+from .resource_codec import content_sha256
+from .resource_patch import (
+    ResourceEdit,
+    ResourceLookupError,
+    apply_resource_edits,
+    check_config_hash,
+    find_resource,
+    load_inline_resource,
+)
 from .tool_hints import read_only_hints, write_hints
 
 logger = logging.getLogger(__name__)
@@ -78,7 +92,11 @@ class LegacyResources:
         self._client = client
 
     async def list(
-        self, include_content: bool = False, limit: int = 100, offset: int = 0
+        self,
+        include_content: bool = False,
+        limit: int = 100,
+        offset: int = 0,
+        include_hash: bool = False,
     ) -> dict[str, Any]:
         try:
             result = await self._client.send_websocket_message(
@@ -94,7 +112,12 @@ class LegacyResources:
                 resources = []
 
             return resource_list_result(
-                resources, include_content, limit, offset, await self._resource_mode()
+                resources,
+                include_content,
+                limit,
+                offset,
+                await self._resource_mode(),
+                include_hash,
             )
         except ToolError:
             raise
@@ -112,7 +135,24 @@ class LegacyResources:
         url: str | None = None,
         resource_type: str = "module",
         resource_id: str | None = None,
+        edits: list[ResourceEdit] | None = None,
+        config_hash: str | None = None,
     ) -> dict[str, Any]:
+        if edits is not None:
+            return await self._patch_inline_resource(
+                resource_id, edits, config_hash, other_modes=(content, url)
+            )
+        if config_hash is not None:
+            raise_tool_error(
+                create_error_response(
+                    ErrorCode.VALIDATION_INVALID_PARAMETER,
+                    "config_hash only applies together with edits",
+                )
+            )
+        if resource_id is not None:
+            validate_identifier_not_empty(
+                resource_id, "resource_id", context={"action": "set"}
+            )
         validate_choice(content, url)
         if content is not None:
             return await self._set_inline_resource(content, resource_type, resource_id)
@@ -123,11 +163,19 @@ class LegacyResources:
         content: str,
         resource_type: _RESOURCE_TYPE,
         resource_id: str | None,
+        *,
+        check_preview: bool = True,
     ) -> dict[str, Any]:
-        """Create or update an inline dashboard resource."""
+        """Create or update an inline dashboard resource.
+
+        ``check_preview=False`` skips the truncated-preview guard. Only edit
+        results pass it: they are derived from the stored content, not
+        copied from a list response, so a preview-shaped result (e.g. a
+        suffix deletion leaving ``_PREVIEW_LENGTH`` characters) is intended.
+        """
         content_size = validate_inline(content, resource_type)
 
-        if resource_id is not None:
+        if resource_id is not None and check_preview:
             await self._reject_truncated_preview_resave(content, resource_id)
 
         resource_url = _data_uri_for(content, resource_type)
@@ -150,9 +198,15 @@ class LegacyResources:
                 f"type={resource_type}, size={content_size}"
             )
 
-            return resource_set_result(
-                new_resource_id, resource_type, action, size=content_size
-            )
+            return {
+                "success": True,
+                "action": action,
+                "resource_id": new_resource_id,
+                "resource_type": resource_type,
+                "size": content_size,
+                "config_hash": _stored_content_hash(result),
+                "note": "Clear browser cache or hard refresh to load changes",
+            }
         except ToolError:
             raise
         except Exception as e:
@@ -166,6 +220,68 @@ class LegacyResources:
             )
             # Unreachable (exception_to_structured_error is NoReturn).
             raise
+
+    async def _patch_inline_resource(
+        self,
+        resource_id: str | None,
+        edits: list[ResourceEdit],
+        config_hash: str | None,
+        other_modes: tuple[str | None, str | None],
+    ) -> dict[str, Any]:
+        """Apply search/replace edits to a stored inline resource, all or nothing."""
+        if any(mode is not None for mode in other_modes):
+            raise_tool_error(
+                create_error_response(
+                    code=ErrorCode.VALIDATION_INVALID_PARAMETER,
+                    message="Provide only one of 'edits', 'content' or 'url'",
+                    suggestions=[
+                        "Use edits= alone to change part of an existing inline resource",
+                    ],
+                )
+            )
+        if resource_id is None:
+            raise_tool_error(
+                create_error_response(
+                    code=ErrorCode.VALIDATION_MISSING_PARAMETER,
+                    message="edits requires resource_id",
+                    suggestions=[
+                        "Get the ID from ha_config_list_dashboard_resources()",
+                    ],
+                )
+            )
+        validate_identifier_not_empty(
+            resource_id,
+            "resource_id",
+            suggestions=["Pass the ID of the inline resource to patch"],
+            context={"action": "patch"},
+        )
+        # with_auto_backup holds this resource's write lock around the whole
+        # call (resource_write_lock), so no other write through this server
+        # lands between this read and the write below.
+        try:
+            stored, resource_type = await load_inline_resource(
+                self._client, resource_id
+            )
+        except ToolError:
+            raise
+        except Exception as e:
+            logger.error(f"Error reading dashboard resource to patch: {e}")
+            exception_to_structured_error(
+                e,
+                context={
+                    "tool": "ha_config_set_dashboard_resource",
+                    "action": "patch",
+                    "resource_id": resource_id,
+                },
+            )
+            # Unreachable (exception_to_structured_error is NoReturn).
+            raise
+        check_config_hash(stored, config_hash)
+        patched = apply_resource_edits(stored, edits)
+        response = await self._set_inline_resource(
+            patched, resource_type, resource_id, check_preview=False
+        )
+        return {**response, "action": "patched", "applied": len(edits)}
 
     async def _reject_truncated_preview_resave(
         self, content: str, resource_id: str
@@ -214,42 +330,28 @@ class LegacyResources:
             )
 
         try:
-            result = await self._client.send_websocket_message(
-                {"type": "lovelace/resources"}
-            )
+            found = await find_resource(self._client, resource_id)
+        except ResourceLookupError as e:
+            _unverifiable(e.detail)
         except Exception as e:  # noqa: BLE001
             _unverifiable(f"listing the resources failed: {e}")
-        error_msg = _check_ws_error(result)
-        if error_msg:
-            _unverifiable(f"Home Assistant rejected the listing: {error_msg}")
-        resources = result.get("result") if isinstance(result, dict) else result
-        if not isinstance(resources, list):
-            _unverifiable("Home Assistant returned an unreadable resource list")
-        for res in resources:
-            # Element type is guarded too: a malformed entry must not raise a
-            # bare AttributeError out of the tool.
-            if not isinstance(res, dict) or str(res.get("id")) != str(resource_id):
-                continue
-            url = res.get("url", "")
-            stored = None
-            if isinstance(url, str):
-                decoded = _decode_inline_content(url)
-                stored = decoded[0] if decoded else None
-            if stored and _is_preview_of(content, stored):
-                raise_tool_error(
-                    create_error_response(
-                        code=ErrorCode.VALIDATION_INVALID_PARAMETER,
-                        message="Content is the truncated preview from "
-                        "ha_config_list_dashboard_resources, not the full "
-                        "resource code — saving it would destroy the resource",
-                        context={"resource_id": resource_id},
-                        suggestions=[
-                            "Fetch the full code with ha_config_list_dashboard_resources(include_content=True)",
-                            "Then re-save with the complete content",
-                        ],
-                    )
-                )
+        if found is None:
             return
+        stored = found[1]
+        if stored and _is_preview_of(content, stored):
+            raise_tool_error(
+                create_error_response(
+                    code=ErrorCode.VALIDATION_INVALID_PARAMETER,
+                    message="Content is the truncated preview from "
+                    "ha_config_list_dashboard_resources, not the full "
+                    "resource code — saving it would destroy the resource",
+                    context={"resource_id": resource_id},
+                    suggestions=[
+                        "Fetch the full code with ha_config_list_dashboard_resources(include_content=True)",
+                        "Then re-save with the complete content",
+                    ],
+                )
+            )
 
     async def _set_url_resource(
         self,
@@ -353,22 +455,12 @@ class LegacyResources:
         url: str | None,
         resource_type: _RESOURCE_TYPE,
     ) -> tuple[dict[str, Any], str]:
-        """Create or update a lovelace resource. Returns (result, action)."""
-        # ``None`` stays the documented "create-new" sentinel; explicit
-        # empty/whitespace ``resource_id`` would silently route to the
-        # ``else`` create branch below and lose update intent (destructive
-        # intent-loss class, same as the registry-metadata twins).
+        """Create or update a lovelace resource. Returns (result, action).
+
+        Callers validate ``resource_id`` first: None creates, anything else
+        updates.
+        """
         if resource_id is not None:
-            validate_identifier_not_empty(
-                resource_id,
-                "resource_id",
-                suggestions=[
-                    "Omit resource_id entirely to create a new resource",
-                    "Pass a valid resource_id to update an existing resource",
-                ],
-                context={"action": "set"},
-            )
-        if resource_id:
             result = await self._client.send_websocket_message(
                 {
                     "type": "lovelace/resources/update",
@@ -495,3 +587,16 @@ __all__ = [
     "_summarize_resources",
     "register_resources_tools",
 ]
+
+
+def _stored_content_hash(result: Any) -> str | None:
+    """Hash the content Home Assistant stored, decoded from the write's result.
+
+    ``lovelace/resources/create`` and ``/update`` return the stored item;
+    hashing its URL rather than the string sent keeps the hash tied to what
+    HA holds. None when the result carries no decodable inline URL.
+    """
+    item = result.get("result") if isinstance(result, dict) else None
+    url = item.get("url") if isinstance(item, dict) else None
+    decoded = _decode_inline_content(url) if isinstance(url, str) else None
+    return content_sha256(decoded[0]) if decoded else None

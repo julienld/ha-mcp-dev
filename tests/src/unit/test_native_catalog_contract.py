@@ -103,6 +103,24 @@ def _upstream_string_extension(
     return new == {"anyOf": alternatives, "default": None}
 
 
+def _optional_nullable_input(before: dict[str, Any], after: dict[str, Any]) -> bool:
+    return _structural_schema(before) == {"type": "string"} and _structural_schema(
+        after
+    ) == {"default": None, "anyOf": [{"type": "string"}, {"type": "null"}]}
+
+
+def _preserved_definitions(before: Any, after: Any) -> bool:
+    old, new = before or {}, after or {}
+    return (
+        isinstance(old, dict)
+        and isinstance(new, dict)
+        and all(
+            key in new and _structural_schema(value) == _structural_schema(new[key])
+            for key, value in old.items()
+        )
+    )
+
+
 def _changed_inputs(
     before: dict[str, Any],
     after: dict[str, Any],
@@ -118,6 +136,11 @@ def _changed_inputs(
         elif _structural_schema(schema) != _structural_schema(new_properties[name]):
             if not (
                 (
+                    name in before.get("required", [])
+                    and name not in after.get("required", [])
+                    and _optional_nullable_input(schema, new_properties[name])
+                )
+                or (
                     tool_name == "ha_get_logs"
                     and name == "offset"
                     and _adds_error_log_cursor(schema, new_properties[name])
@@ -144,6 +167,10 @@ def _changed_inputs(
         f"changed root {key}"
         for key in ("$defs", "definitions", "additionalProperties", "type")
         if _structural_schema(before.get(key)) != _structural_schema(after.get(key))
+        and not (
+            key in {"$defs", "definitions"}
+            and _preserved_definitions(before.get(key), after.get(key))
+        )
     )
     return changes
 
@@ -425,3 +452,38 @@ def test_added_cursor_alternative_must_retain_integer_bounds_and_default(
     assert _changed_inputs(before, after, tool_name="ha_other_tool") == [
         "changed parameter offset"
     ]
+
+
+def test_optional_schema_extensions_keep_existing_call_restrictions():
+    import copy
+
+    before = {
+        "type": "object",
+        "properties": {
+            "identifier": {"type": "string"},
+            "choice": {"$ref": "#/$defs/Choice"},
+        },
+        "required": ["identifier"],
+        "$defs": {"Choice": {"type": "string", "enum": ["a", "b"]}},
+        "additionalProperties": False,
+    }
+    after = copy.deepcopy(before)
+    after["properties"]["identifier"] = {
+        "default": None,
+        "anyOf": [{"type": "string"}, {"type": "null"}],
+    }
+    after["required"] = []
+    after["properties"]["edits"] = {"type": "array", "items": {"$ref": "#/$defs/Edit"}}
+    after["$defs"]["Edit"] = {"type": "object"}
+    assert not _changed_inputs(before, after)
+    for mutation in ("definition", "required", "removed", "type"):
+        broken = copy.deepcopy(after)
+        if mutation == "definition":
+            broken["$defs"]["Choice"]["enum"] = ["a"]
+        elif mutation == "required":
+            broken["required"] = ["edits"]
+        elif mutation == "removed":
+            del broken["properties"]["identifier"]
+        else:
+            broken["properties"]["identifier"] = {"type": "integer"}
+        assert _changed_inputs(before, broken), mutation

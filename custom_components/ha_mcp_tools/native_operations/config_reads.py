@@ -44,11 +44,21 @@ def _available_ids(hass: HomeAssistant, domain: str) -> list[str]:
 async def _automation_read(
     hass: HomeAssistant, arguments: dict[str, Any]
 ) -> dict[str, Any]:
+    if arguments.get("include_details"):
+        return await _automation_details(hass, arguments)
     identifier = arguments["identifier"]
     storage_key = identifier
     if identifier.startswith("automation."):
+        entry = _registry_entry(hass, identifier)
+        unique_id = getattr(entry, "unique_id", None)
         state = hass.states.get(identifier)
-        storage_key = state.attributes.get("id") if state else None
+        storage_key = (
+            str(unique_id)
+            if isinstance(unique_id, (str, int))
+            else state.attributes.get("id")
+            if state
+            else None
+        )
     value = (
         await read_config_item(hass, "automation", str(storage_key))
         if storage_key
@@ -230,3 +240,71 @@ DIRECT_OPERATIONS: dict[
     "zones.snapshot": _zones,
     "scenes.inventory": _scene_inventory,
 }
+
+
+async def _automation_validate(
+    hass: HomeAssistant, arguments: dict[str, Any]
+) -> dict[str, Any]:
+    from ..automation_config import async_automation_config
+
+    return await async_automation_config(
+        hass, {"action": "validate", "config": arguments["config"]}
+    )
+
+
+DIRECT_OPERATIONS["config.automation.validate"] = _automation_validate
+
+
+async def _automation_details(
+    hass: HomeAssistant, arguments: dict[str, Any]
+) -> dict[str, Any]:
+    from ..automation_config import async_automation_config
+
+    identifier = arguments["identifier"]
+    lookup = await async_automation_config(
+        hass,
+        {
+            "action": "lookup",
+            "entity_id"
+            if identifier.startswith("automation.")
+            else "unique_id": identifier,
+        },
+    )
+    available = lookup.get("status") != "unavailable"
+    row = lookup.get("entity") if available else None
+    if not available:
+        resolved = await _entity_id(
+            hass, {"domain": "automation", "identifier": identifier}
+        )
+        entry = _registry_entry(hass, resolved) if resolved else None
+        partial = getattr(entry, "as_partial_dict", None)
+        row = partial if isinstance(partial, dict) else None
+    key = (
+        (row or {}).get("unique_id")
+        if identifier.startswith("automation.")
+        else identifier
+    )
+    data = await _automation_read(hass, {"identifier": str(key) if key else identifier})
+    data.update(
+        entity_id=(row or {}).get("entity_id")
+        or (identifier if identifier.startswith("automation.") else None),
+        entity=row,
+        validation=lookup.get("validation"),
+        references=lookup.get("references"),
+        warnings=[],
+    )
+    if not available:
+        data["warnings"].append(
+            "Core automation metadata is unavailable; configuration comes from the persisted owner"
+        )
+    elif lookup.get("loaded") is False and lookup.get("references") is None:
+        data["warnings"].append(
+            "references unavailable: Home Assistant has not loaded this automation (disabled, or it failed to load)"
+        )
+    if not data["found"] and row:
+        raise ToolFailure(
+            "CONFIG_NOT_FOUND",
+            "The automation exists in YAML or a package, outside automations.yaml",
+            status="not_started",
+        )
+    return data

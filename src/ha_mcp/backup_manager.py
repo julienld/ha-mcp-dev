@@ -153,6 +153,7 @@ from .runtime.snapshot_restore import ApplyStatus, restore_snapshot_data
 from .storage_helper_types import SIMPLE_HELPER_TYPES
 from .utils.data_paths import get_data_dir
 from .utils.owned_executor import await_backup_io as _await_backup_io
+from .utils.registry_update_lock import registry_update_lock
 
 logger = logging.getLogger(__name__)
 
@@ -1397,25 +1398,13 @@ async def _ws_send(client: Any, message: dict[str, Any]) -> Any:
 
 
 async def _fetch_automation(client: Any, entity_id: str) -> Any:
-    """Fetch an automation through the same path the get tool uses.
-
-    Applies ``_normalize_config_for_roundtrip`` so the snapshot matches
-    what ``ha_config_get_automation`` returns and round-trips cleanly
-    back through ``ha_config_set_automation`` on restore. Imported lazily
-    to keep the manager import-cycle-free.
-    """
-    # Lazy import to avoid backup_manager → tools → backup_manager cycle.
-    from .tools.tools_config_automations import _normalize_config_for_roundtrip
-
+    """Fetch the stored body verbatim."""
     try:
-        raw = await client.get_automation_config(entity_id)
+        return await client.get_automation_config(entity_id)
     except HomeAssistantError as err:
         if getattr(err, "status_code", None) == 404:
             return None
         raise
-    if not isinstance(raw, dict):
-        return raw
-    return _normalize_config_for_roundtrip(raw)
 
 
 async def _restore_automation(client: Any, entity_id: str, config: Any) -> Any:
@@ -1482,16 +1471,16 @@ async def _dashboard_resource_like(client: Any, config: dict[str, Any]) -> Any:
 
 
 async def _restore_dashboard_resource(client: Any, entity_id: str, config: Any) -> Any:
-    # Core imported old ``resources:`` entries without a type (RESOURCE_FIELDS).
     payload = _strip_readonly(config, "id", "type")
-    if "type" in config:
+    if "type" in config:  # Core imported old ``resources:`` entries without one
         payload["res_type"] = config["type"]
     update = {"type": "lovelace/resources/update", "resource_id": entity_id}
-    try:
-        return await _ws_send(client, {**update, **payload})
-    except HomeAssistantCommandError as err:
-        if err.code != "not_found":  # not_found: deleted since the snapshot
-            raise
+    async with registry_update_lock("dashboard_resource", entity_id):  # the tool's lock
+        try:
+            return await _ws_send(client, {**update, **payload})
+        except HomeAssistantCommandError as err:
+            if err.code != "not_found":  # not_found: deleted since the snapshot
+                raise
     live = await _dashboard_resource_like(client, config)
     if live is not None:  # an earlier restore re-created it
         return live
@@ -2028,6 +2017,7 @@ async def _fetch_file(client: Any, entity_id: str) -> Any:
     skips it instead of blocking the write or delete. Other read failures
     raise so the capture pipeline logs them at WARNING.
     """
+    from .tools.auto_backup import PathNotAllowedError
     from .tools.tools_filesystem import call_mcp_tools_service
     from .tools.util_helpers import unwrap_service_response
 
@@ -2039,12 +2029,11 @@ async def _fetch_file(client: Any, entity_id: str) -> Any:
         content = result.get("content")
         return content if isinstance(content, str) else None
     error = str(result.get("error", ""))
-    if (
-        "does not exist" in error
-        or "not a file" in error
-        or "Cannot read binary file" in error
-    ):
+    skips = ("does not exist", "not a file", "Cannot read binary file")
+    if any(marker in error for marker in skips):
         return None
+    if error.startswith("Path not allowed"):
+        raise PathNotAllowedError(entity_id, error)
     raise HomeAssistantError(f"read_file failed for {entity_id!r}: {error}")
 
 

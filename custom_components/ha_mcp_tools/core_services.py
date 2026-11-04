@@ -8,7 +8,15 @@ from typing import Any
 
 from homeassistant.core import HomeAssistant
 
-from .core_registry import _call_no_arg, _substrate_unavailable
+from .core_registry import (
+    _all_area_entries,
+    _all_device_entries,
+    _all_floor_entries,
+    _all_label_entries,
+    _call_no_arg,
+    _resolve_registries,
+    _substrate_unavailable,
+)
 from .core_state import service_names as _overview_services
 
 # All ws_* modules log through the websocket_api logger, so one logger
@@ -156,7 +164,9 @@ def _translation_key_domain(key: Any) -> str | None:
 # =============================================================================
 # ha_mcp_tools/reference_data
 # =============================================================================
-def reference_data(hass: HomeAssistant, include_states: bool = True) -> dict[str, Any]:
+def reference_data(
+    hass: HomeAssistant, include_states: bool = True, include_targets: bool = False
+) -> dict[str, Any]:
     """Return the service index + entity-id universe the reference validator reads.
 
     ``services`` is the REST ``/api/services`` list shape ``build_service_index``
@@ -188,7 +198,10 @@ def reference_data(hass: HomeAssistant, include_states: bool = True) -> dict[str
             entity_id = getattr(state, "entity_id", None)
             if entity_id:
                 entity_ids.append(entity_id)
-    return {"services": _overview_services(hass), "entity_ids": entity_ids}
+    result = {"services": _overview_services(hass), "entity_ids": entity_ids}
+    if include_targets:
+        result.update(_target_ids(hass))
+    return result
 
 
 async def services_catalog(
@@ -197,3 +210,24 @@ async def services_catalog(
     """Read the real Core descriptions and translations as one catalog."""
     details = await load_service_descriptions(hass, language)
     return project_service_catalog(hass, {"domain": domain}, **details)
+
+
+def _target_ids(hass: HomeAssistant) -> dict[str, list[str]]:
+    from homeassistant.const import ENTITY_MATCH_ALL, ENTITY_MATCH_NONE
+
+    view = _resolve_registries(hass)
+    for name in ("device", "area", "floor", "label"):
+        if getattr(view, name) is None:
+            raise _substrate_unavailable(f"{name} registry")
+    readers = {
+        "device_ids": (_all_device_entries, "id"),
+        "area_ids": (_all_area_entries, "id"),
+        "floor_ids": (_all_floor_entries, "floor_id"),
+        "label_ids": (_all_label_entries, "label_id"),
+    }
+    ids = {
+        key: [ident for entry in read(view) if (ident := getattr(entry, attr, None))]
+        for key, (read, attr) in readers.items()
+    }
+    ids["match_sentinels"] = [ENTITY_MATCH_NONE, ENTITY_MATCH_ALL]
+    return ids

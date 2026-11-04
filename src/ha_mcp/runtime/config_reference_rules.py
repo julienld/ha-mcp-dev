@@ -1,11 +1,31 @@
-"""Pure config reference extraction and registry comparison rules."""
+"""Pure reference extraction and validation shared by both runtimes."""
 
-from typing import Any, TypedDict
+from __future__ import annotations
+
+from typing import Any, Literal, TypedDict
+
+RefKind = Literal["service", "entity", "device", "area", "floor", "label"]
 
 _SERVICE_KEYS: frozenset[str] = frozenset({"service", "action"})
 
+_REFERENCE_KEYS: dict[str, RefKind] = {
+    "entity_id": "entity",
+    "device_id": "device",
+    "area_id": "area",
+    "floor_id": "floor",
+    "label_id": "label",
+}
 
-_ENTITY_KEYS: frozenset[str] = frozenset({"entity_id"})
+_DATA_KEYS: frozenset[str] = frozenset(
+    {"data", "service_data", "event_data", "variables", "trigger_variables"}
+)
+
+_TARGET_ID_KEYS: dict[RefKind, str] = {
+    "device": "device_ids",
+    "area": "area_ids",
+    "floor": "floor_ids",
+    "label": "label_ids",
+}
 
 
 class ExtractedRef(TypedDict):
@@ -13,7 +33,7 @@ class ExtractedRef(TypedDict):
 
     path: str
     value: str
-    kind: str  # "service" | "entity"
+    kind: RefKind
 
 
 class WalkerResult(TypedDict):
@@ -29,7 +49,7 @@ class ValidationWarning(TypedDict):
 
     path: str
     value: str
-    kind: str
+    kind: RefKind
     reason: str
 
 
@@ -46,13 +66,14 @@ def _extract_service_ref(
         refs.append({"path": sub_path, "value": value, "kind": "service"})
 
 
-def _extract_entity_refs(
+def _extract_registry_refs(
     sub_path: str,
     value: Any,
+    kind: RefKind,
     refs: list[ExtractedRef],
     unvalidated_templates: list[int],
 ) -> bool:
-    """Record entity ref(s) from a str or list *value*; return True if handled.
+    """Record ``kind`` ref(s) from a str or list *value*; return True if handled.
 
     Returns False when *value* is neither a str nor a list so the caller can
     keep recursing into it (an ``entity_id`` mapped to a nested structure).
@@ -61,7 +82,7 @@ def _extract_entity_refs(
         if _is_template(value):
             unvalidated_templates[0] += 1
         else:
-            refs.append({"path": sub_path, "value": value, "kind": "entity"})
+            refs.append({"path": sub_path, "value": value, "kind": kind})
         return True
     if isinstance(value, list):
         for i, item in enumerate(value):
@@ -71,19 +92,13 @@ def _extract_entity_refs(
             if _is_template(item):
                 unvalidated_templates[0] += 1
             else:
-                refs.append(
-                    {
-                        "path": item_path,
-                        "value": item,
-                        "kind": "entity",
-                    }
-                )
+                refs.append({"path": item_path, "value": item, "kind": kind})
         return True
     return False
 
 
 def extract_refs(config: Any) -> WalkerResult:
-    """Pull every literal service/entity reference out of *config*.
+    """Pull every literal service and registry reference out of *config*.
 
     Pure function: no network, no mutation of the input. The caller
     decides what to do with the extracted refs.
@@ -104,7 +119,7 @@ def extract_refs(config: Any) -> WalkerResult:
     # it without a ``nonlocal`` dance.
     unvalidated_templates = [0]
 
-    def _walk(node: Any, path: str) -> None:
+    def _walk(node: Any, path: str, in_data: bool) -> None:
         if isinstance(node, dict):
             for key, value in node.items():
                 sub_path = f"{path}.{key}" if path else key
@@ -113,22 +128,27 @@ def extract_refs(config: Any) -> WalkerResult:
                     _extract_service_ref(sub_path, value, refs, unvalidated_templates)
                     continue
 
-                if key in _ENTITY_KEYS and _extract_entity_refs(
-                    sub_path, value, refs, unvalidated_templates
+                kind = _REFERENCE_KEYS.get(key)
+                if (
+                    kind
+                    and (kind == "entity" or not in_data)
+                    and _extract_registry_refs(
+                        sub_path, value, kind, refs, unvalidated_templates
+                    )
                 ):
                     continue
 
                 # Neither a service nor an entity key (or an entity key whose
                 # value is neither str nor list): recurse so deeply nested
                 # action blocks (choose/if/parallel/repeat) still get walked.
-                _walk(value, sub_path)
+                _walk(value, sub_path, in_data or key in _DATA_KEYS)
 
         elif isinstance(node, list):
             for i, item in enumerate(node):
-                _walk(item, f"{path}[{i}]")
+                _walk(item, f"{path}[{i}]", in_data)
         # Primitives: nothing to extract.
 
-    _walk(config, "")
+    _walk(config, "", False)
     return {
         "refs": refs,
         "unvalidated_templates": unvalidated_templates[0],
@@ -178,11 +198,21 @@ def check_refs(
     refs: list[ExtractedRef],
     service_index: dict[str, set[str]],
     entity_set: set[str],
+    target_ids: dict[RefKind, set[str]] | None = None,
+    sentinels: frozenset[str] = frozenset(),
 ) -> list[ValidationWarning]:
-    """Return one warning per ref that isn't in the registry."""
+    """Return one warning per ref that isn't in the registry.
+
+    A device / area / floor / label ref is checked only when ``target_ids``
+    holds that kind's registry ids. A ref whose value is one of Core's match
+    ``sentinels`` is never a missing item.
+    """
+    target_ids = target_ids or {}
     warnings: list[ValidationWarning] = []
     for ref in refs:
         value = ref["value"]
+        if value in sentinels:
+            continue
         if ref["kind"] == "service":
             domain, _, service_name = value.partition(".")
             if (
@@ -208,4 +238,13 @@ def check_refs(
                         "reason": "not found in entity registry",
                     }
                 )
+        elif ref["kind"] in target_ids and value not in target_ids[ref["kind"]]:
+            warnings.append(
+                {
+                    "path": ref["path"],
+                    "value": value,
+                    "kind": ref["kind"],
+                    "reason": f"not found in {ref['kind']} registry",
+                }
+            )
     return warnings

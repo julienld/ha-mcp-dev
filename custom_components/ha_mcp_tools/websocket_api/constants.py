@@ -7,6 +7,7 @@ import re
 from homeassistant.generated.config_flows import FLOWS
 
 from .. import (
+    automation_config,
     card_definitions,
     core_contract,
     entity_restore,
@@ -56,6 +57,7 @@ __all__ = [
     "WS_API_PREFIX",
     "WS_BLUEPRINT_GET",
     "WS_BULK_CALL_SERVICE",
+    "WS_CALL_EVENT",
     "WS_CALL_SERVICE",
     "WS_CONFIG_ENTRIES",
     "WS_DASHBOARDS",
@@ -108,6 +110,7 @@ WS_REFERENCE_DATA = f"{WS_API_PREFIX}/reference_data"
 WS_LOGBOOK_EVENTS = f"{WS_API_PREFIX}/logbook_events"
 WS_SERVER_ENTRY = f"{WS_API_PREFIX}/server_entry"
 WS_SERVER_ENTRY_UPDATE = f"{WS_API_PREFIX}/server_entry_update"
+WS_CALL_EVENT = f"{WS_API_PREFIX}/call_event"
 WS_CALL_SERVICE = f"{WS_API_PREFIX}/call_service"
 WS_BULK_CALL_SERVICE = f"{WS_API_PREFIX}/bulk_call_service"
 WS_TEMPLATE_DIAGNOSE = f"{WS_API_PREFIX}/template_diagnose"
@@ -172,6 +175,9 @@ CAPABILITIES: list[str] = [
     "dashboards_docs",
     "services_list",
     "reference_data",
+    # A flag on reference_data: gates its opt-in ``include_targets`` (device,
+    # area, floor and label registry ids for the reference validator).
+    "reference_data_targets",
     # Core's own logbook processor run in-process (REST flags: ISO ``when``,
     # entity names) with the entity/device/context filter set; the server's
     # ``ha_get_logs`` logbook source prefers it and falls back to REST/WS.
@@ -192,9 +198,13 @@ CAPABILITIES: list[str] = [
     # old component that lacks it is never sent the frame and the server stays on its
     # legacy options-flow submit.
     "server_entry_update",
-    # The first WRITE capability (Phase 3). The server gates its ``ha_call_service``
-    # component route on this; an old component that lacks it is never sent a
-    # component write and stays on the legacy REST path.
+    # The event WRITE capability. The server gates its ``ha_call_event``
+    # component route on this; without it the tool uses Core's WebSocket
+    # ``fire_event`` command.
+    "call_event",
+    # The first service WRITE capability (Phase 3). The server gates its
+    # ``ha_call_service`` component route on this; an old component that lacks
+    # it is never sent a component write and stays on the legacy REST path.
     "call_service",
     # The BATCH write capability (Phase 3, D5a). The server gates its bulk-control
     # component route on this; a component that lacks it is never sent a batch
@@ -210,6 +220,7 @@ CAPABILITIES: list[str] = [
     *entity_restore.CAPABILITIES,
     core_contract.CAPABILITY,
     todo_items.CAPABILITY,
+    automation_config.CAPABILITY,
     *card_definitions.CAPABILITIES,
 ]
 

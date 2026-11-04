@@ -1941,14 +1941,14 @@ class LegacyDashboards:
         show_in_sidebar: bool | None,
     ) -> str | None:
         """Create a new storage-mode dashboard and return its dashboard_id."""
-        # Core's create schema supplies require_admin/show_in_sidebar defaults.
+        # Preserve the public optional-title policy; Core still validates the create.
         create_data: dict[str, Any] = {
             "type": "lovelace/dashboards/create",
             "url_path": url_path,
-            "title": title or url_path.replace("-", " ").title(),
             **{
                 key: value
                 for key, value in {
+                    "title": title or url_path.replace("-", " ").title(),
                     "icon": icon or None,
                     "require_admin": require_admin,
                     "show_in_sidebar": show_in_sidebar,
@@ -1998,7 +1998,7 @@ class LegacyDashboards:
                 error_msg = error_msg.get("message", str(error_msg))
             raise_tool_error(
                 create_error_response(
-                    code=ErrorCode.SERVICE_CALL_FAILED,
+                    code=ws_failure_code(meta_result),
                     message=f"Failed to update dashboard metadata: {error_msg}",
                     context={"action": "update", "url_path": url_path},
                 )

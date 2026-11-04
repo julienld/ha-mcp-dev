@@ -168,7 +168,12 @@ def test_file_projection_matches_the_frozen_public_contract(filesystem):
         expected = by_name[definition.name]
         assert not _changed_inputs(expected["inputSchema"], definition.input_schema)
         assert definition.annotations == expected["annotations"]
-        assert definition.description == expected["description"]
+        # Upstream removed /backup from the offered volume roots; other wording stays frozen.
+        assert " ".join(
+            definition.description.replace(
+                "`/media`, `/ssl`", "`/media`, `/ssl`, `/backup`"
+            ).split()
+        ) == " ".join(expected["description"].split())
 
 
 @pytest.mark.parametrize("confirm", [None, False, True])

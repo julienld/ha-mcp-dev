@@ -57,7 +57,7 @@ def _run_actions_once_reloaded(
         "Automation was written, but its actions were not run: the reload the "
         "write scheduled could not be confirmed, so they could have run the "
         "previous version. Run them with ha_config_set_automation("
-        f"identifier='{identifier or '<automation id>'}', run_actions=True)."
+        f"entity_id='{identifier or '<automation id>'}', run_actions=True)."
     )
     return False
 
@@ -172,7 +172,7 @@ class AutomationRuntimeTools(AutomationConfigMethods):
             raise_failure(
                 create_error_response(
                     ErrorCode.VALIDATION_INVALID_PARAMETER,
-                    "identifier is required when setting enabled or run_actions "
+                    "entity_id is required (identifier is also accepted) when setting enabled or run_actions "
                     "without config",
                     suggestions=[
                         "Pass an automation entity_id or unique_id",
@@ -233,7 +233,7 @@ class AutomationRuntimeTools(AutomationConfigMethods):
             response.setdefault("warnings", []).append(
                 "Automation was written, but its entity_id could not be resolved; "
                 "the requested runtime change was not applied. Retry with "
-                f"ha_config_set_automation(identifier='{retry_id}', "
+                f"ha_config_set_automation(entity_id='{retry_id}', "
                 f"{', '.join(retry_args)}) once the automation is loaded."
             )
             return None

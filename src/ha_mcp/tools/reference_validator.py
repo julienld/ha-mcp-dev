@@ -13,9 +13,13 @@ Intentional limits (documented, not bugs):
 - **Blueprint automations** (``use_blueprint`` at the root) are skipped
   wholesale. Post-substitution config is not exposed by any HA API, so
   the effective refs cannot be ground-truthed.
-- **``device_id`` / ``area_id`` / ``label_id``** are NOT checked yet.
-  They require separate registry fetches and are planned for a later
-  pass; see #940.
+- **``device_id`` / ``area_id`` / ``floor_id`` / ``label_id``** are checked
+  only when the component's ``reference_data`` carries the registry ids
+  (capability ``reference_data_targets``). Without them only services and
+  entities are checked, and the kinds left unchecked are reported as
+  ``unchecked_target_kinds``.
+- **Match sentinels** (Core's ``none`` / ``all`` in place of an id) are
+  skipped when the component's ``reference_data`` names them.
 
 Background: #940 (hallucinated ``notify.mobile_app_andrew_phone`` that
 ``ha_config_set_automation`` accepted silently).
@@ -25,9 +29,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any
+from typing import Any, Literal
 
 from ..runtime.config_reference_rules import (
+    _TARGET_ID_KEYS,
     build_entity_set,
     build_service_index,
     check_refs,
@@ -36,6 +41,8 @@ from ..runtime.config_reference_rules import (
 from .component_config_reads import fetch_reference_data_via_component
 
 logger = logging.getLogger(__name__)
+
+RefKind = Literal["service", "entity", "device", "area", "floor", "label"]
 
 # Keys whose value (literal string) names a Home Assistant service in
 # the form ``<domain>.<service_name>``. Both legacy (``service:``) and
@@ -64,6 +71,10 @@ async def validate_config_references(
       walker
     - ``blueprint_skipped`` - bool, True iff the root config uses
       ``use_blueprint``
+
+    plus ``unchecked_target_kinds`` (sorted kinds the config references but
+    no registry ids were available for) when there are any, and
+    ``references_unchecked`` (the fetch error) when the fetch failed.
     """
     walker_result = extract_refs(config)
 
@@ -83,8 +94,23 @@ async def validate_config_references(
         # same ``services_payload`` / ``states_payload`` shapes the reducers
         # consume, so the warnings are identical (pinned by the cross-seam
         # contract test).
-        reference_data = await fetch_reference_data_via_component(client)
+        # The four registries are read only when a target kind is referenced.
+        reference_data = await fetch_reference_data_via_component(
+            client,
+            include_targets=any(
+                ref["kind"] in _TARGET_ID_KEYS for ref in walker_result["refs"]
+            ),
+        )
+        target_ids: dict[RefKind, set[str]] = {}
+        sentinels: frozenset[str] = frozenset()
         if reference_data is not None:
+            target_ids = {
+                kind: set(reference_data[key])
+                for kind, key in _TARGET_ID_KEYS.items()
+                if isinstance(reference_data.get(key), list)
+            }
+            if isinstance(reference_data.get("match_sentinels"), list):
+                sentinels = frozenset(reference_data["match_sentinels"])
             services_payload = reference_data["services"]
             states_payload = [
                 {"entity_id": eid} for eid in reference_data["entity_ids"]
@@ -94,7 +120,7 @@ async def validate_config_references(
                 client.get_services(),
                 client.get_states(),
             )
-    except Exception:
+    except Exception as exc:
         logger.exception(
             "Reference validator: failed to fetch service/entity registries; "
             "skipping validation for this call"
@@ -103,6 +129,7 @@ async def validate_config_references(
             "warnings": [],
             "unvalidated_templates": walker_result["unvalidated_templates"],
             "blueprint_skipped": False,
+            "references_unchecked": str(exc) or type(exc).__name__,
         }
 
     # Index-building stays OUTSIDE the fetch try so a builder exception
@@ -110,13 +137,26 @@ async def validate_config_references(
     # swallows registry-fetch failures only.
     service_index = build_service_index(services_payload)
     entity_set = build_entity_set(states_payload)
-    warnings = check_refs(walker_result["refs"], service_index, entity_set)
+    warnings = check_refs(
+        walker_result["refs"], service_index, entity_set, target_ids, sentinels
+    )
 
-    return {
+    result: dict[str, Any] = {
         "warnings": warnings,
         "unvalidated_templates": walker_result["unvalidated_templates"],
         "blueprint_skipped": False,
     }
+
+    unchecked = sorted(
+        {
+            ref["kind"]
+            for ref in walker_result["refs"]
+            if ref["kind"] in _TARGET_ID_KEYS and ref["kind"] not in target_ids
+        }
+    )
+    if unchecked:
+        result["unchecked_target_kinds"] = unchecked
+    return result
 
 
 __all__ = [

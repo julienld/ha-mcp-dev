@@ -274,6 +274,29 @@ class NativeScreenshots:
             status="outcome_unknown" if failures else "confirmed",
         )
 
+    def _requested_theme_warnings(self, options: dict[str, Any]) -> list[str]:
+        from ha_mcp.runtime.screenshot_theme_validation import (
+            _unchecked,
+            validate_requested_theme,
+        )
+
+        from .native_operations.frontend_themes import theme_image
+
+        warnings: list[str] = []
+        theme = options.get("theme")
+        if theme is not None and theme != "default":
+            try:
+                themes = theme_image(self.manager.hass).get("themes")
+            except Exception as error:  # noqa: BLE001 - optional Core metadata read
+                warnings.extend(_unchecked(theme, str(error)))
+            else:
+                warnings.extend(
+                    validate_requested_theme(
+                        themes, theme, options.get("dark_mode", False)
+                    )
+                )
+        return warnings
+
     async def _render(
         self,
         target: DashboardRenderTarget,
@@ -286,12 +309,12 @@ class NativeScreenshots:
         self.started = False
         await admit_registry_write(self.actor, self.manager.backend.authorize)
         self._check_enabled()
+        warnings = self._requested_theme_warnings(options)
         engine = await self._engine_target()
         token = engine.addon_credential.token if engine.addon_credential else None
         observer = NativeThemeObserver(
             self.manager.hass, self.actor, self.manager.backend.authorize, token=token
         )
-        warnings: list[str] = []
 
         async def before_request() -> None:
             visibility = getattr(self.manager, "visibility", None)

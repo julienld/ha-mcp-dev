@@ -198,3 +198,38 @@ async def test_reused_owner_stale_update_still_conflicts_before_backup_or_write(
     )
     assert len(writes) == 1 and backup.await_count == 1
     assert owner.current[0]["actions"] == [{"delay": 2}]
+
+
+async def test_stored_view_hash_preserves_raw_transform_and_legacy_view(
+    native, monkeypatch
+):
+    engine, _tools, owner, backup, writes, tasks = _reused_owner(native, monkeypatch)
+    before = copy.deepcopy(owner.current[0])
+    actor = CallContext("actor")
+    from ha_mcp.runtime.config_reads import AutomationReadTools
+
+    reader = AutomationReadTools(engine.backend, actor)
+    compatible = await reader.ha_config_get_automation(identifier="uid")
+    stored = await reader.ha_config_get_automation(
+        entity_id="uid", config_format="stored"
+    )
+    assert stored["config"] == before
+    assert "actions" in compatible["config"] and "action" not in compatible["config"]
+    assert compatible["config_hash"] == compute_config_hash(compatible["config"])
+    assert stored["config_hash"] == compute_config_hash(before)
+    result = await engine.call(
+        "ha_config_set_automation",
+        {
+            "entity_id": "uid",
+            "config_hash": stored["config_hash"],
+            "python_transform": "config['action'][0]['delay'] = 7",
+            "wait": False,
+            "MandatoryBPS": False,
+        },
+        actor,
+    )
+    await asyncio.gather(*tasks)
+    assert not result.is_error, result.data
+    assert len(writes) == 1
+    assert backup.await_args.args[0]["current_config"] == before
+    assert owner.current[0]["action"][0]["delay"] == 7
