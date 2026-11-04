@@ -580,6 +580,7 @@ __all__ = [
     "MAX_CONTENT_SIZE",
     "ResourceTools",
     "_ALLOWED_DATA_URI_PREFIXES",
+    "_HA_CONFIG_YAML_MARKERS",
     "_decode_data_uri",
     "_decode_legacy_worker_url",
     "_detect_ha_config_yaml",

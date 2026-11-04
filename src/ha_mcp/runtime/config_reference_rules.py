@@ -248,3 +248,16 @@ def check_refs(
                 }
             )
     return warnings
+
+
+__all__ = [
+    "ExtractedRef",
+    "RefKind",
+    "ValidationWarning",
+    "WalkerResult",
+    "_TARGET_ID_KEYS",
+    "build_entity_set",
+    "build_service_index",
+    "check_refs",
+    "extract_refs",
+]

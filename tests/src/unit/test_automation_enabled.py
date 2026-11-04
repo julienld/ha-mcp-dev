@@ -188,9 +188,6 @@ async def test_python_transform_reports_entity_resolved_for_enabled(
     async def fetch_and_verify_hash(identifier, config_hash, action):
         return dict(config), "stored-id", dict(config)
 
-    async def get_config(identifier):
-        return config, "new-hash"
-
     async def validate_registry_ids(*_args, **_kwargs):
         return None
 
@@ -901,9 +898,6 @@ async def _write_with_run_actions(
 
     async def fetch_and_verify_hash(identifier, config_hash, action):
         return dict(config), "morning", dict(config)
-
-    async def get_config(identifier):
-        return config, "new-hash"
 
     async def validate_registry_ids(*_args, **_kwargs):
         return None

@@ -52,4 +52,4 @@ async def check_requested_theme(
     try:
         return validate_requested_theme(themes, theme, dark_mode)
     except ToolFailure as error:
-        raise_tool_error(error.data)
+        return raise_tool_error(error.data)

@@ -162,3 +162,17 @@ async def load_inline_resource(client: Any, resource_id: str) -> tuple[str, str]
 
 apply_resource_edits = legacy_errors_sync(_apply_resource_edits)
 check_config_hash = legacy_errors_sync(_check_config_hash)
+
+
+__all__ = [
+    "MAX_EDITS",
+    "RESOURCE_LOCK_REGISTRY",
+    "ResourceEdit",
+    "ResourceLookupError",
+    "_count_occurrences",
+    "apply_resource_edits",
+    "check_config_hash",
+    "find_resource",
+    "load_inline_resource",
+    "resource_write_lock",
+]

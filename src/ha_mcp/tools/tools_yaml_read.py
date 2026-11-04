@@ -149,3 +149,15 @@ async def _resolve_all_targets(
     from ..runtime.yaml_lookup import _resolve_all_targets as shared
 
     return await shared(LegacyYamlFiles(client), file, yaml_path)
+
+
+__all__ = [
+    "LegacyYamlFiles",
+    "LegacyYamlRead",
+    "YamlReadTools",
+    "_failure_reason",
+    "_find_yaml_key_files",
+    "_matches_discovered_file",
+    "_resolve_all_targets",
+    "register_yaml_read_tools",
+]

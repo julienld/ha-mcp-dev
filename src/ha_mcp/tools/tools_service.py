@@ -970,5 +970,6 @@ def register_service_tools(
 __all__ = [
     "ServiceTools",
     "_NON_ENVELOPE_WARNING",
+    "_parse_json_dict_param",
     "register_service_tools",
 ]

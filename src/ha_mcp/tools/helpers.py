@@ -337,4 +337,4 @@ def _parse_json_dict_param(
             data, type_error_message=type_error_message
         )
     except ToolFailure as error:
-        raise_tool_error(error.data)
+        return raise_tool_error(error.data)
