@@ -11,6 +11,8 @@ from ha_mcp.tools.coercion import JSON_STRING_COERCION
 from .action_params import _parse_json_dict_param
 from .errors import raise_failure
 
+MATCH_ALL_EVENT_KEY = "*"
+
 
 class Events(Protocol):
     async def fire(

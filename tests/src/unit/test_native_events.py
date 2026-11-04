@@ -1,6 +1,7 @@
 """Event emission uses the admitted actor and never retries an uncertain fire."""
 
 import json
+import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -196,3 +197,38 @@ async def test_core_event_type_is_not_restricted_by_a_rest_url(events):
     assert calls[0][0] == "custom/type?value"
     assert result.data["listener_count"] == 0
     assert result.data["warnings"]
+
+
+def test_native_event_registration_does_not_load_remote_clients():
+    code = """
+import importlib.abc
+import json
+import sys
+from pathlib import Path
+from types import ModuleType, SimpleNamespace
+class ForbidRemoteClient(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname == 'ha_mcp.client' or fullname.startswith('ha_mcp.client.'):
+            raise AssertionError('Native events loaded a remote client: ' + fullname)
+sys.meta_path.insert(0, ForbidRemoteClient())
+from tests.src.unit._embedded_stubs import install
+install()
+sys.modules["homeassistant.helpers.json"] = SimpleNamespace(json_bytes=lambda value: json.dumps(value).encode())
+package = ModuleType('custom_components.ha_mcp_tools')
+package.__path__ = [str(Path.cwd() / 'custom_components' / 'ha_mcp_tools')]
+sys.modules['custom_components.ha_mcp_tools'] = package
+from custom_components.ha_mcp_tools.native_event_tools import event_definition
+from ha_mcp.tools.event_listener_fields import event_listener_fields
+assert event_definition
+assert event_listener_fields({'example': 2, '*': 1}, 'example') == {
+    'listener_count': 2, 'wildcard_listener_count': 1,
+}
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=Path(__file__).resolve().parents[3],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
