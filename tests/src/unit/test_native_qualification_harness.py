@@ -326,8 +326,9 @@ async def test_cold_resource_qualification_precedes_clients_that_can_load_core(
 
 
 @pytest.mark.parametrize("fails", [False, True])
+@pytest.mark.parametrize("entrypoint", ["_async_ensure_loaded", "async_load"])
 async def test_resource_load_observer_preserves_core_result_and_failure(
-    harness, monkeypatch, fails
+    harness, monkeypatch, fails, entrypoint
 ):
     from pathlib import Path
 
@@ -343,12 +344,15 @@ async def test_resource_load_observer_preserves_core_result_and_failure(
     class CoreResources:
         loaded = False
 
-        async def _async_ensure_loaded(self):
+        async def async_load(self):
             calls.append(self)
             self.loaded = True
             if fails:
                 raise failure
             return "original-result"
+
+        async def _async_ensure_loaded(self):
+            return await self.async_load()
 
     monkeypatch.setitem(
         sys.modules,
@@ -361,10 +365,10 @@ async def test_resource_load_observer_preserves_core_result_and_failure(
     observer.observe_resource_loading(hass, data)
     if fails:
         with pytest.raises(RuntimeError) as raised:
-            await owner._async_ensure_loaded()
+            await getattr(owner, entrypoint)()
         assert raised.value is failure
     else:
-        assert await owner._async_ensure_loaded() == "original-result"
+        assert await getattr(owner, entrypoint)() == "original-result"
     assert calls == [owner] and owner.loaded is True
     probe = data["resource_load_probe"]
     assert probe["initial_loaded"] is False

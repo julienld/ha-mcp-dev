@@ -16,10 +16,15 @@ def observe_resource_loading(hass: Any, data: dict[str, Any]) -> None:
         "first_load": None,
     }
     data["resource_load_probe"] = probe
-    original = ResourceStorageCollection._async_ensure_loaded
+    owner_type = (
+        type(owner)
+        if isinstance(owner, ResourceStorageCollection)
+        else ResourceStorageCollection
+    )
+    original = owner_type.async_load
 
     @wraps(original)
-    async def observed(collection: Any) -> Any:
+    async def observed(collection: Any, *args: Any, **kwargs: Any) -> Any:
         attempt = None
         if not collection.loaded and probe["first_load"] is None:
             attempt = {
@@ -36,9 +41,9 @@ def observe_resource_loading(hass: Any, data: dict[str, Any]) -> None:
             }
             probe["first_load"] = attempt
         try:
-            return await original(collection)
+            return await original(collection, *args, **kwargs)
         finally:
             if attempt is not None:
                 attempt["loaded_after"] = collection.loaded
 
-    ResourceStorageCollection._async_ensure_loaded = observed
+    owner_type.async_load = observed
