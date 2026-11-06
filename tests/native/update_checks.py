@@ -71,6 +71,10 @@ async def exercise_updates(checks: Any) -> None:
     ), restored
     checks.passed("native_repairs_ignore_and_unignore_the_real_Core_issue_registry")
 
+    await exercise_uncertain_updates(checks, seed)
+
+
+async def exercise_uncertain_updates(checks: Any, seed: dict[str, Any]) -> None:
     unknown = await checks.rpc(
         "tools/call",
         {
@@ -83,11 +87,16 @@ async def exercise_updates(checks: Any) -> None:
     )
     result = unknown["result"]
     assert result["_meta"]["ha_mcp"]["status"] == "outcome_unknown", unknown
-    assert result["structuredContent"]["results"][1]["not_attempted"], unknown
+    data = result["structuredContent"]
+    assert data["failed"] == data["succeeded"] == 1, unknown
+    assert data["results"][0]["entity_id"] == seed["entities"]["uncertain"], unknown
+    assert data["results"][0]["error"]["code"] == "OUTCOME_UNKNOWN", unknown
+    assert data["results"][1]["entity_id"] == seed["entities"]["tail"], unknown
+    assert data["results"][1]["success"], unknown
     probe = await checks.control("update_probe")
-    assert len(probe["installs"]["uncertain"]) == 1 and not probe["installs"]["tail"], (
+    assert len(probe["installs"]["uncertain"]) == len(probe["installs"]["tail"]) == 1, (
         probe
     )
     checks.passed(
-        "native_update_after_effect_failure_is_not_replayed_and_stops_the_batch"
+        "native_update_after_effect_failure_is_not_replayed_and_continues_independent_targets"
     )

@@ -5,9 +5,10 @@ import copy
 import importlib
 import sys
 from enum import IntFlag
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -298,7 +299,7 @@ async def test_core_service_has_real_actor_and_returned_state(updates: Any) -> N
 
 @pytest.mark.parametrize("failure", [RuntimeError, asyncio.CancelledError])
 async def test_after_effect_failure_is_unknown_and_continues_independent_targets(
-    updates: Any, failure: type[BaseException]
+    updates: Any, failure: type[BaseException], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     async def fail(
         domain: str, action: str, data: dict[str, Any], **kwargs: Any
@@ -309,7 +310,39 @@ async def test_after_effect_failure_is_unknown_and_continues_independent_targets
             raise failure("after effect")
 
     updates.manager.hass.services.async_call.side_effect = fail
-    result = await invoke(updates, action="install", entity_ids=list(updates.entities))
+    monkeypatch.syspath_prepend(str(Path(__file__).parents[2] / "native"))
+    bench = importlib.import_module("update_checks")
+    results = []
+
+    async def rpc(method, params):
+        assert method == "tools/call" and params["name"] == "ha_manage_updates"
+        result = await invoke(updates, **params["arguments"])
+        results.append(result)
+        return {
+            "result": {
+                "_meta": {"ha_mcp": {"status": result.status}},
+                "structuredContent": result.data,
+            }
+        }
+
+    async def probe(operation):
+        assert operation == "update_probe"
+        return {
+            "installs": {
+                "uncertain": [
+                    {} for target in updates.calls if target == "update.native_a"
+                ],
+                "tail": [{} for target in updates.calls if target == "update.native_b"],
+            }
+        }
+
+    checks = SimpleNamespace(rpc=rpc, control=probe, passed=Mock())
+    await bench.exercise_uncertain_updates(
+        checks,
+        {"entities": {"uncertain": "update.native_a", "tail": "update.native_b"}},
+    )
+    assert len(results) == 1
+    result = results[0]
     assert result.status == "outcome_unknown" and result.data["failed"] == 1, (
         result.data
     )
