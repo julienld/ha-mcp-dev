@@ -77,7 +77,7 @@ async def exercise_entities(checks: Any, base: str) -> None:
     )
 
     panel = base + "/api/ha_mcp_tools/ui/app/api/settings/backups"
-    snapshot = (await _backups(checks, panel, "entity_registry", identity))[0]["name"]
+    snapshot = (await _backups(checks, panel, "entity", entity_id))[0]["name"]
     diff = await checks.client.get(panel + "/" + snapshot + "/diff")
     assert diff.status_code == 200 and "Native entity settings" in diff.text, diff.text
     await _restore(checks, panel, snapshot)

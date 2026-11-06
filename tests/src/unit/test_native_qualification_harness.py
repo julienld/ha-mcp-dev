@@ -190,3 +190,77 @@ async def test_raw_legacy_bench_initialize_omits_the_modern_header(harness):
         )
         body = harness.unpack(response)
     assert body["result"]["protocolVersion"] == "2025-11-25", body
+
+
+async def test_entity_bench_finds_pre_rename_history_by_public_entity_id(
+    harness, monkeypatch, tmp_path
+):
+    import httpx
+
+    from ha_mcp.runtime.snapshot_store import SnapshotStore
+
+    entities = importlib.import_module("entity_checks")
+    entity_id = "sensor.original"
+    registry_id = "stable-registry-uuid"
+    before = {
+        "id": registry_id,
+        "entity_id": entity_id,
+        "platform": "native_fixture",
+        "device_id": "fixture-device",
+    }
+    renamed = {
+        **before,
+        "entity_id": entity_id + "_renamed",
+        "name": "Native entity settings",
+        "icon": "mdi:flash",
+        "hidden_by": "user",
+        "aliases": ["Native entity alias"],
+        "options": {"sensor": {"display_precision": 2}},
+    }
+    store = SnapshotStore(tmp_path)
+    snapshot = store.capture("entity", entity_id, before, "ha_set_entity")
+    store.capture("entity", "sensor.unrelated", before, "ha_set_entity")
+    assert snapshot is not None
+
+    def respond(request):
+        if request.url.path.endswith("/diff"):
+            assert request.url.path.endswith("/" + snapshot.name + "/diff")
+            return httpx.Response(200, text="Native entity settings")
+        return httpx.Response(
+            200, json={"backups": store.list_snapshots(**dict(request.url.params))}
+        )
+
+    class SnapshotSelected(Exception):
+        pass
+
+    async def stop_before_restore(checks, panel, name):
+        assert name == snapshot.name
+        raise SnapshotSelected
+
+    monkeypatch.setattr(entities, "_restore", stop_before_restore)
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(respond), base_url="http://fixture"
+    ) as client:
+        checks = SimpleNamespace(
+            client=client,
+            call=AsyncMock(
+                side_effect=[
+                    {"success": True},
+                    {"success": True, "entity_id": renamed["entity_id"]},
+                ]
+            ),
+            control=AsyncMock(
+                side_effect=[
+                    {
+                        "registry_entry": row,
+                        "registry_id": registry_id,
+                        "entity_id": row["entity_id"],
+                        "state": {"state": "on"},
+                    }
+                    for row in (before, renamed)
+                ]
+            ),
+            passed=Mock(),
+        )
+        with pytest.raises(SnapshotSelected):
+            await entities.exercise_entities(checks, "http://fixture")
