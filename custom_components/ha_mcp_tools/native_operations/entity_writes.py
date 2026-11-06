@@ -85,6 +85,7 @@ class NativeEntityWrites(NativeEntityRegistry):
         succeeded, failed, not_attempted = [], [], []
         unknown = False
         has_confirmed_changes = False
+        aborted: ToolFailure | None = None
         for index, target in enumerate(targets):
             if index:
                 await asyncio.sleep(0)
@@ -100,7 +101,10 @@ class NativeEntityWrites(NativeEntityRegistry):
                         ),
                     }
                 )
-            except ToolFailure as error:
+            except Exception as caught:  # noqa: BLE001 - capture failures must retain prior writes
+                error = registry_failure(caught, {"entity_id": target})
+                if not isinstance(caught, ToolFailure):
+                    aborted = error
                 failed.append(
                     {
                         "entity_id": target,
@@ -114,8 +118,8 @@ class NativeEntityWrites(NativeEntityRegistry):
                     error.data.get("confirmed_phases")
                     or error.data.get("exposure_succeeded")
                 )
-                if error.status == "outcome_unknown":
-                    unknown = True
+                if error.status == "outcome_unknown" or aborted is not None:
+                    unknown = error.status == "outcome_unknown"
                     not_attempted = targets[index + 1 :]
                     break
         result = {
@@ -127,7 +131,11 @@ class NativeEntityWrites(NativeEntityRegistry):
         }
         if failed:
             failure = ToolFailure(
-                "OUTCOME_UNKNOWN" if unknown else "SERVICE_CALL_FAILED",
+                "OUTCOME_UNKNOWN"
+                if unknown
+                else aborted.code
+                if aborted is not None
+                else "SERVICE_CALL_FAILED",
                 "Some entity updates could not be confirmed.",
                 status="outcome_unknown"
                 if unknown
@@ -215,7 +223,14 @@ class NativeEntityWrites(NativeEntityRegistry):
             plan = self._plan(registry, before, fields)
             await self._prepare_device(plan, owners)
             await self._capture_plan(plan)
-            return self._commit_plan(plan)
+            try:
+                return self._commit_plan(plan)
+            except Exception as error:
+                if plan.confirmed and not isinstance(error, ToolFailure):
+                    registry_outcome_unknown(
+                        "entity", "update", error, context=self._phase_context(plan)
+                    )
+                raise
 
     def _plan(
         self, registry: Any, before: dict[str, Any], fields: dict[str, Any]

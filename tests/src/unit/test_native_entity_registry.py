@@ -220,6 +220,32 @@ async def test_unknown_entity_removal_keeps_prior_progress_and_does_not_replay_o
     )
 
 
+@pytest.mark.parametrize("failure_index", [0, 1])
+async def test_removal_backup_exception_keeps_prior_removals_and_stops_the_tail(
+    native, monkeypatch, failure_index
+):
+    backup = AsyncMock(
+        side_effect=[{}] * failure_index + [OSError("backup unavailable")]
+    )
+    engine, _, registry, *_ = _setup(native, monkeypatch, backup=backup)
+    registry.rows["sensor.third"] = registry.new("sensor.third", "third")
+    result = await engine.call(
+        "ha_remove_entity",
+        {"entity_id": ["sensor.first", "sensor.second", "sensor.third"]},
+        CallContext("actor"),
+    )
+    assert result.is_error
+    assert result.status == ("confirmed" if failure_index else "not_started"), (
+        result.data
+    )
+    assert registry.calls == ([("remove", "sensor.first")] if failure_index else [])
+    assert backup.await_count == failure_index + 1
+    assert "sensor.second" in registry.rows and "sensor.third" in registry.rows
+    if failure_index:
+        assert result.data["removed"] == ["sensor.first"]
+        assert result.data["not_attempted"] == ["sensor.third"]
+
+
 @pytest.mark.parametrize("change", ["typed_edit", "rename", "recreate", "revoke"])
 async def test_entity_removal_rechecks_exact_image_and_actor_after_capture(
     native: Any,

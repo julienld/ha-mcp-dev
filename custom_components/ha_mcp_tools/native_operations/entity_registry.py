@@ -91,6 +91,7 @@ class NativeEntityRegistry:
         removed, skipped, errors, warnings = [], [], [], []
         uncertain = False
         not_attempted = []
+        aborted: ToolFailure | None = None
         for index, entity_id in enumerate(targets):
             if index:
                 await asyncio.sleep(0)
@@ -101,12 +102,15 @@ class NativeEntityRegistry:
                 else:
                     removed.append(entity_id)
                     warnings.extend(result.get("warnings", []))
-            except ToolFailure as error:
+            except Exception as caught:  # noqa: BLE001 - capture failures must retain prior removals
+                error = registry_failure(caught, {"entity_id": entity_id})
+                if not isinstance(caught, ToolFailure):
+                    aborted = error
                 errors.append(
                     {"entity_id": entity_id, "code": error.code, "message": str(error)}
                 )
-                if error.status == "outcome_unknown":
-                    uncertain = True
+                if error.status == "outcome_unknown" or aborted is not None:
+                    uncertain = error.status == "outcome_unknown"
                     not_attempted = targets[index + 1 :]
                     break
         result = {
@@ -122,7 +126,11 @@ class NativeEntityRegistry:
             result["not_attempted"] = not_attempted
         if errors:
             failure = ToolFailure(
-                "OUTCOME_UNKNOWN" if uncertain else "SERVICE_CALL_FAILED",
+                "OUTCOME_UNKNOWN"
+                if uncertain
+                else aborted.code
+                if aborted is not None
+                else "SERVICE_CALL_FAILED",
                 "Some entity removals could not be confirmed."
                 if uncertain
                 else "Some entity removals were refused.",

@@ -17,6 +17,84 @@ from .test_native_engine_backend import native as native
 from .test_native_legacy_exposure import _setup as exposure_setup
 
 
+@pytest.mark.parametrize("failure_index", [0, 1])
+async def test_entity_backup_exception_preserves_prior_updates_without_continuing(
+    native, monkeypatch, failure_index
+):
+    backup = AsyncMock(
+        side_effect=[{}] * failure_index + [OSError("backup unavailable")]
+    )
+    engine, _, registry, *_ = _setup(native, monkeypatch, backup=backup)
+    registry.rows["sensor.third"] = registry.new("sensor.third", "third")
+    result = await engine.call(
+        "ha_set_entity",
+        {
+            "entity_id": ["sensor.first", "sensor.second", "sensor.third"],
+            "labels": ["existing"],
+        },
+        CallContext("actor"),
+    )
+    assert result.is_error
+    assert result.status == ("confirmed" if failure_index else "not_started"), (
+        result.data
+    )
+    assert len(registry.calls) == failure_index
+    assert backup.await_count == failure_index + 1
+    assert (
+        registry.rows["sensor.second"].labels
+        == registry.rows["sensor.third"].labels
+        == {"other"}
+    )
+    if failure_index:
+        assert result.data["succeeded_count"] == result.data["failed_count"] == 1
+        assert result.data["succeeded"][0]["entity_id"] == "sensor.first"
+        assert result.data["not_attempted"] == ["sensor.third"]
+
+
+@pytest.mark.parametrize("bulk", [False, True])
+async def test_entity_result_failure_keeps_confirmed_phases_after_core_commits(
+    native, monkeypatch, bulk
+):
+    engine, _, registry, *_ = _setup(native, monkeypatch)
+    registry.rows["sensor.third"] = registry.new("sensor.third", "third")
+    module = importlib.import_module(
+        "custom_components.ha_mcp_tools.native_operations.entity_writes"
+    )
+    project = module.entity_write_result
+    failed_target = "sensor.second" if bulk else "sensor.first"
+
+    def fail_after_confirmation(entity_id, *args, **kwargs):
+        if entity_id == failed_target:
+            raise TypeError("unexpected entity projection failure")
+        return project(entity_id, *args, **kwargs)
+
+    monkeypatch.setattr(
+        module,
+        "entity_write_result",
+        fail_after_confirmation,
+    )
+    targets = (
+        ["sensor.first", "sensor.second", "sensor.third"] if bulk else "sensor.first"
+    )
+    result = await engine.call(
+        "ha_set_entity",
+        {
+            "entity_id": targets,
+            "expose_to": {"conversation": True},
+        },
+        CallContext("actor"),
+    )
+    assert result.is_error and result.status == "outcome_unknown", result.data
+    details = result.data["failed"][0]["details"] if bulk else result.data
+    assert details["confirmed_phases"] == ["exposure:conversation"]
+    assert registry.rows[failed_target].options["conversation"]["should_expose"] is True
+    assert len(registry.calls) == (2 if bulk else 1)
+    assert "conversation" not in registry.rows["sensor.third"].options
+    if bulk:
+        assert result.data["succeeded"][0]["entity_id"] == "sensor.first"
+        assert result.data["not_attempted"] == ["sensor.third"]
+
+
 def _setup(
     native: Any, monkeypatch: pytest.MonkeyPatch, *, backup: Any = None
 ) -> tuple:
