@@ -10,12 +10,12 @@ from ha_mcp._vendor.fastmcp import Context
 from ha_mcp._vendor.fastmcp.tools import tool
 
 from ..backends.legacy import LegacyBackendTools, legacy_errors
-from ..config import get_global_settings
 from ..runtime.overview_tools import OverviewService, OverviewTools
 from ..runtime.overview_values import resolve_overview_request
 from ..runtime.search_request import resolve_search_request
 from ..runtime.search_response import _omit_empty_warnings
 from ..runtime.search_tools import SearchFacade, SearchService
+from ..tool_catalog import tool_search_active
 from ..transforms.categorized_search import DEFAULT_PINNED_TOOLS
 from .coercion import parse_string_list_param
 from .component_api import (
@@ -165,8 +165,7 @@ class SearchTools(LegacyBackendTools, ComponentSearchMixin, OverviewMixin, State
             )
         else:
             result = await self._collect_overview(inputs)
-        settings = get_global_settings()
-        if settings.enable_tool_search:
+        if tool_search_active():
             result["tool_discovery"] = {
                 "hint": "This server uses search-based tool discovery. Use ha_search_tools(query='...') to find tools, ha_search_tools(tools=['<name>']) for the full input schema of the one you will call, then execute the discovered tool directly by name (preferred), or via a proxy for permission gating: ha_call_read_tool, ha_call_write_tool, or ha_call_delete_tool. Each proxy takes name and arguments as separate top-level params. Call proxy tools SEQUENTIALLY (not in parallel) to avoid cascading cancellations. Do NOT assume a capability is unavailable without searching first.",
                 "pinned_tools": sorted(

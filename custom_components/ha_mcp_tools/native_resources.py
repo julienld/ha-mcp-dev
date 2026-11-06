@@ -106,8 +106,12 @@ def build_instructions(policy: NativePolicy, enabled_tools: set[str]) -> str:
     )
     skills = build_skills_instructions(
         get_skills_dir(),
-        settings,
         "ha_get_skill_guide" not in enabled_tools,
-        pinned=sorted(policy.pinned & enabled_tools),
     )
-    return _NOTICE + "\n\n" + compose_instructions(skills, settings)
+    return (
+        _NOTICE
+        + "\n\n"
+        + compose_instructions(
+            skills, settings, pinned=sorted(policy.pinned & enabled_tools)
+        )
+    )
