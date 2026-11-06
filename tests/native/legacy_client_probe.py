@@ -7,16 +7,25 @@ import os
 import sys
 
 
-async def probe() -> None:
-    parameters = json.load(sys.stdin)
+async def exercise_core_client(parameters: dict) -> None:
     from mcp import ClientSession
-    from mcp.client.streamable_http import streamablehttp_client
 
-    assert importlib.metadata.version("mcp").startswith("1.")
+    transport = importlib.import_module("mcp.client.streamable_http")
+    sdk_version = importlib.metadata.version("mcp")
+    major = sdk_version.split(".", 1)[0]
+    assert major in {"1", "2"}, f"Unqualified Core MCP SDK {sdk_version}"
+    http_lib = getattr(transport, "httpx2", None) or getattr(transport, "httpx", None)
+    assert http_lib is not None, (
+        "Core SDK transport does not expose its HTTP client owner"
+    )
     async with (
-        streamablehttp_client(
-            parameters["url"],
+        http_lib.AsyncClient(
             headers={"Authorization": "Bearer " + parameters["token"]},
+            timeout=http_lib.Timeout(30, read=300),
+            follow_redirects=True,
+        ) as http_client,
+        transport.streamable_http_client(
+            parameters["url"], http_client=http_client
         ) as streams,
         ClientSession(streams[0], streams[1]) as session,
     ):
@@ -26,12 +35,19 @@ async def probe() -> None:
         state = await session.call_tool(
             "ha_get_state", {"entity_id": "sensor.native_fixture"}
         )
-        assert not state.isError and "ready" in state.model_dump_json()
-    print(
-        "PASS shared_Core_SDK1_streamable_client",
-        initialized.protocolVersion,
-        flush=True,
-    )
+        failed = state.isError if major == "1" else state.is_error
+        assert not failed and "ready" in state.model_dump_json()
+        protocol = (
+            initialized.protocolVersion
+            if major == "1"
+            else initialized.protocol_version
+        )
+    print("PASS shared_Core_SDK_streamable_client", sdk_version, protocol, flush=True)
+
+
+async def probe() -> None:
+    parameters = json.load(sys.stdin)
+    await exercise_core_client(parameters)
     os.environ.update(
         {
             "HOMEASSISTANT_URL": parameters["base_url"],

@@ -378,7 +378,7 @@ async def exercise_external_clients(checks: Checks, user_id: str) -> None:
         timeout=300,
     )
     assert result.returncode == 0, result.stdout + result.stderr
-    checks.passed("unchanged_Core_SDK1_client_calls_modern_native_endpoint")
+    checks.passed("unchanged_Core_SDK_client_calls_modern_native_endpoint")
     checks.passed("shared_tool_bodies_use_real_remote_REST_and_WebSocket")
 
 

@@ -29,10 +29,11 @@ _VENDORED_DISTRIBUTIONS = {"fastmcp", "fastmcp-slim", "mcp", "mcp-types", "rich"
 # Declared by fastmcp-slim's server extra but never imported by the vendored
 # code; ha-mcp must not pin the shared copy (#2135/#2146).
 _NOT_DECLARED = {"websockets"}
-# These drive the component's LLM-API client, which uses HA's shared SDK.
+# These test surfaces explicitly exercise Core's unchanged shared SDK.
+# The component itself uses the private SDK; the peer runs outside the HA process.
 _SHARED_SDK_USERS = {
     # The external compatibility probe deliberately exercises Core's unchanged
-    # SDK 1.x against the private modern server in a separate client process.
+    # SDK 1.x/2.x selected by Core, against the private server in a separate process.
     "tests/native/legacy_client_probe.py",
     "tests/src/unit/test_llm_api.py",
     "tests/src/unit/test_llm_tool_metadata.py",
