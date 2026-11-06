@@ -23,7 +23,12 @@ async def dashboard_probe(hass: HomeAssistant) -> dict[str, Any]:
                 "config": config,
             }
         )
-    return {"resources_loaded": data.resources.loaded, "dashboards": rows}
+    return {
+        "resources_loaded": data.resources.loaded,
+        "resource_owner_type": type(data.resources).__name__,
+        "resource_load_probe": hass.data["native_fixture"].get("resource_load_probe"),
+        "dashboards": rows,
+    }
 
 
 async def seed_default_dashboard(hass: HomeAssistant) -> dict[str, Any]:

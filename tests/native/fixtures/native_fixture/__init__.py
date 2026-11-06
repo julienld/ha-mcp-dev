@@ -421,6 +421,9 @@ async def async_setup(hass, config):
         "remote_import_sites": [],
     }
     hass.data[DOMAIN] = data
+    from .resource_load_probe import observe_resource_loading
+
+    observe_resource_loading(hass, data)
     from .events import observe_events
 
     observe_events(hass)

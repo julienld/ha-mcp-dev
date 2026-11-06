@@ -1,7 +1,9 @@
 """Qualification must handle prerelease Core and stop stalled child processes."""
 
 import importlib
+import importlib.util
 import subprocess
+import sys
 from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
@@ -321,3 +323,52 @@ async def test_cold_resource_qualification_precedes_clients_that_can_load_core(
     result = await harness.exercise_runtime(SimpleNamespace(), "fixture-user")
     assert result == {"ready": True}
     assert cold_checks == ["dashboards", "resources", "cards"]
+
+
+@pytest.mark.parametrize("fails", [False, True])
+async def test_resource_load_observer_preserves_core_result_and_failure(
+    harness, monkeypatch, fails
+):
+    from pathlib import Path
+
+    path = (
+        Path(harness.__file__).parent / "fixtures/native_fixture/resource_load_probe.py"
+    )
+    spec = importlib.util.spec_from_file_location("_resource_load_observer", path)
+    observer = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(observer)
+    failure = RuntimeError("private fixture detail")
+    calls = []
+
+    class CoreResources:
+        loaded = False
+
+        async def _async_ensure_loaded(self):
+            calls.append(self)
+            self.loaded = True
+            if fails:
+                raise failure
+            return "original-result"
+
+    monkeypatch.setitem(
+        sys.modules,
+        "homeassistant.components.lovelace.resources",
+        SimpleNamespace(ResourceStorageCollection=CoreResources),
+    )
+    owner = CoreResources()
+    data = {}
+    hass = SimpleNamespace(data={"lovelace": SimpleNamespace(resources=owner)})
+    observer.observe_resource_loading(hass, data)
+    if fails:
+        with pytest.raises(RuntimeError) as raised:
+            await owner._async_ensure_loaded()
+        assert raised.value is failure
+    else:
+        assert await owner._async_ensure_loaded() == "original-result"
+    assert calls == [owner] and owner.loaded is True
+    probe = data["resource_load_probe"]
+    assert probe["initial_loaded"] is False
+    first = probe["first_load"]
+    assert first["loaded_before"] is False and first["loaded_after"] is True
+    assert any(row["function"] == "observed" for row in first["stack"])
+    assert "private fixture detail" not in str(probe)
