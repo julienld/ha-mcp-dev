@@ -87,6 +87,9 @@ async def exercise_backups(checks: Any) -> None:
 
 
 async def _exercise_edit_backup(checks: Any, entity_id: str) -> None:
+    inspected = await checks.control("entity")
+    registry = inspected["registry_entry"]
+    assert registry["entity_id"] == entity_id, inspected
     current = await checks.call("ha_get_entity", {"entity_id": entity_id})
     captured = await checks.call(
         "ha_manage_backup",
@@ -105,7 +108,8 @@ async def _exercise_edit_backup(checks: Any, entity_id: str) -> None:
         )
         config = viewed["data"]["config"]
         assert config["entity_id"] == entity_id, viewed
-        for key in ("id", "platform", "unique_id", "name", "icon", "options"):
+        assert config["id"] == registry["id"], (viewed, inspected)
+        for key in ("platform", "unique_id", "name", "icon", "options"):
             assert config[key] == current["entity_entry"][key], (key, viewed, current)
         listing = await checks.call(
             "ha_manage_backup",

@@ -54,8 +54,9 @@ async def call(edits: Any, action: str, **kwargs: Any) -> Any:
     )
 
 
+@pytest.mark.parametrize("identity_changed", [False, True])
 async def test_edit_backup_bench_observes_registered_configuration_without_state(
-    entity_history: Any, monkeypatch: pytest.MonkeyPatch
+    entity_history: Any, monkeypatch: pytest.MonkeyPatch, identity_changed: bool
 ) -> None:
     monkeypatch.syspath_prepend(str(Path(__file__).parents[2] / "native"))
     bench = importlib.import_module("backup_checks")
@@ -65,22 +66,57 @@ async def test_edit_backup_bench_observes_registered_configuration_without_state
     module = importlib.import_module(
         "custom_components.ha_mcp_tools.native_backup_tools"
     )
-    engine = Engine(manager.backend, [module.backup_definition(manager)])
     before = copy.deepcopy(registry.rows["sensor.renamed"].extended_dict)
+    from ha_mcp.runtime.catalog import define_tool
+    from ha_mcp.runtime.entities import EntityDiscoveryTools
+
+    async def read(operation, arguments, actor):
+        if operation == "entities.registry.read":
+            return {"entries": {before["entity_id"]: before}, "errors": {}}
+        assert operation == "entities.enrich"
+        return None
+
+    manager.backend.execute = AsyncMock(side_effect=read)
+    engine = Engine(
+        manager.backend,
+        [
+            module.backup_definition(manager),
+            define_tool(
+                manager.backend,
+                EntityDiscoveryTools,
+                "ha_get_entity",
+                source_module="tools_entities",
+                annotations={"readOnlyHint": True},
+            ),
+        ],
+    )
     manager.hass.config.path = lambda *parts: str(store.directory.parent)
     manager.hass.config_entries = SimpleNamespace(async_get_entry=lambda _key: None)
 
     async def invoke(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
-        if name == "ha_get_entity":
-            return {"success": True, "entity_entry": before}
         result = await engine.call(name, arguments, CallContext("owner"))
         assert not result.is_error, result.data
         return result.data
 
-    checks = SimpleNamespace(call=invoke, passed=Mock())
+    checks = SimpleNamespace(
+        call=invoke,
+        passed=Mock(),
+        control=AsyncMock(
+            return_value={
+                "registry_entry": {
+                    **before,
+                    "id": "replacement" if identity_changed else before["id"],
+                }
+            }
+        ),
+    )
     # A registry configuration remains capturable even without a StateMachine row.
     assert manager.hass.states.get("sensor.renamed") is None
-    await bench._exercise_edit_backup(checks, "sensor.renamed")
+    if identity_changed:
+        with pytest.raises(AssertionError):
+            await bench._exercise_edit_backup(checks, "sensor.renamed")
+    else:
+        await bench._exercise_edit_backup(checks, "sensor.renamed")
     assert registry.rows["sensor.renamed"].extended_dict == before
     assert {row["name"] for row in store.list_snapshots()} == initial_files
 
