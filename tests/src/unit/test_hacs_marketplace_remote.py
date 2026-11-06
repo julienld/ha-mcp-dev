@@ -233,8 +233,10 @@ async def test_only_unknown_cache_command_selects_incomplete_catalog(remote):
 async def test_cache_failure_does_not_fall_back(remote, code):
     remote.ws.send_command.side_effect = HomeAssistantCommandError("refused", code)
     with pytest.raises(HomeAssistantCommandError):
-        await remote.store.info("1")
-    remote.ws.send_command.assert_awaited_once()
+        await cached_repository(remote.ws, "marketplace", "1")
+    remote.ws.send_command.assert_awaited_once_with(
+        "ha_mcp_tools/hacs_cache", repository_id="1"
+    )
 
 
 async def test_remote_update_uses_renamed_entity_and_core_service(remote):
