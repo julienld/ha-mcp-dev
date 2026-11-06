@@ -195,7 +195,7 @@ def _prepare_testcontainer_config(
     # Inject GITHUB_TOKEN into HACS config entry if available.
     # Without a valid token HACS disables itself, causing flaky test skips.
     # In CI the automatic GITHUB_TOKEN provides sufficient read access.
-    github_token = os.environ.get("GITHUB_TOKEN")
+    github_token = None  # Disposable catalog UI test: no connected GitHub account.
     if github_token:
         storage_file = config_path / ".storage" / "core.config_entries"
         if storage_file.exists():
