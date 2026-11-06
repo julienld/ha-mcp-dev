@@ -169,6 +169,8 @@ async def run() -> None:
                     and "hidden" not in s
                 ), s
                 assert r == {"native_read"}, r
+                assert full.initialize_result is None
+                assert search.initialize_result is None
                 assert full.instructions == runtime.instructions_by_catalog["full"]
                 assert search.instructions == runtime.instructions_by_catalog["search"]
                 assert full.instructions != search.instructions

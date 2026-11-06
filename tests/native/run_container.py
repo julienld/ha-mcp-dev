@@ -61,6 +61,7 @@ ROOT = Path(__file__).resolve().parents[2]
 CONFIG = ROOT / "tests/native/.ha-test/config"
 OUT = ROOT / "tests/native/out"
 BASE = "http://127.0.0.1:8123"
+PROTOCOL_VERSION = "2026-07-28"
 CONTAINER = "ha-mcp-native-migration"
 
 
@@ -90,7 +91,7 @@ def message(method: str, arguments: dict | None = None, *, modern: bool = True) 
     params = dict(arguments or {})
     if modern:
         params["_meta"] = {
-            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/protocolVersion": PROTOCOL_VERSION,
             "io.modelcontextprotocol/clientCapabilities": {},
         }
     return {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
@@ -156,13 +157,20 @@ class Checks:
         print("PASS", name, flush=True)
 
     def headers(
-        self, user: str = "alpha", *, method: str = "tools/list", name: str = ""
+        self,
+        user: str = "alpha",
+        *,
+        method: str = "tools/list",
+        name: str = "",
+        modern: bool = True,
     ) -> dict:
         result = {
             "Authorization": "Bearer " + self.credentials[user]["access_token"],
             "Accept": "application/json, text/event-stream",
             "Mcp-Method": method,
         }
+        if modern:
+            result["Mcp-Protocol-Version"] = PROTOCOL_VERSION
         if name:
             result["Mcp-Name"] = name
         return result
@@ -194,7 +202,11 @@ class Checks:
         response = await self.client.post(
             BASE + self.path,
             headers=self.headers(
-                user, method=method, name=(params or {}).get("name", "")
+                user,
+                method=method,
+                name=(params or {}).get(
+                    "uri" if method == "resources/read" else "name", ""
+                ),
             ),
             json=message(method, params),
         )
@@ -475,7 +487,7 @@ async def exercise(checks: Checks, *, published_tag: str | None = None) -> dict:
         # invalid credential and an authenticated user without admin access.
         assert response.status_code in (401, 403), response.status_code
     checks.passed("missing_and_non_admin_identity_rejected")
-    legacy_headers = checks.headers()
+    legacy_headers = checks.headers(modern=False)
     legacy_headers.pop("Mcp-Method", None)
     response = await checks.client.post(
         BASE + checks.path,

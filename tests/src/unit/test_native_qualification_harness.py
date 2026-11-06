@@ -97,3 +97,96 @@ async def test_container_is_removed_even_when_startup_or_log_capture_times_out(
         await harness.main()
     assert calls.count("run") == 1
     assert calls[-1] == "rm"
+
+
+@pytest.mark.parametrize(
+    "method,params",
+    [
+        ("server/discover", {}),
+        ("tools/call", {"name": "framing_read", "arguments": {}}),
+        ("resources/read", {"uri": "probe://frame/value"}),
+    ],
+)
+async def test_raw_modern_bench_framing_reaches_the_real_sdk_router(
+    harness, method, params
+):
+    import json
+
+    import httpx
+
+    from ha_mcp._vendor.fastmcp import FastMCP
+
+    server = FastMCP("Framing probe", instructions="Exact framing instructions")
+
+    @server.tool()
+    async def framing_read() -> dict:
+        return {"ready": True}
+
+    @server.resource("probe://frame/value")
+    async def framing_resource() -> str:
+        return "ready"
+
+    app = server.http_app(
+        path="/mcp", stateless_http=True, host_origin_protection=False
+    )
+    sent = []
+
+    async def record(request):
+        sent.append((request.headers, json.loads(request.content)))
+
+    async with (
+        app.lifespan(app),
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app), event_hooks={"request": [record]}
+        ) as client,
+    ):
+        checks = harness.Checks(client, {"alpha": {"access_token": "fixture-token"}})
+        checks.path = "/mcp"
+        result = await checks.rpc(method, params)
+    assert "error" not in result, result
+    headers, body = sent[-1]
+    assert (
+        headers.get("mcp-protocol-version")
+        == body["params"]["_meta"]["io.modelcontextprotocol/protocolVersion"]
+    )
+    assert headers["mcp-method"] == method
+    if method == "server/discover":
+        assert result["result"]["instructions"] == "Exact framing instructions"
+    else:
+        assert (
+            headers["mcp-name"]
+            == params["uri" if method == "resources/read" else "name"]
+        )
+
+
+async def test_raw_legacy_bench_initialize_omits_the_modern_header(harness):
+    import httpx
+
+    from ha_mcp._vendor.fastmcp import FastMCP
+
+    server = FastMCP("Legacy framing probe")
+    app = server.http_app(
+        path="/mcp", stateless_http=True, host_origin_protection=False
+    )
+    async with (
+        app.lifespan(app),
+        httpx.AsyncClient(transport=httpx.ASGITransport(app)) as client,
+    ):
+        checks = harness.Checks(client, {"alpha": {"access_token": "fixture-token"}})
+        headers = checks.headers(method="initialize", modern=False)
+        assert "Mcp-Protocol-Version" not in headers
+        response = await client.post(
+            "http://fixture/mcp",
+            headers=headers,
+            json=harness.message(
+                "initialize",
+                {
+                    "protocolVersion": "2025-11-25",
+                    "capabilities": {},
+                    "clientInfo": {"name": "legacy-fixture", "version": "1"},
+                },
+                modern=False,
+            ),
+        )
+        body = harness.unpack(response)
+    assert body["result"]["protocolVersion"] == "2025-11-25", body

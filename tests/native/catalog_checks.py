@@ -14,7 +14,9 @@ async def exercise_catalogs(
     ) -> dict:
         response = await checks.client.post(
             base + checks.path + suffix,
-            headers=checks.headers(method=method, name=(params or {}).get("name", "")),
+            headers=checks.headers(
+                method=method, name=(params or {}).get("name", ""), modern=modern
+            ),
             json=message(method, params, modern=modern),
         )
         body = unpack(response)
