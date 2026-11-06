@@ -1,5 +1,6 @@
 """Code mode cannot return saved scripts after authority changes during I/O."""
 
+from dataclasses import replace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -75,3 +76,102 @@ async def test_native_code_revalidates_after_registry_io(
     if mutation:
         assert code.registry.tools["answer"]["code"] == "40 + 2"
         assert result.data["saved_registry_changed"] is True
+
+
+@pytest.mark.parametrize("child_status", ["confirmed", "outcome_unknown"])
+@pytest.mark.parametrize("max_records", [1, 128])
+async def test_save_refusal_keeps_prior_child_effects(
+    tmp_path, monkeypatch, child_status, max_records
+):
+    from ha_mcp.tool_api import ToolDefinition, ToolResult
+
+    manager, code = await runtime(tmp_path, monkeypatch)
+    manager.engine.max_records = max_records
+    effects = []
+
+    async def mutate(_arguments, _actor):
+        effects.append("once")
+        manager.policy = replace(manager.policy, read_only=True)
+        return ToolResult(
+            {"changed": True},
+            is_error=child_status == "outcome_unknown",
+            status=child_status,
+        )
+
+    manager.engine.register(ToolDefinition("write", "Write", {}, mutate))
+    result = await manager.engine.call(
+        "ha_manage_custom_tool",
+        {
+            "code": "await call_tool('write', {})",
+            "justification": "Exercise an effect before a refused save",
+            "save_as": "after_effect",
+        },
+        CallContext("owner"),
+    )
+    assert result.is_error and result.status == "outcome_unknown", result
+    assert result.data["error"]["code"] == "READ_ONLY"
+    assert result.data["operations"][0]["tool"] == "write"
+    assert result.data["operations"][0]["status"] == child_status
+    assert effects == ["once"] and "after_effect" not in code.registry.tools
+
+
+async def test_save_refusal_after_read_does_not_invent_a_write(tmp_path, monkeypatch):
+    from ha_mcp.tool_api import ToolDefinition
+
+    manager, _ = await runtime(tmp_path, monkeypatch)
+
+    async def read(_arguments, _actor):
+        manager.policy = replace(manager.policy, read_only=True)
+        return {"value": "ready"}
+
+    manager.engine.register(
+        ToolDefinition("read", "Read", {}, read, {"readOnlyHint": True})
+    )
+    result = await manager.engine.call(
+        "ha_manage_custom_tool",
+        {
+            "code": "await call_tool('read', {})",
+            "justification": "Read then refuse saving",
+            "save_as": "read_only",
+        },
+        CallContext("owner"),
+    )
+    assert result.is_error and result.status == "not_started", result
+    assert result.data["error"]["code"] == "READ_ONLY"
+    assert result.data["operations"][0]["status"] == "confirmed"
+
+
+@pytest.mark.parametrize("failure_kind", ["tool", "permission"])
+async def test_session_failure_rechecks_authority_before_exposing_details(
+    tmp_path, monkeypatch, failure_kind
+):
+    from ha_mcp.tool_api import ToolDefinition, ToolFailure
+
+    manager, code = await runtime(tmp_path, monkeypatch)
+    effect = AsyncMock(return_value={"secret_child_result": "private"})
+    manager.engine.register(ToolDefinition("write", "Write", {}, effect))
+    registry_call = code._registry_call
+
+    async def revoke_before_save(method, *args, **kwargs):
+        if method == "save_as":
+            manager.backend.authorize.side_effect = PermissionError("revoked")
+            if failure_kind == "permission":
+                raise PermissionError("SECRET_SESSION_ERROR")
+            raise ToolFailure("READ_ONLY", "SECRET_SESSION_ERROR", status="not_started")
+        return await registry_call(method, *args, **kwargs)
+
+    monkeypatch.setattr(code, "_registry_call", revoke_before_save)
+    result = await manager.engine.call(
+        "ha_manage_custom_tool",
+        {
+            "code": "await call_tool('write', {})",
+            "justification": "Exercise revoked result boundary",
+            "save_as": "refused",
+        },
+        CallContext("owner"),
+    )
+    assert result.is_error and result.status == "outcome_unknown", result
+    assert result.data["error"]["code"] == "AUTH_FORBIDDEN"
+    assert "SECRET_SESSION_ERROR" not in str(result.data)
+    assert "secret_child_result" not in str(result.data)
+    effect.assert_awaited_once()

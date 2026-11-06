@@ -204,15 +204,35 @@ class NativeCode:
             save_tool=save_tool,
             run_code=run_code,
         )
-        response = await session.ha_manage_custom_tool(**arguments)
+        failure: ToolFailure | None = None
+        try:
+            response = await session.ha_manage_custom_tool(**arguments)
+        except (ToolFailure, PermissionError) as error:
+            failure = (
+                error
+                if isinstance(error, ToolFailure)
+                else ToolFailure("AUTH_FORBIDDEN", str(error), status="not_started")
+            )
+            response = {}
+        return await self._finish_run(actor, bridge, response, failure)
+
+    async def _finish_run(
+        self,
+        actor: CallContext,
+        bridge: _NativeBridge,
+        response: dict[str, Any],
+        failure: ToolFailure | None,
+    ) -> ToolResult:
         registry_changed = bridge.registry_changed or bool(
             response.get("data", {}).get("saved_as")
         )
         try:
             await self._authorize(actor)
-        except (PermissionError, ToolFailure) as failure:
+        except (PermissionError, ToolFailure) as authority_failure:
             code = (
-                failure.code if isinstance(failure, ToolFailure) else "AUTH_FORBIDDEN"
+                authority_failure.code
+                if isinstance(authority_failure, ToolFailure)
+                else "AUTH_FORBIDDEN"
             )
             changed = registry_changed or any(
                 item["status"] not in {"not_started", "pending"}
@@ -231,6 +251,19 @@ class NativeCode:
                     "operations": bridge.outcomes,
                 },
                 status="outcome_unknown" if changed else "not_started",
+            ) from authority_failure
+        if failure is not None:
+            raise ToolFailure(
+                failure.code,
+                str(failure),
+                data={
+                    **failure.data,
+                    "operations": bridge.outcomes,
+                    "saved_registry_changed": registry_changed,
+                },
+                status="outcome_unknown"
+                if registry_changed or bridge.may_have_acted
+                else failure.status,
             ) from failure
         if bridge.outcomes:
             response["data"]["operations"] = bridge.outcomes
@@ -250,6 +283,7 @@ class _NativeBridge:
         self.count = 0
         self.outcomes: list[dict[str, Any]] = []
         self.registry_changed = False
+        self.may_have_acted = False
 
     def _guard_child(self, name: str) -> None:
         # Child admission replaces the active ContextVar, so retain the
@@ -336,6 +370,11 @@ class _NativeBridge:
             return failure.data
         finally:
             MCP_APPROVAL_CONTEXT.reset(token)
+        record = self.owner.manager.engine.operations.get(result.operation_id or "", {})
+        self.may_have_acted |= result.status == "outcome_unknown" or (
+            record.get("writes", True)
+            and result.status not in {"not_started", "pending"}
+        )
         self.outcomes.append(
             {"tool": name, "status": result.status, "operation_id": result.operation_id}
         )
