@@ -203,6 +203,9 @@ async def test_entity_bench_finds_pre_rename_history_by_public_entity_id(
     from ha_mcp.runtime.snapshot_store import SnapshotStore
 
     entities = importlib.import_module("entity_checks")
+    backups = importlib.import_module("backup_checks")
+    explicit_capture = AsyncMock()
+    monkeypatch.setattr(backups, "_exercise_edit_backup", explicit_capture)
     entity_id = "sensor.original"
     registry_id = "stable-registry-uuid"
     before = {
@@ -267,6 +270,7 @@ async def test_entity_bench_finds_pre_rename_history_by_public_entity_id(
         )
         with pytest.raises(SnapshotSelected):
             await entities.exercise_entities(checks, "http://fixture")
+        explicit_capture.assert_awaited_once_with(checks, entity_id)
 
 
 async def test_cold_resource_qualification_precedes_clients_that_can_load_core(

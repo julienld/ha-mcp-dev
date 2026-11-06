@@ -4,15 +4,17 @@ import copy
 import importlib
 import sys
 from dataclasses import replace
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
 from ha_mcp.runtime import Engine
 from ha_mcp.tool_api import CallContext, ToolFailure
 
+from .test_native_snapshot_entity_registry import entity_history as entity_history
 from .test_native_snapshot_restore import runtime as runtime
 
 
@@ -50,6 +52,37 @@ async def call(edits: Any, action: str, **kwargs: Any) -> Any:
         {"scope": "edits", "action": action, **kwargs},
         CallContext("actor"),
     )
+
+
+async def test_edit_backup_bench_observes_registered_configuration_without_state(
+    entity_history: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.syspath_prepend(str(Path(__file__).parents[2] / "native"))
+    bench = importlib.import_module("backup_checks")
+    manager, _snapshots, store, _original, registry, _ = entity_history
+    initial_files = {row["name"] for row in store.list_snapshots()}
+    manager.visibility = SimpleNamespace(before=AsyncMock())
+    module = importlib.import_module(
+        "custom_components.ha_mcp_tools.native_backup_tools"
+    )
+    engine = Engine(manager.backend, [module.backup_definition(manager)])
+    before = copy.deepcopy(registry.rows["sensor.renamed"].extended_dict)
+    manager.hass.config.path = lambda *parts: str(store.directory.parent)
+    manager.hass.config_entries = SimpleNamespace(async_get_entry=lambda _key: None)
+
+    async def invoke(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        if name == "ha_get_entity":
+            return {"success": True, "entity_entry": before}
+        result = await engine.call(name, arguments, CallContext("owner"))
+        assert not result.is_error, result.data
+        return result.data
+
+    checks = SimpleNamespace(call=invoke, passed=Mock())
+    # A registry configuration remains capturable even without a StateMachine row.
+    assert manager.hass.states.get("sensor.renamed") is None
+    await bench._exercise_edit_backup(checks, "sensor.renamed")
+    assert registry.rows["sensor.renamed"].extended_dict == before
+    assert {row["name"] for row in store.list_snapshots()} == initial_files
 
 
 def test_native_backup_schema_does_not_accept_transport_context(edits: Any) -> None:

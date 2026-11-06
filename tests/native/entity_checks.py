@@ -39,6 +39,8 @@ async def _restore(checks: Any, panel: str, snapshot: str) -> dict[str, Any]:
 
 
 async def exercise_entities(checks: Any, base: str) -> None:
+    from backup_checks import _exercise_edit_backup
+
     created = await checks.call(
         "ha_set_integration",
         {"domain": "native_fixture", "config": {"name": "Native entity device"}},
@@ -48,6 +50,7 @@ async def exercise_entities(checks: Any, base: str) -> None:
     before = fixture["registry_entry"]
     entity_id, identity = fixture["entity_id"], fixture["registry_id"]
     assert before["platform"] == "native_fixture" and before["device_id"], fixture
+    await _exercise_edit_backup(checks, entity_id)
     renamed = entity_id + "_renamed"
     result = await checks.call(
         "ha_set_entity",

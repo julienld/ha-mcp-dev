@@ -6,7 +6,6 @@ from typing import Any
 
 async def exercise_backups(checks: Any) -> None:
     seeded = await checks.control("seed_backups", {})
-    await _exercise_edit_backup(checks, seeded["state_entity"])
     first = await checks.call(
         "ha_manage_backup",
         {
@@ -88,6 +87,7 @@ async def exercise_backups(checks: Any) -> None:
 
 
 async def _exercise_edit_backup(checks: Any, entity_id: str) -> None:
+    current = await checks.call("ha_get_entity", {"entity_id": entity_id})
     captured = await checks.call(
         "ha_manage_backup",
         {
@@ -103,8 +103,10 @@ async def _exercise_edit_backup(checks: Any, entity_id: str) -> None:
             "ha_manage_backup",
             {"scope": "edits", "action": "view", "backup_name": name},
         )
-        assert viewed["data"]["config"]["entity_id"] == entity_id, viewed
-        assert viewed["data"]["config"]["attributes"], viewed
+        config = viewed["data"]["config"]
+        assert config["entity_id"] == entity_id, viewed
+        for key in ("id", "platform", "unique_id", "name", "icon", "options"):
+            assert config[key] == current["entity_entry"][key], (key, viewed, current)
         listing = await checks.call(
             "ha_manage_backup",
             {
@@ -120,8 +122,9 @@ async def _exercise_edit_backup(checks: Any, entity_id: str) -> None:
             {"scope": "edits", "action": "diff", "backup_name": name},
         )
         assert not diff["data"]["entity_missing"], diff
+        assert diff["data"]["unchanged"], diff
         checks.passed(
-            "native_backup_tool_creates_views_lists_and_diffs_a_real_Core_state_snapshot"
+            "native_backup_tool_creates_views_lists_and_diffs_a_real_Core_registry_snapshot"
         )
     finally:
         deleted = await checks.call(

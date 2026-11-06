@@ -28,11 +28,9 @@ async def seed_backups(hass: HomeAssistant) -> dict[str, Any]:
             "agent_ids": ["backup.local"],
         }
     )
-    assert hass.states.get("sensor.native_energy") is not None
     return {
         "prefix": state["prefix"],
         "agent_id": "backup.local",
-        "state_entity": "sensor.native_energy",
     }
 
 
