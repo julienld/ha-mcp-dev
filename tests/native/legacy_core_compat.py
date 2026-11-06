@@ -109,10 +109,38 @@ async def setup_entry(hass: Any, phase: str) -> Any:
     return entry
 
 
+async def _assist_read(hass: Any, entry: Any) -> None:
+    from homeassistant.core import Context
+    from homeassistant.helpers import llm
+    from homeassistant.requirements import async_get_integration_with_requirements
+
+    from custom_components.ha_mcp_tools.const import DOMAIN
+
+    await async_get_integration_with_requirements(hass, "conversation")
+    api = next(
+        api
+        for api in llm.async_get_apis(hass)
+        if api.id == f"{DOMAIN}-{entry.entry_id}"
+    )
+    context = llm.LLMContext(
+        platform=DOMAIN,
+        context=Context(),
+        language="en",
+        assistant="conversation",
+        device_id=None,
+    )
+    instance = await api.async_get_api_instance(context)
+    tool_result = await instance.async_call_tool(
+        llm.ToolInput("ha_get_state", {"entity_id": "sensor.legacy_core_fixture"})
+    )
+    assert isinstance(tool_result, dict) and "ready" in json.dumps(tool_result)
+    assert not tool_result.get("isError")
+
+
 async def exercise(config: Path, phase: str) -> dict[str, Any]:
     from homeassistant.auth import auth_manager_from_config
     from homeassistant.const import __version__ as core_version
-    from homeassistant.core import Context, HomeAssistant
+    from homeassistant.core import HomeAssistant
     from homeassistant.helpers import llm
     from homeassistant.setup import async_setup_component
 
@@ -182,27 +210,11 @@ async def exercise(config: Path, phase: str) -> dict[str, Any]:
                 )
                 wire = result.model_dump(by_alias=True)
                 assert not wire["isError"] and "ready" in json.dumps(wire)
-        api = next(
-            api
-            for api in llm.async_get_apis(hass)
-            if api.id == f"{DOMAIN}-{entry.entry_id}"
-        )
-        context = llm.LLMContext(
-            platform=DOMAIN,
-            context=Context(),
-            language="en",
-            assistant="conversation",
-            device_id=None,
-        )
-        instance = await api.async_get_api_instance(context)
-        tool_result = await instance.async_call_tool(
-            llm.ToolInput("ha_get_state", {"entity_id": "sensor.legacy_core_fixture"})
-        )
-        assert isinstance(tool_result, dict) and "ready" in json.dumps(tool_result)
-        assert not tool_result.get("isError")
+        await _assist_read(hass, entry)
         return {
             "phase": phase,
             "core": core_version,
+            "conversation_requirements_loaded_by_Core": True,
             "paired_version": paired_version,
             "identity": {
                 "entry_id": entry.entry_id,
