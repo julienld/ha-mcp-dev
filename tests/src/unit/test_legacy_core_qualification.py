@@ -149,6 +149,11 @@ async def test_legacy_probe_creates_the_real_long_lived_token_kind(monkeypatch):
         auth=auth, config_entries=entries, async_block_till_done=AsyncMock()
     )
     assert await setup_entry(hass, "first_start") is entry
+    auth.async_create_user.assert_awaited_once()
+    assert auth.async_create_user.await_args.kwargs["group_ids"] == ["system-admin"]
+    auth.async_create_access_token.assert_called_once_with(refresh)
+    create_call = flow.async_configure.await_args_list[1]
+    assert create_call.args[1]["admin_token"] == "fixture-token"
     auth.async_create_refresh_token.assert_awaited_once_with(
         user, token_type="long_lived_access_token", client_name="Legacy qualification"
     )
