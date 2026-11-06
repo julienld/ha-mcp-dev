@@ -20,6 +20,7 @@ from .test_component_ws_search import FakeHass, FakeLabel
 from .test_native_catalog_contract import (
     _ANNOTATIONS,
     _changed_inputs,
+    _shared_annotation_overrides,
     _structural_schema,
 )
 from .test_native_catalog_contract_area_writes import _Area, _Registry
@@ -469,9 +470,12 @@ def label_contract() -> dict[str, Any]:
             )["tools"]
         }
     )
-    overrides = json.loads((_CONTRACT.parent / "compatibility.json").read_text())[
-        "native_annotation_overrides"
-    ]
+    overrides = (
+        _shared_annotation_overrides()
+        | json.loads((_CONTRACT.parent / "compatibility.json").read_text())[
+            "native_annotation_overrides"
+        ]
+    )
     for name, override in overrides.items():
         baseline[name]["annotations"].update(override["annotations"])
     return baseline

@@ -67,6 +67,12 @@
     "safety_compare": "typed before-image captured before awaits; restore must refuse a change after that same safety image",
     "missing_registration": "explicit unsupported recreation; restoring history does not recreate an integration-owned entity"
   },
+  "shared_annotation_overrides": {
+    "ha_remove_todo_item": {
+      "annotations": {"idempotentHint": false},
+      "reason": "Both runtimes retain the existing remove_completed predicate. An identical retry can delete items completed after the first request, so discovery must not advertise safe replay. Inputs, outputs and deletion behavior are unchanged; the historical baseline stays immutable."
+    }
+  },
   "native_annotation_overrides": {
     "ha_config_get_dashboard": {
       "annotations": {"readOnlyHint": false, "destructiveHint": true, "idempotentHint": false},

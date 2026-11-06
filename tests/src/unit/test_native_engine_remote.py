@@ -1,5 +1,6 @@
 """The common engine also invokes the existing remote clients and schemas."""
 
+import copy
 from unittest.mock import AsyncMock
 
 import pytest
@@ -18,6 +19,28 @@ from .test_ha_call_service_component_routing import (
     _build_call_service,
     _confirmed_result,
 )
+
+
+@pytest.mark.parametrize("fails", [False, True])
+async def test_remote_transform_preserves_its_nested_input_on_success_and_error(fails):
+    from ha_mcp.utils.python_sandbox import PythonSandboxExecutionError
+
+    config = {"nested": {"values": [1]}}
+    before = copy.deepcopy(config)
+    expression = "config['nested']['values'].append(2)"
+    if fails:
+        expression += "\nconfig['missing']"
+    backend = RemoteBackend(RoutingClient())
+    arguments = {"expression": expression, "config": config}
+    if fails:
+        with pytest.raises(PythonSandboxExecutionError):
+            await backend.execute("config.transform", arguments, CallContext("remote"))
+    else:
+        result = await backend.execute(
+            "config.transform", arguments, CallContext("remote")
+        )
+        assert result["nested"]["values"] == [1, 2]
+    assert config == before
 
 
 @pytest.mark.parametrize("component", [True, False])

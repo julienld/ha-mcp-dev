@@ -28,7 +28,7 @@ def _load(name: str, path: Path) -> Any:
 
 
 @pytest.fixture
-def installation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
+def installation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, request) -> Any:
     collector = _load(
         "e2e_capture",
         ROOT / "tests/fixtures/native_qualification/dependency_capture.py",
@@ -74,6 +74,9 @@ def installation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     monkeypatch.setattr(collector, "receipt_helpers", lambda: vars(receipt))
     component = tmp_path / "custom_components/ha_mcp_tools"
     component.mkdir(parents=True)
+    (component / "pip_compat.py").write_bytes(
+        (ROOT / "custom_components/ha_mcp_tools/pip_compat.py").read_bytes()
+    )
     manifest = component / "manifest.json"
     manifest.write_text(
         json.dumps(
@@ -98,14 +101,16 @@ def installation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
         return requirements, []
 
     installer = Mock(side_effect=install)
-    monkeypatch.setitem(
-        sys.modules,
-        "homeassistant.requirements",
-        SimpleNamespace(
-            _install_requirements_if_missing=installer,
-            pip_kwargs=lambda _config: {"constraints": str(constraints)},
-        ),
+    requirements = SimpleNamespace(
+        _install_requirements_if_missing=installer,
+        pip_kwargs=(lambda: {"constraints": str(constraints)})
+        if getattr(request, "param", "legacy") == "current"
+        else (lambda _config: {"constraints": str(constraints)}),
     )
+    monkeypatch.setitem(sys.modules, "homeassistant.requirements", requirements)
+    import homeassistant
+
+    monkeypatch.setattr(homeassistant, "requirements", requirements, raising=False)
     monkeypatch.setattr(guard, "native_runtime_selected", lambda: True)
     monkeypatch.delenv("E2E_ATTESTATION_DIRECTORY", raising=False)
     machine = SimpleNamespace(exec_run=Mock())
@@ -128,6 +133,16 @@ def installation(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     collector.prepare(tmp_path)
     state.versions["certifi"] = "2026.10.23"
     return world
+
+
+@pytest.mark.parametrize("installation", ["current"], indirect=True)
+def test_cold_paired_install_uses_the_current_core_pip_owner_without_retry(
+    installation,
+):
+    installation.installer.assert_called_once()
+    proof = json.loads((installation.config / "native-dependencies.json").read_bytes())
+    assert proof["observations"][-1]["verified"]
+    assert "installation_failure" not in proof
 
 
 def _preinstall_guard(world: Any) -> dict[str, Any]:

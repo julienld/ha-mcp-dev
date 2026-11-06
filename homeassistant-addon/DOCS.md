@@ -732,7 +732,7 @@ The add-on provides 88+ MCP tools for controlling Home Assistant:
 - `ha_manage_pipeline` — Manage Home Assistant Assist pipelines.
 
 ### Automations
-- `ha_config_get_automation` — Get a Home Assistant automation's stored configuration.
+- `ha_config_get_automation` — Get Home Assistant automation configuration.
 - `ha_config_remove_automation` — Delete a Home Assistant automation permanently.
 - `ha_config_set_automation` — Create or update a Home Assistant automation.
 
@@ -788,7 +788,7 @@ The add-on provides 88+ MCP tools for controlling Home Assistant:
 - `ha_config_set_group` — Create or update a service-based Home Assistant entity group via the group.set service.
 
 ### HACS
-- `ha_get_hacs_info` — Get cached HACS or Home Assistant Marketplace data — search the store or read repository details.
+- `ha_get_hacs_info` — Get HACS or Home Assistant Marketplace data — search the store or read repository details.
 - `ha_manage_hacs` — Manage HACS or Home Assistant Marketplace — install/update, remove, add repositories, or refresh metadata.
 
 ### Helper Entities

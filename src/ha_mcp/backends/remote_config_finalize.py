@@ -1,6 +1,7 @@
 """Finite config support operations over the existing standalone clients."""
 
 import asyncio
+import copy
 from typing import Any
 
 from ha_mcp.tool_api import UnsupportedOperation
@@ -33,7 +34,7 @@ async def execute_config_finalize(
         from ha_mcp.utils.python_sandbox import safe_execute
 
         return await asyncio.to_thread(
-            safe_execute, arguments["expression"], arguments["config"]
+            safe_execute, arguments["expression"], copy.deepcopy(arguments["config"])
         )
     if operation == "blueprints.render":
         return await client.send_websocket_message(

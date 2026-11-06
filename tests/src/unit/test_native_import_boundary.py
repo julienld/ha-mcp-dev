@@ -1,8 +1,12 @@
 """Native settings and search reuse cannot activate a remote HA transport."""
 
+import math
 import os
 import subprocess
 import sys
+from pathlib import Path
+
+import pytest
 
 
 def test_native_settings_imports_never_load_a_remote_client():
@@ -24,9 +28,34 @@ from ha_mcp.transforms import CategorizedSearchTransform, DEFAULT_PINNED_TOOLS
 assert DEFAULT_PINNED_TOOLS and CategorizedSearchTransform
 """
     result = subprocess.run(
-        [sys.executable, "-c", code], capture_output=True, text=True, check=False
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        check=False,
+        cwd=Path(__file__).resolve().parents[3],
+        timeout=120,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+@pytest.mark.parametrize("dotenv", [False, True])
+def test_native_import_probes_bound_stalled_children(monkeypatch, tmp_path, dotenv):
+    calls = []
+
+    def stalled(command, **kwargs):
+        calls.append(command)
+        budget = kwargs.get("timeout", float("inf"))
+        assert budget > 0 and math.isfinite(budget)
+        assert kwargs["cwd"] == Path(__file__).resolve().parents[3]
+        raise subprocess.TimeoutExpired(command, budget)
+
+    monkeypatch.setattr(subprocess, "run", stalled)
+    with pytest.raises(subprocess.TimeoutExpired):
+        if dotenv:
+            test_native_settings_introspection_does_not_load_dotenv(tmp_path)
+        else:
+            test_native_settings_imports_never_load_a_remote_client()
+    assert len(calls) == 1
 
 
 def test_native_settings_introspection_does_not_load_dotenv(tmp_path):
@@ -53,5 +82,7 @@ assert os.environ['HAMCP_NATIVE_TEST_MARKER'] == 'explicit-runtime-only'
         text=True,
         env=environment,
         check=False,
+        cwd=Path(__file__).resolve().parents[3],
+        timeout=120,
     )
     assert result.returncode == 0, result.stdout + result.stderr

@@ -523,10 +523,15 @@ class TestAutomationReplacementGuard:
         config = _config()
         del config["alias"]
 
-        with pytest.raises(ToolError):
+        with pytest.raises(ToolError) as exc:
             await tools.ha_config_set_automation(
                 entity_id="abc123unique", config=config, wait=False
             )
+        error = json.loads(str(exc.value))
+        assert error["error"]["code"] == "VALIDATION_INVALID_PARAMETER"
+        assert "config_hash" in str(exc.value) and "Nothing was written" in str(
+            exc.value
+        )
         mock_client.upsert_automation_config.assert_not_awaited()
 
     async def test_intentional_rename_with_fresh_hash_succeeds(

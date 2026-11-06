@@ -33,6 +33,12 @@ Core restart; safety hints and process budgets reflect actual Native effects.
 The upstream `restore_database=null` default is retained with its explicit
 selection semantics. Historical audits and live evidence keep their original SHA.
 
+Both runtimes now describe todo removal as non-idempotent: an identical
+`remove_completed=True` retry can remove items completed after the first call.
+Only that retry-safety hint changes; parameters, results and deletion behavior
+remain the same. The shared exception is explicit in the machine contract;
+the historical catalogue baseline is not recaptured.
+
 ## Upstream continuity, 3 November 2026
 
 The integration target is upstream `c6d0248e46f306cefa0bf67bae39382e1200d05d`.

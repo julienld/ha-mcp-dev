@@ -64,7 +64,7 @@ def _requirement_errors(
 def observe(config: Path, phase: str) -> dict[str, Any]:
     path = config / PROOF_NAME
     helpers = receipt_helpers()
-    proof = helpers["observe_dependencies"](
+    proof: dict[str, Any] = helpers["observe_dependencies"](
         config / "custom_components/ha_mcp_tools", path=path, phase=phase
     )
     observation = proof["observations"][-1]
@@ -130,7 +130,7 @@ def assert_qualified(proof: dict[str, Any], *, runtime: bool = False) -> None:
 
 def prepare(config: Path) -> dict[str, Any]:
     """Install the paired wheel once, using unmodified Core kwargs and decisions."""
-    from homeassistant.requirements import _install_requirements_if_missing, pip_kwargs
+    from homeassistant.requirements import _install_requirements_if_missing
 
     path = config / PROOF_NAME
     if path.exists():
@@ -159,6 +159,9 @@ def prepare(config: Path) -> dict[str, Any]:
     )
     _save(path, proof)
     try:
+        pip_kwargs = runpy.run_path(
+            str(config / "custom_components/ha_mcp_tools/pip_compat.py")
+        )["pip_kwargs"]
         kwargs = pip_kwargs(str(config))
         if str(kwargs["constraints"]) != proof["core_constraints_baseline"]["path"]:
             raise ValueError("Core installation and observation constraints differ")

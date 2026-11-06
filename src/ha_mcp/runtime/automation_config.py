@@ -260,7 +260,7 @@ class AutomationConfigMethods(AutomationRemovalTools, ConfigWriteContext):
                 create_error_response(
                     ErrorCode.VALIDATION_INVALID_PARAMETER,
                     f"Automation {identifier!r} already exists as {current.get('alias')!r}. "
-                    f"This write would replace it with {config['alias']!r}. Nothing was written.",
+                    f"This write would replace it with {config.get('alias')!r}. Nothing was written.",
                     context={"identifier": identifier, "parameter": "config_hash"},
                     suggestions=[
                         "Omit entity_id (and identifier) and remove config['id'] to create a separate automation.",

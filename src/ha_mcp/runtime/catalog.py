@@ -207,7 +207,7 @@ def build_initial_catalog(backend: Backend) -> list[ToolDefinition]:
                     write_hints(
                         "Remove Todo Item",
                         destructive=True,
-                        idempotent=True,
+                        idempotent=False,
                         open_world=False,
                     ),
                 ),

@@ -80,6 +80,26 @@ rebuild under that identity, use `--clobber`, or delete and recreate the release
 Historical dev tags and assets remain available for pinned installs and rollback.
 Old tags retain their original HACS metadata and source installation format.
 
+If semantic-release pushed a stable tag but asset preparation failed before
+creating any GitHub release, the original build artifact may not exist. A
+maintainer explicitly authorized to recover that release can run the existing
+delivery CLI from the failed run's trusted checkout, with the tag's exact commit
+and initialized submodules:
+
+```text
+uv run --locked -s scripts/native_release_delivery.py prepare --checkout . --repository OWNER/REPO --version X.Y.Z --tag vX.Y.Z --revision FULL_TAG_COMMIT_SHA --assets NEW_RECOVERY_DIRECTORY
+uv run --locked -s scripts/native_release_delivery.py publish --repository OWNER/REPO --tag vX.Y.Z --revision FULL_TAG_COMMIT_SHA --assets NEW_RECOVERY_DIRECTORY --notes RELEASE_NOTES_FILE --draft-only
+```
+
+Use an empty, new recovery directory and reviewed notes for that version. This
+route prepares assets for the existing tag and creates only a verified draft;
+it does not rerun versioning, move a tag, publish the draft, or resume later
+changelog/`stable`-tag steps. `prepare` resolves the current Core window again;
+an unavailable source or failed floor still stops recovery, without a bypass.
+If a release already exists, preserve it and use the original-artifact recovery
+above for a partial upload. Never rebuild missing assets under an existing
+release identity. No release action is authorized merely by this procedure.
+
 When a change adds a component service or argument that the server depends
 on, raise `MIN_COMPONENT_VERSION` in `src/ha_mcp/tools/tools_filesystem.py`,
 in the same PR, to the release that will carry it: the number

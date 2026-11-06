@@ -427,17 +427,25 @@
   {
     "name": "ha_config_get_automation",
     "title": "Get Automation Config",
-    "description": "Get a Home Assistant automation's stored configuration.\n\n`config` is the body Home Assistant stores, as it stores it; its\n`config_hash` stays the same across reads of an unchanged automation.\n`entity` is the automation's entity registry row, `validation` holds\nHome Assistant's status and error when the automation failed to load\n(None when it loaded), and `references` lists the entities, devices,\nareas, floors, labels and blueprint it uses. `references` is None\nwithout the ha_mcp_tools component's automation_config bridge and\nwhile Home Assistant has not loaded the automation (disabled, or it\nfailed to load); `warnings` says which. `automation_id` is the\nresolved entity_id, falling back to the input.\n\nEXAMPLES:\n- Get automation: ha_config_get_automation(\"automation.morning_routine\")\n- Get by config id: ha_config_get_automation(\"1712345678901\")\n\nFor comprehensive automation documentation, use ha_get_skill_guide.",
+    "description": "Get Home Assistant automation configuration.\n\nReturns the complete configuration including triggers, conditions, actions, and mode settings.\n\nThe returned `config_hash` stays the same across consecutive reads of an unchanged config.\n\nThe returned `automation_id` is the resolved entity_id (canonical\nform, e.g. `automation.morning_routine`) when the registry lookup\nsucceeds, falling back to the input `identifier` otherwise.\n\nEXAMPLES:\n- Get automation: ha_config_get_automation(\"automation.morning_routine\")\n- Get by unique_id: ha_config_get_automation(\"my_unique_automation_id\")\n\nFor comprehensive automation documentation, use ha_get_skill_guide.",
     "inputSchema": {
       "properties": {
+        "identifier": {
+          "type": "str | None",
+          "description": "Automation entity_id or config id; identifier remains accepted.",
+          "default": null
+        },
         "entity_id": {
-          "type": "str",
-          "description": "The automation's entity_id (e.g. 'automation.morning_routine') or its config id"
+          "type": "str | None",
+          "description": "Automation entity_id or config id; compatible alias of identifier.",
+          "default": null
+        },
+        "config_format": {
+          "type": "Literal['compatible', 'stored']",
+          "description": "compatible preserves the historical normalized view; stored returns Core persisted keys verbatim. Hashes can be used for safe updates in either view.",
+          "default": "compatible"
         }
-      },
-      "required": [
-        "entity_id"
-      ]
+      }
     },
     "annotations": {
       "readOnlyHint": true,
@@ -453,22 +461,25 @@
   {
     "name": "ha_config_remove_automation",
     "title": "Remove Automation",
-    "description": "Delete a Home Assistant automation permanently.\n\nA disabled automation is removed too. The returned `automation_id` is\nthe resolved entity_id, falling back to the input.\n\nEXAMPLES:\n- Delete automation: ha_config_remove_automation(\"automation.old_automation\")\n- Delete by config id: ha_config_remove_automation(\"1712345678901\")",
+    "description": "Delete a Home Assistant automation permanently.\n\nThe returned `automation_id` is the resolved entity_id (canonical\nform, e.g. `automation.morning_routine`) when the registry lookup\nsucceeded before the delete, falling back to the input\n`identifier` otherwise.\n\nEXAMPLES:\n- Delete automation: ha_config_remove_automation(\"automation.old_automation\")\n- Delete by unique_id: ha_config_remove_automation(\"my_unique_id\")",
     "inputSchema": {
       "properties": {
-        "entity_id": {
-          "type": "str",
-          "description": "The automation's entity_id (e.g. 'automation.old_automation') or its config id"
+        "identifier": {
+          "type": "str | None",
+          "description": "Automation entity_id or config id; identifier remains accepted.",
+          "default": null
         },
         "wait": {
           "type": "bool",
           "description": "Wait for automation to be fully removed before returning.",
           "default": true
+        },
+        "entity_id": {
+          "type": "str | None",
+          "description": "Automation entity_id or config id; compatible alias of identifier.",
+          "default": null
         }
-      },
-      "required": [
-        "entity_id"
-      ]
+      }
     },
     "annotations": {
       "readOnlyHint": false,
@@ -484,17 +495,17 @@
   {
     "name": "ha_config_set_automation",
     "title": "Create or Update Automation",
-    "description": "Create or update a Home Assistant automation.\n\nMUST call ha_get_skill_guide OR refer to your locally installed skills first.\n\nPrefer native triggers/conditions/actions over templates in logic\npositions; templates belong only in `data.*`, notification text,\n`event_data` and `variables`. The best-practice checker reports\nviolations under `best_practice_warnings` — fix them before\nre-submitting. `triggers-and-conditions.md`, `automation-actions.md` and\n`template-guidelines.md` ship under `skill_content` by default. Test any unavoidable template\nwith ha_eval_template first.\n\nConsider a dedicated tool first: a state snapshot with no trigger ->\nha_config_set_scene; a value derived from other entities ->\nha_config_set_helper(helper_type='template'); a counter / timer /\nschedule / boolean -> ha_config_set_helper.\n\nMODES (pick one; each can also take `enabled`, which alone with\n`entity_id` turns the automation on or off without touching config):\n- python_transform: surgical edits to an existing automation. Requires\n  entity_id and config_hash from ha_config_get_automation(). Operates on\n  the stored config exactly as ha_config_get_automation returns it, e.g.\n  python_transform=\"config['triggers'].append({'trigger': 'state', 'entity_id': 'binary_sensor.motion', 'to': 'on'})\"\n- config: new automations or full restructures. Regular automations have\n  triggers and actions; blueprint automations have use_blueprint\n  {path, input}. Home Assistant validates the config, and a rejection\n  carries its own error text.\n- take_control_of_blueprint: convert a blueprint-backed automation into a\n  standalone one. Takes no config of its own.\n\nIDENTITY: omit entity_id and config['id'] to create with a generated ID.\nReusing an entity_id targets the same automation even if the alias\nchanges; to rename or replace it, read it first and pass its\nconfig_hash — a changed alias without that hash is rejected before\nwriting. `operation` says whether the write created or updated it.\n\nEXAMPLES:\n- Create: ha_config_set_automation(config={\"alias\": \"Morning Lights\", \"triggers\": [{\"trigger\": \"time\", \"at\": \"07:00:00\"}], \"actions\": [{\"action\": \"light.turn_on\", \"target\": {\"area_id\": \"bedroom\"}}]})\n- From a blueprint: ha_config_set_automation(config={\"alias\": \"Motion Light Kitchen\", \"use_blueprint\": {\"path\": \"homeassistant/motion_light.yaml\", \"input\": {\"motion_entity\": \"binary_sensor.kitchen_motion\", \"light_target\": {\"entity_id\": \"light.kitchen\"}}}})\n- Update: current = ha_config_get_automation(entity_id=\"automation.x\"); ha_config_set_automation(entity_id=\"automation.x\", config_hash=current[\"config_hash\"], config={...})\n- Disable: ha_config_set_automation(entity_id=\"automation.x\", enabled=False)\n- Run now: ha_config_set_automation(entity_id=\"automation.x\", run_actions=True)\n- Take control: ha_config_set_automation(entity_id=\"automation.x\", take_control_of_blueprint=True)\n\nTAKE CONTROL is one-way: later blueprint edits stop reaching the\nautomation; to change an input value, update 'use_blueprint.input'\ninstead. It does NOT free the blueprint — Home Assistant keeps counting\nthe converted automation as a user, so deleting that blueprint stays\nrefused until the automation is removed (an automation reload does not\nclear it). The response names the blueprint in\n`took_control_of_blueprint`. To preview the rendering without writing\nanything, use ha_manage_blueprints(action=\"substitute\", path=..., input=...).",
+    "description": "Create or update a Home Assistant automation.\n\nMUST call ha_get_skill_guide OR refer to your locally installed skills first.\n\nPrefer native triggers/conditions/actions over templates in logic\npositions; templates belong only in `data.*`, notification text,\n`event_data` and `variables`. The best-practice checker reports\nviolations under `best_practice_warnings` — fix them before\nre-submitting. `triggers-and-conditions.md`, `automation-actions.md` and\n`template-guidelines.md` ship under `skill_content` by default. Test any unavoidable template\nwith ha_eval_template first.\n\nConsider a dedicated tool first: a state snapshot with no trigger ->\nha_config_set_scene; a value derived from other entities ->\nha_config_set_helper(helper_type='template'); a counter / timer /\nschedule / boolean -> ha_config_set_helper.\n\nMODES (pick one; each can also take `enabled`, which alone with\n`identifier` turns the automation on or off without touching config):\n- python_transform: surgical edits to an existing automation. Requires\n  identifier and config_hash from ha_config_get_automation(). Operates on\n  the fetched config, which uses HA's plural root keys\n  'triggers'/'actions'/'conditions', e.g.\n  python_transform=\"config['triggers'].append({'trigger': 'state', 'entity_id': 'binary_sensor.motion', 'to': 'on'})\"\n- config: new automations or full restructures. Regular automations need\n  alias, triggers and actions; blueprint automations need alias and\n  use_blueprint {path, input}.\n- take_control_of_blueprint: convert a blueprint-backed automation into a\n  standalone one. Takes no config of its own.\n\nIDENTITY: omit identifier and config['id'] to create with a generated ID;\nan unused raw ID creates that specific ID. Reusing an identifier targets\nthe same automation even if the alias changes; to rename or replace it,\nread it first and pass its config_hash — a changed alias without that\nhash is rejected before writing. The returned `automation_id` is the\nresolved entity_id, falling back to the input identifier or the\ngenerated unique_id.\n\nEXAMPLES:\n- Create: ha_config_set_automation(config={\"alias\": \"Morning Lights\", \"triggers\": [{\"trigger\": \"time\", \"at\": \"07:00:00\"}], \"actions\": [{\"action\": \"light.turn_on\", \"target\": {\"area_id\": \"bedroom\"}}]})\n- From a blueprint: ha_config_set_automation(config={\"alias\": \"Motion Light Kitchen\", \"use_blueprint\": {\"path\": \"homeassistant/motion_light.yaml\", \"input\": {\"motion_entity\": \"binary_sensor.kitchen_motion\", \"light_target\": {\"entity_id\": \"light.kitchen\"}}}})\n- Update: current = ha_config_get_automation(identifier=\"automation.x\"); ha_config_set_automation(identifier=\"automation.x\", config_hash=current[\"config_hash\"], config={...})\n- Disable: ha_config_set_automation(identifier=\"automation.x\", enabled=False)\n- Run now: ha_config_set_automation(identifier=\"automation.x\", run_actions=True)\n- Take control: ha_config_set_automation(identifier=\"automation.x\", take_control_of_blueprint=True)\n\nTAKE CONTROL is one-way: later blueprint edits stop reaching the\nautomation; to change an input value, update 'use_blueprint.input'\ninstead. It does NOT free the blueprint — Home Assistant keeps counting\nthe converted automation as a user, so deleting that blueprint stays\nrefused until the automation is removed (an automation reload does not\nclear it). The response names the blueprint in\n`took_control_of_blueprint`. To preview the rendering without writing\nanything, use ha_manage_blueprints(action=\"substitute\", path=..., input=...).",
     "inputSchema": {
       "properties": {
         "config": {
           "type": "dict[str, Any] | None",
-          "description": "Complete automation configuration, written as given. Purpose-specific triggers/conditions (HA 2026.7+ default: 'trigger': '<domain>.<name>' with 'target'/'options') are valid config. Mutually exclusive with python_transform.",
+          "description": "Complete automation configuration. Purpose-specific triggers/conditions (HA 2026.7+ default: 'trigger': '<domain>.<name>' with 'target'/'options') are valid config. Mutually exclusive with python_transform.",
           "default": null
         },
-        "entity_id": {
+        "identifier": {
           "type": "str | None",
-          "description": "The automation's entity_id (automation.x) or its config id; omit to create. An unused config id creates the automation under that id; values such as 'new' are literal ids, not placeholders.",
+          "description": "Target automation entity_id or HA config 'id' (unique_id). Omit for creation with a generated ID. Values such as 'new' are literal IDs, not placeholders.",
           "default": null
         },
         "python_transform": {
@@ -509,7 +520,7 @@
         },
         "take_control_of_blueprint": {
           "type": "bool",
-          "description": "Convert a blueprint-backed automation into an editable standalone one -- the UI's \"Take control\". Renders the blueprint with its current inputs and saves the result over the same automation, which keeps its entity_id, alias and description and then has its own triggers/conditions/actions and no 'use_blueprint'. Requires entity_id; mutually exclusive with config and python_transform.",
+          "description": "Convert a blueprint-backed automation into an editable standalone one -- the UI's \"Take control\". Renders the blueprint with its current inputs and saves the result over the same automation, which keeps its entity_id, alias and description and then has its own triggers/conditions/actions and no 'use_blueprint'. Requires identifier; mutually exclusive with config and python_transform.",
           "default": false
         },
         "category": {
@@ -529,7 +540,7 @@
         },
         "run_actions": {
           "type": "bool",
-          "description": "Run the automation's actions now, skipping its triggers and conditions (automation.trigger, the UI's Run actions). Applied after `enabled` and after any config write. Can be used standalone with entity_id and no config.",
+          "description": "Run the automation's actions now, skipping its triggers and conditions (automation.trigger, the UI's Run actions). Applied after `enabled` and after any config write. Can be used standalone with identifier and no config.",
           "default": false
         },
         "MandatoryBPS": {
@@ -538,6 +549,11 @@
         },
         "BestPracticeKey": {
           "type": "BestPracticeKeyParam",
+          "default": null
+        },
+        "entity_id": {
+          "type": "str | None",
+          "description": "Automation entity_id or config id; compatible alias of identifier.",
           "default": null
         }
       }
@@ -926,7 +942,7 @@
   {
     "name": "ha_config_delete_dashboard",
     "title": "Delete Dashboard",
-    "description": "Delete a storage-mode dashboard completely.\n\nWARNING: This deletes the dashboard and all its configuration; with auto-backup\non, ha_manage_backup(scope='edits', action='restore') re-creates it. YAML-mode\ndashboards are defined in configuration.yaml and cannot be deleted via the API.\n\nHA internal IDs may differ from url_path (e.g. hyphens → underscores); the tool resolves\neither form to the actual registry ID before deletion. 'default' is an\nalias for 'lovelace'.\n\nEXAMPLES:\n- Delete dashboard: ha_config_delete_dashboard(\"mobile-dashboard\")",
+    "description": "Delete a storage-mode dashboard completely.\n\nWARNING: This permanently deletes the dashboard and all its configuration.\nCannot be undone. YAML-mode dashboards are defined in configuration.yaml\nand cannot be deleted through the API.\n\nHA internal IDs may differ from url_path (e.g. hyphens → underscores); the tool resolves\neither form to the actual registry ID before deletion. 'default' is an\nalias for 'lovelace'.\n\nEXAMPLES:\n- Delete dashboard: ha_config_delete_dashboard(\"mobile-dashboard\")",
     "inputSchema": {
       "properties": {
         "url_path": {
@@ -1122,7 +1138,7 @@
         },
         "title": {
           "type": "str | None",
-          "description": "Sidebar name; required when creating a dashboard",
+          "description": "Dashboard display name shown in sidebar",
           "default": null
         },
         "icon": {
@@ -1759,7 +1775,7 @@
   {
     "name": "ha_delete_file",
     "title": "Delete File",
-    "description": "Delete a file from allowed directories in the Home Assistant config.\n\nha_manage_backup(scope=\"edits\") can restore a text file from its most\nrecent auto-backup snapshot; a binary file has no snapshot and its\ndeletion is permanent. Allowed directories:\n`www/`, `themes/`, `custom_templates/`, `dashboards/`, plus any custom\ndirectories OR HAOS sibling volumes (`/share`, `/media`, `/ssl`) configured\nin the ha-mcp settings UI; `/ssl` is read-only on HAOS and Supervised.\nConfiguration files cannot be deleted; path traversal (../) is blocked.\n\nEXAMPLE: ha_delete_file(path=\"www/deprecated-style.css\", confirm=True)",
+    "description": "Delete a file from allowed directories in the Home Assistant config.\n\nha_manage_backup(scope=\"edits\") can restore a text file from its most\nrecent auto-backup snapshot; a binary file has no snapshot and its\ndeletion is permanent. Allowed directories:\n`www/`, `themes/`, `custom_templates/`, `dashboards/`, plus any custom\ndirectories OR HAOS sibling volumes (`/share`, `/media`, `/ssl`) configured in the ha-mcp settings UI. Configuration files\ncannot be deleted; path traversal (../) is blocked.\n\nEXAMPLE: ha_delete_file(path=\"www/deprecated-style.css\", confirm=True)",
     "inputSchema": {
       "properties": {
         "path": {
@@ -1864,7 +1880,7 @@
   {
     "name": "ha_write_file",
     "title": "Write File",
-    "description": "Write a file to allowed directories in the Home Assistant config.\n\nCreates or updates files (custom CSS/JS for dashboards, Jinja2 macro\ntemplates, theme YAML) in restricted directories only.\n\n**Allowed Write Directories:**\n- `www/` - Web assets for dashboards\n- `themes/` - Theme YAML files\n- `custom_templates/` - Jinja2 template files\n- `dashboards/` - YAML-mode dashboard files\n- Plus custom directories OR HAOS sibling volumes (`/share`, `/media`, `/ssl`)\n  from the ha-mcp settings UI; `/ssl` is read-only on HAOS and Supervised\nConfiguration files (configuration.yaml, etc.) cannot be written; path\ntraversal (../) is blocked.\n\nText content only. Overwriting a file that currently holds binary\ncontent still succeeds, but its prior bytes cannot be captured by\nauto-backup (only modifications/deletions of text files are\nsnapshotted); the skip is logged, the write is not blocked.\n\nEXAMPLE: ha_write_file(path=\"custom_templates/formatters.jinja\", content=\"{% macro shout(text) %}{{ text | upper }}{% endmacro %}\")",
+    "description": "Write a file to allowed directories in the Home Assistant config.\n\nCreates or updates files (custom CSS/JS for dashboards, Jinja2 macro\ntemplates, theme YAML) in restricted directories only.\n\n**Allowed Write Directories:**\n- `www/` - Web assets for dashboards\n- `themes/` - Theme YAML files\n- `custom_templates/` - Jinja2 template files\n- `dashboards/` - YAML-mode dashboard files\n- Plus any custom directories OR HAOS sibling volumes (`/share`,\n  `/media`, `/ssl`) configured in the ha-mcp settings UI\nConfiguration files (configuration.yaml, etc.) cannot be written; path\ntraversal (../) is blocked.\n\nText content only. Overwriting a file that currently holds binary\ncontent still succeeds, but its prior bytes cannot be captured by\nauto-backup (only modifications/deletions of text files are\nsnapshotted); the skip is logged, the write is not blocked.\n\nEXAMPLE: ha_write_file(path=\"custom_templates/formatters.jinja\", content=\"{% macro shout(text) %}{{ text | upper }}{% endmacro %}\")",
     "inputSchema": {
       "properties": {
         "path": {
@@ -2034,7 +2050,7 @@
   {
     "name": "ha_get_hacs_info",
     "title": "Get HACS Info",
-    "description": "Get cached HACS or Home Assistant Marketplace data — search the store or read repository details.\n\nUse ``action=\"search\"`` to search/browse/list store repositories, or\n``action=\"info\"`` for one repository's full details (README, versions, GitHub\nstats). This tool is read-only; to install or add repositories use\n``ha_manage_hacs``, and for non-HACS entities/config use the domain-specific tools.\n\n**DASHBOARD TIP:** ``action=\"search\", installed_only=True, category=\"lovelace\"``\ndiscovers installed custom cards to wire into ``ha_config_set_dashboard()``.\n\n**Examples:**\n- Search the store: ha_get_hacs_info(action=\"search\", query=\"mushroom\", category=\"lovelace\")\n- List installed: ha_get_hacs_info(action=\"search\", installed_only=True)\n- Repository details: ha_get_hacs_info(action=\"info\", repository_id=\"441028036\")\n\n**Caveats:** ``info`` reads only the already-loaded store cache,\nincluding cached README/additional information when available, and reports\nfreshness. By default it never refreshes GitHub or clears HACS's new flag.\ninclude_releases=True explicitly fetches releases and release notes;\nfailures become warnings alongside the cached repository details. Use\nha_manage_hacs(action=\"update_information\") to refresh explicitly. The\nremote path needs the component cache capability for full details; without\nit, cached catalog fields are returned with an explicit completeness note.\nMarketplace no longer supports appdaemon or python_script repositories.",
+    "description": "Get HACS or Home Assistant Marketplace data — search the store or read repository details.\n\nUse ``action=\"search\"`` to search/browse/list store repositories, or\n``action=\"info\"`` for one repository's full details (README, versions, GitHub\nstats). This tool is read-only; to install or add repositories use\n``ha_manage_hacs``, and for non-HACS entities/config use the domain-specific tools.\n\n**DASHBOARD TIP:** ``action=\"search\", installed_only=True, category=\"lovelace\"``\ndiscovers installed custom cards to wire into ``ha_config_set_dashboard()``.\n\n**Examples:**\n- Search the store: ha_get_hacs_info(action=\"search\", query=\"mushroom\", category=\"lovelace\")\n- List installed: ha_get_hacs_info(action=\"search\", installed_only=True)\n- Repository details: ha_get_hacs_info(action=\"info\", repository_id=\"441028036\")\n\n**Caveats:** search reads the loaded catalog. Info follows the store's\nown metadata policy: the first read can fetch GitHub details, clear its\nnew flag and save metadata; it does not install repository code.\ninclude_releases=True also fetches releases and release notes; failures\nbecome warnings alongside the repository details. Use\nha_manage_hacs(action=\"update_information\") for an explicit later refresh.\nMarketplace no longer supports appdaemon or python_script repositories.",
     "inputSchema": {
       "properties": {
         "action": {
@@ -3437,7 +3453,7 @@
   {
     "name": "ha_config_get_script",
     "title": "Get Script Config",
-    "description": "Get Home Assistant script configuration.\n\nReturns the complete configuration for a script, including sequence, mode, fields, and other settings.\n\nThe returned `config_hash` stays the same across consecutive reads of an unchanged config.\n\nThe returned `script_id` is the canonical bare storage key resolved by the REST client (matching what `ha_config_set_script` / `ha_config_remove_script` expect), falling back to the input identifier on the rare path where the REST envelope omits it. Prefix handling matches `ha_config_get_automation` in behavior (mechanism differs: automations resolve through the entity registry; scripts strip the prefix).\n\nEXAMPLES:\n- Get script (bare form): ha_config_get_script(\"morning_routine\")\n- Get script (entity_id form): ha_config_get_script(\"script.morning_routine\")\n\nFor detailed script configuration help, use ha_get_skill_guide.",
+    "description": "Get Home Assistant script configuration.\n\nReturns the complete configuration for a script, including sequence, mode, fields, and other settings.\n\nThe returned `config_hash` stays the same across consecutive reads of an unchanged config.\n\nThe returned `script_id` is the canonical bare storage key resolved by the REST client (matching what `ha_config_set_script` / `ha_config_remove_script` expect), falling back to the input identifier on the rare path where the REST envelope omits it. Prefix handling matches `ha_config_get_automation` in behavior (mechanism differs: automations resolve via state lookup; scripts strip the prefix).\n\nEXAMPLES:\n- Get script (bare form): ha_config_get_script(\"morning_routine\")\n- Get script (entity_id form): ha_config_get_script(\"script.morning_routine\")\n\nFor detailed script configuration help, use ha_get_skill_guide.",
     "inputSchema": {
       "properties": {
         "script_id": {
@@ -3853,7 +3869,7 @@
   {
     "name": "ha_call_event",
     "title": "Call Event",
-    "description": "Execute a custom event on the Home Assistant event bus.\n\nWhen NOT to use: for controlling entities (lights, switches, climate) — use\nha_call_service instead. To run an automation now, use\nha_config_set_automation(entity_id=..., run_actions=True).\n\nUse this to publish custom event types consumed by event-triggered automations,\nNode-RED flows, or custom integrations that subscribe to specific event types.\n\nCaveats: Events are fire-and-forget; a successful dispatch reports the\nbus accepted the event and how many listeners were registered for it,\nnot that any of them acted. A timeout means dispatch is unconfirmed.\nlistener_count covers the exact event type; wildcard_listener_count\ncovers match-all listeners (the recorder is one, and it only stores the\nevent). The counts come from the component's dispatch reply when it\nserves the fire, otherwise from a GET /api/events lookup taken before\ndispatch; a route that cannot report them omits both fields.\n\nThe response carries the event's context_id (and context) when Home\nAssistant reports it. An automation triggered by this event records that\nid as the parent_id of its run's context, so looking up that automation\ntrace proves whether a listener acted — which the counts cannot show,\nbecause an event trigger that filters on event_data still registers as a\nlistener when the payload does not match.\n\nEvents fire in-process through the ha_mcp_tools component when it is\ninstalled, otherwise over Home Assistant's own WebSocket fire_event\ncommand; both carry the event type in the message body, so any type Core\naccepts fires as written and Core's rejection comes back as the error\ntext (for example its 64-character event-type limit). state_changed\nalone keeps the REST route, because only that route rebuilds its\nold_state/new_state payloads into State objects; there event_type must\nbe a plain name with no / \\ ? # or % characters.",
+    "description": "Execute a custom event on the Home Assistant event bus.\n\nWhen NOT to use: for controlling entities (lights, switches, climate) — use\nha_call_service instead. To run an automation now, use\nha_config_set_automation(identifier=..., run_actions=True).\n\nUse this to publish custom event types consumed by event-triggered automations,\nNode-RED flows, or custom integrations that subscribe to specific event types.\n\nCaveats: Events are fire-and-forget; this tool confirms the event was accepted\nby the bus but does not verify whether any automation or subscriber acted on it.",
     "inputSchema": {
       "properties": {
         "event_type": {
@@ -3879,7 +3895,7 @@
     "tags": [
       "Service & Device Control"
     ],
-    "source_file": "event_call.py"
+    "source_file": "tools_service.py"
   },
   {
     "name": "ha_call_service",
@@ -4059,7 +4075,7 @@
         "file": {
           "type": "str",
           "default": "configuration.yaml",
-          "description": "Config-relative file to read. Accepts an fnmatch glob to search several files at once. When the component can load Core's config, key discovery follows packages and include directories recursively."
+          "description": "Config-relative file to read. Accepts an fnmatch glob to search several files at once. Core key discovery also follows packages and include directories recursively."
         },
         "include_content": {
           "type": "bool",
@@ -4146,7 +4162,7 @@
   {
     "name": "ha_manage_backup",
     "title": "Manage Backups",
-    "description": "Manage Home Assistant backups — both full HA snapshots AND per-edit auto-backups.\n\n**Pick the scope first**, then the action. Wrong scope routes through the wrong code path:\n\n| scope | action | What it does |\n|---|---|---|\n| `snapshot` | `create` | Create a full HA tarball (config + addons, no DB by default). Can take a while on a large instance; progress heartbeats are sent while waiting. |\n| `snapshot` | `list` | List full HA tarball snapshots (id, name, date, size). Read-only — use to discover a `backup_id` or confirm a backup landed. |\n| `snapshot` | `restore` | Restore a full HA tarball. **Restarts HA.** Last-resort recovery. |\n| `snapshot` | `delete` | Delete one full HA tarball by `backup_id` (`confirm=True` required). **Disabled by default** (`enable_snapshot_delete` setting) and layered with guards even when enabled — see below. |\n| `edits` | `create` | On-demand snapshot of one entity (`domain` + `entity_id` required). Use before the user manually edits in the HA UI. Same handler path the decorator takes on writes; bypasses the `enable_auto_backup` toggle. |\n| `edits` | `list` | List per-entity auto-backups (lightweight). Filter by `domain` and/or `entity_id`. |\n| `edits` | `view` | Read one auto-backup file by name; returns YAML and parsed `config`. |\n| `edits` | `diff` | Compare one auto-backup against the entity's current config. RFC 6902 JSON-Patch + add/remove/replace counts; bounded output. Read-only — fetches the live config, makes no changes. |\n| `edits` | `restore` | Re-apply one auto-backup. Existing flow helpers (template, group, utility_meter, …) and config subentries require a fresh safety snapshot; other domains follow auto-backup settings and may proceed without one. A deleted flow helper is recreated with a new config-entry ID and its saved entity IDs are restored if unoccupied; a deleted subentry is recreated with a new subentry ID. A deleted integration config entry cannot be recreated: its snapshot holds only metadata and the enabled state. **No HA restart.** |\n| `edits` | `delete` | Delete one auto-backup by `backup_name`, or bulk-delete by filter. |\n\n**When to use which scope:**\n- Use `scope=\"edits\"` to undo a recent automation/script/scene/dashboard/helper edit by the agent. Lightweight, fast, no restart.\n- Use `scope=\"snapshot\"` only for system-wide recovery (botched add-on update, mass config corruption, etc.).\n\n**`scope=\"snapshot\"` backup-hint:**\nRun before operations that CANNOT be undone (e.g., deleting devices). If the current definition was fetched or can be fetched, this tool is usually not needed.\n\n**`(snapshot, delete)` is off by default and layered even when enabled:** a human must\nset `enable_snapshot_delete=true` (env var, web settings UI, or add-on Supervisor\noptions) — an agent cannot turn this on itself. When enabled, a delete call is still\nrefused if: the target is a scheduled/automatic backup; it's younger than\n`snapshot_delete_min_age_days` (default 7, 0 disables the floor); or it's the single\nnewest snapshot remaining. These guarantee at least one recovery point always\nsurvives an agent's own mistakes.\n\n**Human-managed backup controls:** `enable_snapshot_actions=false` (ENABLE_SNAPSHOT_ACTIONS) blocks every snapshot action, including listing. `backup_read_only=true` (BACKUP_READ_ONLY) allows edits list/view/diff and snapshot list when snapshots are enabled; it blocks explicit create/restore/delete in both scopes. Automatic pre-edit capture still follows `enable_auto_backup`. A human must change these controls in the Backups tab, app configuration, or environment; developer tools cannot change them. Global and connection Read Only Mode still restrict writes.\n\n**`enable_auto_backup` and `scope=\"edits\"`:** the automatic-on-write capture (every wrapped tool call) is gated by `enable_auto_backup=true` — if the listing is empty, check the toggle (web settings UI or `ENABLE_AUTO_BACKUP=true` env var). The explicit `(edits, create)` action bypasses the toggle since the request is explicit; `list` / `view` / `restore` / `delete` operate on whatever's already on disk regardless of the toggle's current state.\n\n**Flow-helper filters:** `edits.create` accepts a flow helper's entity ID and returns its stable config-entry ID as `entity_id`. Use that returned ID for `edits.list` and bulk `edits.delete`; those filters do not resolve entity aliases. After recreation, the restore result reports the replacement config-entry ID and `entity_id_mapping` separately.\n\n**Entity edit history:** new automatic captures from `ha_set_entity` and `ha_remove_entity` use `domain=\"entity_registry\"` and the durable registry UUID as `entity_id`. They contain registry settings, including name, area, hidden state and options, and follow the same registration across entity-ID renames. An explicit registry capture accepts an HA entity ID (e.g. `light.example`) or registry UUID; reuse the saved UUID returned by `edits.create` / `edits.list` for exact list/delete filters. Historical `domain=\"entity\"` snapshots remain readable and restore only temporary state and attributes, not registry settings or physical device state. Their old domain/entity-ID filters still select those old snapshots; they do not also select new registry history. List without filters to discover both types, then use the returned `backup_name` to view or restore one snapshot.\n\n**Examples:**\n- Snapshot before risky op: `ha_manage_backup(scope=\"snapshot\", action=\"create\", name=\"Before_Big_Change\")`\n- List snapshots (to discover a backup_id or confirm one landed): `ha_manage_backup(scope=\"snapshot\", action=\"list\")`\n- Restore full snapshot: `ha_manage_backup(scope=\"snapshot\", action=\"restore\", backup_id=\"dd7550ed\")`\n- Delete an old snapshot (requires `enable_snapshot_delete=true`): `ha_manage_backup(scope=\"snapshot\", action=\"delete\", backup_id=\"dd7550ed\", confirm=True)`\n- On-demand entity snapshot before a manual UI edit: `ha_manage_backup(scope=\"edits\", action=\"create\", domain=\"helper_input_boolean\", entity_id=\"welcome_home_active\")`\n- List recent auto-backups for one automation: `ha_manage_backup(scope=\"edits\", action=\"list\", domain=\"automation\", entity_id=\"welcome_home\")`\n- View an auto-backup: `ha_manage_backup(scope=\"edits\", action=\"view\", backup_name=\"automation.welcome_home.20260521_153000.yaml\")`\n- Diff an auto-backup vs current state: `ha_manage_backup(scope=\"edits\", action=\"diff\", backup_name=\"automation.welcome_home.20260521_153000.yaml\")`\n- Restore an auto-backup: `ha_manage_backup(scope=\"edits\", action=\"restore\", backup_name=\"automation.welcome_home.20260521_153000.yaml\")`\n- Delete one auto-backup: `ha_manage_backup(scope=\"edits\", action=\"delete\", backup_name=\"...\")`\n- Bulk-delete old auto-backups: `ha_manage_backup(scope=\"edits\", action=\"delete\", older_than_days=30)`",
+    "description": "Manage Home Assistant backups — both full HA snapshots AND per-edit auto-backups.\n\n**Pick the scope first**, then the action. Wrong scope routes through the wrong code path:\n\n| scope | action | What it does |\n|---|---|---|\n| `snapshot` | `create` | Create a full HA tarball (config + addons, no DB by default). Can take a while on a large instance; progress heartbeats are sent while waiting. |\n| `snapshot` | `list` | List full HA tarball snapshots (id, name, date, size). Read-only — use to discover a `backup_id` or confirm a backup landed. |\n| `snapshot` | `restore` | Restore a full HA tarball. **Restarts HA.** Last-resort recovery. |\n| `snapshot` | `delete` | Delete one full HA tarball by `backup_id` (`confirm=True` required). **Disabled by default** (`enable_snapshot_delete` setting) and layered with guards even when enabled — see below. |\n| `edits` | `create` | On-demand snapshot of one entity (`domain` + `entity_id` required). Use before the user manually edits in the HA UI. Same handler path the decorator takes on writes; bypasses the `enable_auto_backup` toggle. |\n| `edits` | `list` | List per-entity auto-backups (lightweight). Filter by `domain` and/or `entity_id`. |\n| `edits` | `view` | Read one auto-backup file by name; returns YAML and parsed `config`. |\n| `edits` | `diff` | Compare one auto-backup against the entity's current config. RFC 6902 JSON-Patch + add/remove/replace counts; bounded output. Read-only — fetches the live config, makes no changes. |\n| `edits` | `restore` | Re-apply one auto-backup. Existing flow helpers (template, group, utility_meter, …) and config subentries require a fresh safety snapshot; other domains follow auto-backup settings and may proceed without one. A deleted flow helper is recreated with a new config-entry ID and its saved entity IDs are restored if unoccupied; a deleted subentry is recreated with a new subentry ID. A deleted integration config entry cannot be recreated: its snapshot holds only metadata and the enabled state. **No HA restart.** |\n| `edits` | `delete` | Delete one auto-backup by `backup_name`, or bulk-delete by filter. |\n\n**When to use which scope:**\n- Use `scope=\"edits\"` to undo a recent automation/script/scene/dashboard/helper edit by the agent. Lightweight, fast, no restart.\n- Use `scope=\"snapshot\"` only for system-wide recovery (botched add-on update, mass config corruption, etc.).\n\n**`scope=\"snapshot\"` backup-hint:**\nRun before operations that CANNOT be undone (e.g., deleting devices). If the current definition was fetched or can be fetched, this tool is usually not needed.\n\n**`(snapshot, delete)` is off by default and layered even when enabled:** a human must\nset `enable_snapshot_delete=true` (env var, web settings UI, or add-on Supervisor\noptions) — an agent cannot turn this on itself. When enabled, a delete call is still\nrefused if: the target is a scheduled/automatic backup; it's younger than\n`snapshot_delete_min_age_days` (default 7, 0 disables the floor); or it's the single\nnewest snapshot remaining. These guarantee at least one recovery point always\nsurvives an agent's own mistakes.\n\n**Human-managed backup controls:** `enable_snapshot_actions=false` (ENABLE_SNAPSHOT_ACTIONS) blocks every snapshot action, including listing. `backup_read_only=true` (BACKUP_READ_ONLY) allows edits list/view/diff and snapshot list when snapshots are enabled; it blocks explicit create/restore/delete in both scopes. Automatic pre-edit capture still follows `enable_auto_backup`. A human must change these controls in the Backups tab, app configuration, or environment; developer tools cannot change them. Global and connection Read Only Mode still restrict writes.\n\n**`enable_auto_backup` and `scope=\"edits\"`:** the automatic-on-write capture (every wrapped tool call) is gated by `enable_auto_backup=true` — if the listing is empty, check the toggle (web settings UI or `ENABLE_AUTO_BACKUP=true` env var). The explicit `(edits, create)` action bypasses the toggle since the request is explicit; `list` / `view` / `restore` / `delete` operate on whatever's already on disk regardless of the toggle's current state.\n\n**Flow-helper filters:** `edits.create` accepts a flow helper's entity ID and returns its stable config-entry ID as `entity_id`. Use that returned ID for `edits.list` and bulk `edits.delete`; those filters do not resolve entity aliases. After recreation, the restore result reports the replacement config-entry ID and `entity_id_mapping` separately.\n\n**Entity edit history:** automatic captures from `ha_set_entity` and `ha_remove_entity`, and explicit `domain=\"entity\"` captures, use the HA entity ID (e.g. `light.example`) for exact list/delete filters. Their registry image retains the durable UUID, so diff/restore follow the same registration across renames. Historical `entity` files are classified before restoring: state/attributes images restore only temporary state, while registry images restore user settings and options. Neither restores physical device state or recreates a deleted registration. Explicit `entity_registry` captures and files from the earlier Native format use the registry UUID as their filter key. Filters match stored domain/target exactly; they never expand deletion across aliases or formats. List without filters to discover all history and select one `backup_name`.\n\n**Examples:**\n- Snapshot before risky op: `ha_manage_backup(scope=\"snapshot\", action=\"create\", name=\"Before_Big_Change\")`\n- List snapshots (to discover a backup_id or confirm one landed): `ha_manage_backup(scope=\"snapshot\", action=\"list\")`\n- Restore full snapshot: `ha_manage_backup(scope=\"snapshot\", action=\"restore\", backup_id=\"dd7550ed\")`\n- Delete an old snapshot (requires `enable_snapshot_delete=true`): `ha_manage_backup(scope=\"snapshot\", action=\"delete\", backup_id=\"dd7550ed\", confirm=True)`\n- On-demand entity snapshot before a manual UI edit: `ha_manage_backup(scope=\"edits\", action=\"create\", domain=\"helper_input_boolean\", entity_id=\"welcome_home_active\")`\n- List recent auto-backups for one automation: `ha_manage_backup(scope=\"edits\", action=\"list\", domain=\"automation\", entity_id=\"welcome_home\")`\n- View an auto-backup: `ha_manage_backup(scope=\"edits\", action=\"view\", backup_name=\"automation.welcome_home.20260521_153000.yaml\")`\n- Diff an auto-backup vs current state: `ha_manage_backup(scope=\"edits\", action=\"diff\", backup_name=\"automation.welcome_home.20260521_153000.yaml\")`\n- Restore an auto-backup: `ha_manage_backup(scope=\"edits\", action=\"restore\", backup_name=\"automation.welcome_home.20260521_153000.yaml\")`\n- Delete one auto-backup: `ha_manage_backup(scope=\"edits\", action=\"delete\", backup_name=\"...\")`\n- Bulk-delete old auto-backups: `ha_manage_backup(scope=\"edits\", action=\"delete\", older_than_days=30)`",
     "inputSchema": {
       "properties": {
         "scope": {
@@ -4220,12 +4236,12 @@
         "domain": {
           "type": "str | None",
           "default": null,
-          "description": "(edits.create / edits.list / edits.delete) Snapshot domain (e.g. 'automation', 'helper_timer'). 'entity' stores state/attributes; 'entity_registry' stores registry settings. Required for edits.create; list/delete match the domain exactly."
+          "description": "(edits.create / edits.list / edits.delete) Snapshot domain (e.g. 'automation', 'helper_timer'). 'entity' captures registry settings under the HA entity ID; historical state/attributes files remain restorable. 'entity_registry' explicitly uses the registry UUID. Required for edits.create; list/delete match the domain exactly."
         },
         "entity_id": {
           "type": "str | None",
           "default": null,
-          "description": "(edits.create / edits.list / edits.delete) Snapshot target ID; required for edits.create. For entity_registry creation, pass an HA entity ID or registry UUID; create/list return the saved UUID. List/delete match the saved ID exactly, without resolving entity aliases."
+          "description": "(edits.create / edits.list / edits.delete) Snapshot target ID; required for edits.create. For entity creation, pass an HA entity ID. For entity_registry creation, pass an HA entity ID or registry UUID; create/list return the saved UUID. List/delete match the saved ID exactly, without resolving entity aliases."
         },
         "backup_name": {
           "type": "str | None",
@@ -4425,7 +4441,7 @@
   {
     "name": "ha_manage_updates",
     "title": "Manage Updates",
-    "description": "Manage Home Assistant updates (list, details, install, skip) and Repairs issues (ignore).\n\nCovers Core, OS, supervisor, apps (add-ons), device firmware, and HACS\nupdate entities, plus the Repairs issues in Settings > System > Repairs.\nRepairs are listed by ha_get_overview (not here); pass their domain and\nissue_id to 'ignore_repair' / 'unignore_repair'. In Read Only Mode the\nread actions ('list', 'get') stay available; write actions are blocked.\n\n'install' blocks until each update finishes (minutes). Any unknown\nservice outcome stops the batch, preserving earlier results and the\ncurrent item's diagnostic; later targets are marked not_attempted.\nAn update may still be running, or Core restarting. Check the affected\nentity with action='get' before retrying. Finished updates drop out of\n'list'. When hosted in\nHome Assistant, Core/OS installs are scheduled before its process stops;\nthat reply cannot confirm completion and later batch targets are not\nstarted. 'list' may include ha_mcp_update {current, latest,\nupdate_available} when the host has authoritative update information\nfor this MCP server. The native HACS host does not substitute PyPI's\nsidecar release status for this component's own update status.\n\nEXAMPLES:\n- Pre-update analysis: ha_manage_updates(action=\"get\", entity_ids=[\"update.home_assistant_core_update\"], include_release_notes=True)\n- Update everything pending in a category: ha_manage_updates(action=\"install\", categories=[\"addons\", \"hacs\"])\n- Dismiss a repair: ha_manage_updates(action=\"ignore_repair\", repairs=[{\"domain\": \"sun\", \"issue_id\": \"abc\"}])",
+    "description": "Manage Home Assistant updates (list, details, install, skip) and Repairs issues (ignore).\n\nCovers Core, OS, supervisor, apps (add-ons), device firmware, and HACS\nupdate entities, plus the Repairs issues in Settings > System > Repairs.\nRepairs are listed by ha_get_overview (not here); pass their domain and\nissue_id to 'ignore_repair' / 'unignore_repair'. In Read Only Mode the\nread actions ('list', 'get') stay available; write actions are blocked.\n\n'install' blocks until each update finishes (minutes). Per-item results\npreserve earlier successes and uncertain outcomes. When a batch stops,\nlater targets are marked not_attempted; inspect those results before\ndeciding which independent targets still need an operation.\nAn update may still be running, or Core restarting. Check the affected\nentity with action='get' before retrying. Finished updates drop out of\n'list'. When hosted in\nHome Assistant, Core/OS installs are scheduled before its process stops;\nthat reply cannot confirm completion and later batch targets are not\nstarted. 'list' may include ha_mcp_update {current, latest,\nupdate_available} when the host has authoritative update information\nfor this MCP server. The native HACS host does not substitute PyPI's\nsidecar release status for this component's own update status.\n\nEXAMPLES:\n- Pre-update analysis: ha_manage_updates(action=\"get\", entity_ids=[\"update.home_assistant_core_update\"], include_release_notes=True)\n- Update everything pending in a category: ha_manage_updates(action=\"install\", categories=[\"addons\", \"hacs\"])\n- Dismiss a repair: ha_manage_updates(action=\"ignore_repair\", repairs=[{\"domain\": \"sun\", \"issue_id\": \"abc\"}])",
     "inputSchema": {
       "properties": {
         "action": {
@@ -4591,7 +4607,7 @@
     "annotations": {
       "readOnlyHint": false,
       "destructiveHint": true,
-      "idempotentHint": true,
+      "idempotentHint": false,
       "openWorldHint": false
     },
     "tags": [

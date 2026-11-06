@@ -29,7 +29,7 @@ class TodoTools(SharedTodoTools, LegacyBackendTools):
         name="ha_remove_todo_item",
         tags={"Todo Lists"},
         annotations=write_hints(
-            "Remove Todo Item", destructive=True, idempotent=True, open_world=False
+            "Remove Todo Item", destructive=True, idempotent=False, open_world=False
         ),
     )(log_tool_usage(legacy_errors(SharedTodoTools.ha_remove_todo_item)))
 

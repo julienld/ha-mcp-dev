@@ -130,7 +130,7 @@ def _read_file_sync(target_file: Path) -> dict[str, Any]:
     if not target_file.is_file():
         return {"_error": "not_a_file"}
     stat = target_file.stat()
-    content = target_file.read_text()
+    content = target_file.read_text(encoding="utf-8")
     return {"content": content, "size": stat.st_size, "mtime": stat.st_mtime}
 
 
@@ -217,7 +217,7 @@ def _write_file_sync(
         }
     if state is not None:
         state.started = True
-    target_file.write_text(content)
+    target_file.write_text(content, encoding="utf-8")
     if state is not None:
         state.committed = True
     stat = target_file.stat()

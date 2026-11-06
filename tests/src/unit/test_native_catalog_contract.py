@@ -30,6 +30,12 @@ _NAME_MAPS = frozenset(
 _OPAQUE_VALUES = frozenset({"default", "const", "enum", "example", "examples"})
 
 
+def _shared_annotation_overrides() -> dict[str, Any]:
+    return json.loads((_CONTRACTS / "compatibility.json").read_text(encoding="utf-8"))[
+        "shared_annotation_overrides"
+    ]
+
+
 def _structural_schema(value: Any) -> Any:
     """Ignore prose, preserving user keys and literal values named like prose."""
     if isinstance(value, list):
@@ -285,6 +291,8 @@ def test_native_migration_keeps_preexisting_mcp_call_contracts(
         (_CONTRACTS / "catalog-baseline.json").read_text(encoding="utf-8")
     )
     changes = {}
+    shared = _shared_annotation_overrides()
+    assert set(shared) == {"ha_remove_todo_item"}
     for old in baseline["tools"]:
         name = old["name"]
         if name not in registered:
@@ -299,7 +307,12 @@ def test_native_migration_keeps_preexisting_mcp_call_contracts(
             old["inputSchema"], current["inputSchema"], tool_name=name
         )
         for hint in _ANNOTATIONS:
-            if old["annotations"].get(hint) != current.get("annotations", {}).get(hint):
+            expected_hint = (
+                shared.get(name, {})
+                .get("annotations", {})
+                .get(hint, old["annotations"].get(hint))
+            )
+            if expected_hint != current.get("annotations", {}).get(hint):
                 differences.append(f"changed safety annotation {hint}")
         if _structural_schema(old.get("outputSchema")) != _structural_schema(
             current.get("outputSchema")
@@ -339,10 +352,14 @@ def test_native_engine_advertises_the_existing_contract_of_each_migrated_tool() 
         (_CONTRACTS / "catalog-extras-baseline.json").read_text(encoding="utf-8")
     )["tools"]
     baseline.update({tool["name"]: tool for tool in extras})
-    overrides = json.loads(
-        (_CONTRACTS / "compatibility.json").read_text(encoding="utf-8")
-    )["native_annotation_overrides"]
+    overrides = (
+        _shared_annotation_overrides()
+        | json.loads((_CONTRACTS / "compatibility.json").read_text(encoding="utf-8"))[
+            "native_annotation_overrides"
+        ]
+    )
     assert set(overrides) == {
+        "ha_remove_todo_item",
         "ha_config_list_helpers",
         "ha_get_integration",
         "ha_config_list_dashboard_resources",
