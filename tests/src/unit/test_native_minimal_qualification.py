@@ -7,7 +7,7 @@ import platform
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, Mock
 
@@ -327,8 +327,13 @@ def minimal(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
             async_get_integration_with_requirements=world.dependency_owner,
         ),
     )
+    homeassistant = sys.modules.get("homeassistant")
+    if homeassistant is None:
+        homeassistant = ModuleType("homeassistant")
+        homeassistant.__path__ = []
+        monkeypatch.setitem(sys.modules, "homeassistant", homeassistant)
     monkeypatch.setattr(
-        importlib.import_module("homeassistant"),
+        homeassistant,
         "requirements",
         sys.modules["homeassistant.requirements"],
         raising=False,

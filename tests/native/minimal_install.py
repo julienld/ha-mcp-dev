@@ -23,6 +23,7 @@ from scripts.native_published_assets import (
 )
 
 from .minimal_support import (
+    append_process_output,
     changes,
     core_constraint_context,
     environment,
@@ -292,25 +293,30 @@ def legacy_restarts(
     results = []
     for phase in ("first_start", "full_restart"):
         receipt = work / f"legacy-{phase}.json"
-        result = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "tests.native.legacy_core_compat",
-                "--config",
-                str(config),
-                "--output",
-                str(receipt),
-                "--phase",
-                phase,
-            ],
-            capture_output=True,
-            text=True,
-            timeout=420,
-            check=False,
-        )
-        with output.with_suffix(".log").open("a", encoding="utf-8") as stream:
-            stream.write(sanitize(result.stdout + result.stderr) + "\n")
+        try:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "tests.native.legacy_core_compat",
+                    "--config",
+                    str(config),
+                    "--output",
+                    str(receipt),
+                    "--phase",
+                    phase,
+                ],
+                capture_output=True,
+                text=True,
+                timeout=420,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as error:
+            append_process_output(
+                output.with_suffix(".log"), error.stdout, error.stderr
+            )
+            raise
+        append_process_output(output.with_suffix(".log"), result.stdout, result.stderr)
         if result.returncode:
             raise RuntimeError(f"Legacy {phase} failed; see qualification log")
         importlib.invalidate_caches()

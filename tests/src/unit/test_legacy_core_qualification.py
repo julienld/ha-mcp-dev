@@ -3,7 +3,7 @@
 import json
 import sys
 from pathlib import Path
-from subprocess import CompletedProcess
+from subprocess import CompletedProcess, TimeoutExpired
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -156,3 +156,79 @@ async def test_legacy_probe_creates_the_real_long_lived_token_kind(monkeypatch):
         entries.async_update_entry.call_args.kwargs["options"][const.OPT_ENABLE_LLM_API]
         is True
     )
+
+
+@pytest.mark.parametrize("phase", ["first_start", "full_restart"])
+@pytest.mark.parametrize("representation", ["text", "bytes", "mixed", "none"])
+def test_legacy_timeout_keeps_sanitized_partial_output_and_stops(
+    tmp_path, monkeypatch, phase, representation
+):
+    out = "Core progress https://operator:PRIVATE@fixture.invalid/probe?token=HIDDEN#fragment\n"
+    err = "worker stack detail\n"
+    parts = {
+        "text": (out, err),
+        "bytes": (out.encode(), err.encode() + b"\xff"),
+        "mixed": (out, err.encode()),
+        "none": (None, None),
+    }[representation]
+    error = TimeoutExpired("fixture worker", 420, output=parts[0], stderr=parts[1])
+    calls = []
+    output = tmp_path / "proof.json"
+    output.with_suffix(".log").write_text("previous phase log\n")
+
+    def run(command, **kwargs):
+        current = command[command.index("--phase") + 1]
+        calls.append(current)
+        assert kwargs["timeout"] == 420
+        if current == phase:
+            raise error
+        Path(command[command.index("--output") + 1]).write_text('{"identity":"same"}')
+        return CompletedProcess(command, 0, "phase completed", "")
+
+    monkeypatch.setattr(minimal_install.subprocess, "run", run)
+    observe = Mock()
+    with pytest.raises(TimeoutExpired) as expired:
+        minimal_install.legacy_restarts(
+            tmp_path / "config", tmp_path, output, observe=observe
+        )
+    assert expired.value is error
+    assert calls == (
+        ["first_start"] if phase == "first_start" else ["first_start", "full_restart"]
+    )
+    assert observe.call_count == (0 if phase == "first_start" else 1)
+    logged = output.with_suffix(".log").read_text()
+    assert logged.startswith("previous phase log")
+    if representation != "none":
+        assert "Core progress" in logged and "worker stack detail" in logged
+        assert "https://fixture.invalid/probe" in logged
+        assert (
+            "PRIVATE" not in logged
+            and "HIDDEN" not in logged
+            and "fragment" not in logged
+        )
+    if representation == "bytes":
+        assert "\ufffd" in logged
+
+
+@pytest.mark.parametrize("as_bytes", [False, True])
+def test_outer_minimal_timeout_keeps_sanitized_output(tmp_path, monkeypatch, as_bytes):
+    out = "outer progress https://user:PRIVATE@fixture.invalid/task?token=HIDDEN"
+    err = "outer stack"
+    error = TimeoutExpired(
+        "outer worker",
+        1200,
+        output=out.encode() if as_bytes else out,
+        stderr=err.encode() if as_bytes else err,
+    )
+    run = Mock(side_effect=error)
+    monkeypatch.setattr(minimal_qualification.subprocess, "run", run)
+    log = tmp_path / "worker.log"
+    with pytest.raises(TimeoutExpired) as expired:
+        minimal_qualification.run_logged(
+            ["fixture"], env={"VIRTUAL_ENV": str(tmp_path / "venv")}, log=log
+        )
+    assert expired.value is error
+    text = log.read_text()
+    assert "outer progress" in text and "outer stack" in text
+    assert "PRIVATE" not in text and "HIDDEN" not in text
+    run.assert_called_once()

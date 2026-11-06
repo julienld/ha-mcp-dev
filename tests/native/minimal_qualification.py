@@ -24,7 +24,7 @@ from urllib.request import url2pathname
 
 from scripts.native_published_assets import REPOSITORY
 
-from .minimal_support import sanitize, save
+from .minimal_support import append_process_output, sanitize, save
 from .minimal_uv_policy import native_install_environment
 from .runtime_attestation import attest_runtime
 
@@ -57,17 +57,20 @@ def run_logged(command: list[str], *, env: dict[str, str], log: Path) -> None:
     directory = Path(env["VIRTUAL_ENV"]).resolve().parent
     if directory.is_relative_to(ROOT.resolve()):
         raise RuntimeError("Minimal Core work directory must be outside the checkout")
-    result = subprocess.run(
-        command,
-        cwd=directory,
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=1200,
-        check=False,
-    )
-    with log.open("a", encoding="utf-8") as stream:
-        stream.write(sanitize(result.stdout + result.stderr) + "\n")
+    try:
+        result = subprocess.run(
+            command,
+            cwd=directory,
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=1200,
+            check=False,
+        )
+    except subprocess.TimeoutExpired as error:
+        append_process_output(log, error.stdout, error.stderr)
+        raise
+    append_process_output(log, result.stdout, result.stderr)
     if result.returncode:
         raise RuntimeError(f"Minimal qualification command failed; see {log.name}")
 

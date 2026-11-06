@@ -18,6 +18,17 @@ def sanitize(value: str) -> str:
     return re.sub(r"https?://[^\s<>\"']+", replace, value)
 
 
+def append_process_output(log: Path, *parts: str | bytes | None) -> None:
+    """Preserve captured child output, including bytes from TimeoutExpired."""
+    text = "\n".join(
+        sanitize(part.decode(errors="replace") if isinstance(part, bytes) else part)
+        for part in parts
+        if part
+    )
+    with log.open("a", encoding="utf-8") as stream:
+        stream.write(text + "\n")
+
+
 @cache
 def _receipt_helpers() -> dict[str, Any]:
     return runpy.run_path(
@@ -41,7 +52,7 @@ def changes(
     previous_versions: dict[str, str] | None = None,
     baseline_constraints: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    return _receipt_helpers()["assess_dependencies"](
+    assessment: dict[str, Any] = _receipt_helpers()["assess_dependencies"](
         before["versions"],
         after["versions"],
         before["issues"],
@@ -50,6 +61,7 @@ def changes(
         previous_versions=previous_versions,
         baseline_constraints=baseline_constraints,
     )
+    return assessment
 
 
 def core_constraint_context(path: Path) -> dict[str, Any]:
