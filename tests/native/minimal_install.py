@@ -6,6 +6,7 @@ import importlib
 import importlib.metadata
 import json
 import site
+import subprocess
 import sys
 import zipfile
 from collections.abc import Callable
@@ -141,7 +142,12 @@ def _dependency_observation(
 
 
 def install(
-    assets: Path, work: Path, output: Path, *, repository: str = REPOSITORY
+    assets: Path,
+    work: Path,
+    output: Path,
+    *,
+    repository: str = REPOSITORY,
+    runtime: str = "native",
 ) -> None:
     assert_isolated()
     proof = json.loads(output.read_text(encoding="utf-8"))
@@ -208,9 +214,17 @@ def install(
             importlib.invalidate_caches()
             observe(f"manifest_requirement_{len(proof['decisions'])}")
         asyncio.run(install_declared_dependencies(config, manifest, observe))
-        from .minimal_probes import run_probes
-
-        proof["probes"] = asyncio.run(run_probes(config))
+        proof.update(
+            runtime_probes(
+                config,
+                work,
+                output,
+                runtime=runtime,
+                dependency=contract["dependency"],
+                wheel=wheel,
+                observe=observe,
+            )
+        )
         observe("after_runtime_probes")
         proof["complete"] = True
         save(output, proof)
@@ -235,18 +249,93 @@ def install(
         raise
 
 
+def runtime_probes(
+    config: Path,
+    work: Path,
+    output: Path,
+    *,
+    runtime: str,
+    dependency: str,
+    wheel: Path,
+    observe: Callable[[str], None],
+) -> dict[str, Any]:
+    if runtime == "native":
+        from .minimal_probes import run_probes
+
+        return {"probes": asyncio.run(run_probes(config))}
+    if runtime != "legacy":
+        raise ValueError(f"Unsupported qualification runtime: {runtime}")
+    # Only this disposable manifest gets the unpublished local wheel URL,
+    # after the original ZIP/wheel/source verification and install decisions.
+    manifest_path = config / "custom_components/ha_mcp_tools/manifest.json"
+    manifest = json.loads(manifest_path.read_bytes())
+    manifest["requirements"] = [
+        paired_requirement(item, dependency, wheel)[0]
+        for item in manifest["requirements"]
+    ]
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    return {
+        "runtime_manifest_local_wheel_substitution": True,
+        "probes": legacy_restarts(config, work, output, observe=observe),
+    }
+
+
+def legacy_restarts(
+    config: Path,
+    work: Path,
+    output: Path,
+    *,
+    observe: Callable[[str], None],
+) -> list[dict[str, Any]]:
+    """Use fresh processes and the same persisted entry, never a module reload."""
+    results = []
+    for phase in ("first_start", "full_restart"):
+        receipt = work / f"legacy-{phase}.json"
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "tests.native.legacy_core_compat",
+                "--config",
+                str(config),
+                "--output",
+                str(receipt),
+                "--phase",
+                phase,
+            ],
+            capture_output=True,
+            text=True,
+            timeout=420,
+            check=False,
+        )
+        with output.with_suffix(".log").open("a", encoding="utf-8") as stream:
+            stream.write(sanitize(result.stdout + result.stderr) + "\n")
+        if result.returncode:
+            raise RuntimeError(f"Legacy {phase} failed; see qualification log")
+        importlib.invalidate_caches()
+        observe(f"legacy_{phase}")
+        results.append(json.loads(receipt.read_bytes()))
+    if results[0]["identity"] != results[1]["identity"]:
+        raise RuntimeError(
+            "Legacy restart changed entry, credentials or endpoint identity"
+        )
+    return results
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--assets", type=Path, required=True)
     parser.add_argument("--work-directory", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--repository", default=REPOSITORY)
+    parser.add_argument("--runtime", choices=("native", "legacy"), default="native")
     args = parser.parse_args()
     install(
         args.assets.resolve(),
         args.work_directory.resolve(),
         args.output.resolve(),
         repository=args.repository,
+        runtime=args.runtime,
     )
 
 

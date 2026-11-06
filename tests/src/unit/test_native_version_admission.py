@@ -25,7 +25,9 @@ async def test_native_creation_refuses_unqualified_core_before_selecting_owner(
     monkeypatch.setattr(cf, "HA_VERSION", version)
     flow = _make_flow()
     flow.hass.auth.async_get_users = AsyncMock(return_value=[])
-    result = await flow.async_step_server(None)
+    result = await flow.async_step_server(
+        {const.OPT_RUNTIME_MODE: const.RUNTIME_NATIVE}
+    )
     assert result["type"] == "abort"
     assert result["reason"] == "unsupported_home_assistant"
     assert result["description_placeholders"]["installed"] == version

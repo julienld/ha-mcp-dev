@@ -66,13 +66,14 @@ class NativeCaptureSources:
         )
 
     async def _identity(self, domain: str, identifier: str) -> tuple[str, Any]:
-        if domain == "entity_registry":
+        if domain in {"entity", "entity_registry"}:
             from homeassistant.helpers import entity_registry as er
 
             row = er.async_get(self.hass).async_get(identifier)
             if row is None:
                 return identifier, None
-            identifier = row.id
+            current = await self.domains.entities(self.actor).read_snapshot(row.id)
+            return (row.entity_id if domain == "entity" else row.id), current
         factory = {
             "entity": self.domains.states,
             "entity_registry": self.domains.entities,

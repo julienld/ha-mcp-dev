@@ -13,6 +13,7 @@ from ha_mcp.runtime.entity_removal_values import (
 )
 from ha_mcp.runtime.entity_snapshot_values import (
     entity_registry_identity,
+    entity_registry_matches,
     entity_restore_payloads,
 )
 from ha_mcp.runtime.mutation_guard import check_mutation_admission
@@ -391,21 +392,15 @@ class NativeEntityRegistry:
                     status="not_started",
                 )
             before = registry_json(entry.extended_dict)
-            if not json_values_equal(before, expected) or not json_values_equal(
-                entity_registry_identity(before), entity_registry_identity(config)
+            if not json_values_equal(before, expected) or not entity_registry_matches(
+                config, before
             ):
                 raise ToolFailure(
                     "CONFIG_CONFLICT",
                     "The entity changed after its restore safety capture",
                     status="not_started",
                 )
-            payloads = [
-                _validated_payload(self.hass, "config/entity_registry/update", payload)
-                for payload in entity_restore_payloads(config, before)
-            ]
-            for payload in payloads:
-                self._references(payload)
-                self._check_enable(entry, payload)
+            payloads = self.validate_snapshot_restore(config, before)
             check_mutation_admission(self.actor)
             confirmed_phases = []
             effective_options = {}
@@ -446,3 +441,33 @@ class NativeEntityRegistry:
                         "confirmed_phases": confirmed_phases,
                     },
                 )
+
+    def validate_snapshot_restore(
+        self, config: dict[str, Any], before: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        """Validate the complete proposal and rename target before safety I/O or writes."""
+        registry = self._owner()
+        if not entity_registry_matches(config, before):
+            raise ToolFailure(
+                "CONFIG_CONFLICT",
+                "The saved entity identity does not match",
+                status="not_started",
+            )
+        if config["entity_id"] != before["entity_id"] and (
+            registry.async_get(config["entity_id"]) is not None
+            or self.hass.states.get(config["entity_id"]) is not None
+        ):
+            raise ToolFailure(
+                "CONFIG_CONFLICT",
+                "The saved entity ID is occupied; it will not be overwritten",
+                status="not_started",
+            )
+        entry = registry.async_get(before["id"])
+        payloads = [
+            _validated_payload(self.hass, "config/entity_registry/update", payload)
+            for payload in entity_restore_payloads(config, before)
+        ]
+        for payload in payloads:
+            self._references(payload)
+            self._check_enable(entry, payload)
+        return payloads

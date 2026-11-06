@@ -5,7 +5,7 @@ from typing import Any
 from .assertions import MCPAssertions
 from .wait_helpers import wait_for_tool_result
 
-_LIST = {"scope": "edits", "action": "list", "domain": "entity_registry"}
+_LIST = {"scope": "edits", "action": "list", "domain": "entity"}
 
 
 def _names(data: dict[str, Any]) -> set[str]:
@@ -43,8 +43,9 @@ async def assert_entity_registry_backup(mcp_client: Any, entity_id: str) -> None
             assert len(created) == 1, listing
             backup_name = created.pop()
             snapshot = await _view(mcp, backup_name)
-            assert snapshot["domain"] == "entity_registry", snapshot
-            assert snapshot["entity_id"] == snapshot["config"]["id"], snapshot
+            assert snapshot["domain"] == "entity", snapshot
+            assert snapshot["entity_id"] == entity_id, snapshot
+            assert snapshot["config"]["id"], snapshot
             assert snapshot["config"]["entity_id"] == entity_id, snapshot
             assert snapshot["config"]["hidden_by"] == before["hidden_by"], snapshot
 
@@ -56,7 +57,7 @@ async def assert_entity_registry_backup(mcp_client: Any, entity_id: str) -> None
             assert isinstance(safety_name, str) and safety_name != backup_name, restored
             await _wait_for_entry(mcp_client, entity_id, before, "restored registry")
             safety = await _view(mcp, safety_name)
-            assert safety["domain"] == "entity_registry", safety
+            assert safety["domain"] == "entity", safety
             assert safety["entity_id"] == snapshot["entity_id"], safety
             assert safety["config"]["hidden_by"] == changed["hidden_by"], safety
         finally:

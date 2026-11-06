@@ -147,7 +147,7 @@ def test_release_refuses_stale_floors_even_when_building_old_revision(
             "2026.12.1", {"2026.11.0": "3.15.1", "2026.12.1": "3.15.2"}
         ),
     )
-    with pytest.raises(ValueError, match=r"requires minimum 2026\.11\.0"):
+    with pytest.raises(ValueError, match=r"Native runtime floor.*2026\.11\.0"):
         release_builder.build(
             source,
             tmp_path / "rejected",
@@ -255,9 +255,23 @@ def test_stamping_requires_exactly_one_legacy_protocol_constant(
         )
 
 
+@pytest.mark.parametrize("legacy_minimum", ["2026.10.0", "2026.8.0"])
 def test_hacs_snapshot_selects_exact_zip_without_changing_source_or_workflows(
-    source, tmp_path, release_builder
+    source, tmp_path, release_builder, legacy_minimum
 ):
+    component = source / "custom_components/ha_mcp_tools"
+    constants = component / "const.py"
+    constants.write_text(
+        constants.read_text().replace(
+            'MIN_EMBEDDED_HOME_ASSISTANT_VERSION = "2026.10.0"',
+            f'MIN_EMBEDDED_HOME_ASSISTANT_VERSION = "{legacy_minimum}"',
+        )
+    )
+    for directory in (source, component):
+        metadata_path = directory / "hacs.json"
+        metadata = json.loads(metadata_path.read_text())
+        metadata["homeassistant"] = legacy_minimum
+        metadata_path.write_text(json.dumps(metadata))
     before = {
         p.relative_to(source): p.read_bytes() for p in source.rglob("*") if p.is_file()
     }
@@ -273,7 +287,9 @@ def test_hacs_snapshot_selects_exact_zip_without_changing_source_or_workflows(
     snapshot = output / "hacs-repository"
     metadata = json.loads((snapshot / "hacs.json").read_text())
     assert metadata["zip_release"] and metadata["filename"] == "ha_mcp_tools.zip"
-    assert metadata["hide_default_branch"] and metadata["homeassistant"] == "2026.10.0"
+    assert (
+        metadata["hide_default_branch"] and metadata["homeassistant"] == legacy_minimum
+    )
     with zipfile.ZipFile(output / metadata["filename"]) as archive:
         folder = snapshot / "custom_components/ha_mcp_tools"
         assert set(archive.namelist()) == {

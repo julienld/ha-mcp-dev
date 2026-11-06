@@ -6,8 +6,32 @@ is a preservation target, not a statement that every target is implemented.
 
 Functional parity is not complete. The [functional audit](functional-audit-20261101.json)
 separates global compatibility changes, Native-only gaps and inherited upstream
-changes. In particular, retaining Legacy does not avoid the new component Core
-floor or the changed metadata of automatic entity captures.
+changes. The 6 November compatibility pass below restores the installation
+floor and automatic entity-history contracts; historical audit entries remain
+evidence of their original candidate, rather than current behavior.
+
+## Compatibility restoration, 6 November 2026
+
+Upstream integration is now based on
+`b2b13b3cd3e28d38b1f8fd39d4d03a24a39a5588`, including fixed full/search URL
+catalogues. Native carries those modes per admitted HTTP request, including
+read-only aliases, without changing Legacy global settings. Initialize and
+discover instructions follow the selected catalogue.
+
+The implementation restores the audit's G1/G2 installation and entity-history
+contracts, N4 configured backup agents, N6 normal store info refresh and N7
+independent update batches. N2 now covers the bounded API/WS map described below;
+it does not promise arbitrary extension compatibility. Focused regressions cover
+these changes. The added real-Core installation, backup-agent and Native runner
+scenarios still require their own exact-candidate qualification; source-level
+coverage is not a cloud-provider or completed-restore claim.
+
+Other conditional differences remain: direct port URLs require Legacy or a
+separately configured relay; Native requires an accountable authorized principal;
+calendar recreation needs authoritative absence; library replacement needs a
+Core restart; safety hints and process budgets reflect actual Native effects.
+The upstream `restore_database=null` default is retained with its explicit
+selection semantics. Historical audits and live evidence keep their original SHA.
 
 ## Upstream continuity, 3 November 2026
 
@@ -56,14 +80,17 @@ has not been exercised.
 
 ## Supported Core capabilities
 
-The component starts at Core 2026.10.0 and supports the current stable monthly
-generation and its predecessor. PR/main qualification resolves the published
-window, includes the exact minimum and current patches on amd64/aarch64, and
-uses each Core image's Python. A separate guard prevents a new release from
-advertising a stale installation floor. Existing releases do not expire by date.
+Legacy retains Core 2026.8.0 as its installation/startup floor. Core 2026.8/9
+selects Legacy explicitly without importing Native owners. Native requires Core
+2026.10.0 and qualifies the current stable monthly generation and its predecessor.
+PR/main qualification includes the exact Native minimum and current patches on
+amd64/aarch64; a separate Legacy matrix qualifies installation, transport and
+restart continuity on 2026.8/9. Each uses the Core image's own constrained
+installer and Python. Metadata follows the Legacy floor; a release guard checks
+the separate Native floor. Existing releases do not expire by date.
 
 Child-device relationships, `use_device_name=True`, PKCE and Core LLM
-`ToolResult`/`ToolAnnotations` exist at this minimum. Optional provider features
+`ToolResult`/`ToolAnnotations` exist at the Native minimum. Optional provider features
 still depend on the integration actually loaded: HACS remains relevant on Core
 10, while Marketplace needs a Core version that supplies it. Schema discovery
 can remain incomplete for third-party validators; validation calls the original
@@ -263,28 +290,19 @@ ID that already exists is rejected before snapshot capture and mutation.
 
 ## Readiness evidence
 
-Entity edit history currently distinguishes its persisted domains, but historical
-`entity` payloads are not uniform: baseline `2dc504fd` used state/attributes,
-whereas integrated upstream `1c4b4edfc` also writes registry-shaped images there.
-The candidate's default `entity` handler is state-only; routing those older
-registry images correctly before target resolution and safety capture is an
-unresolved compatibility requirement, not evidence of preserved restoration.
-New `entity_registry` snapshots preserve Core's full registry entry and use its
-UUID as the key. Keep existing files unchanged and add shape/version-aware
-reading rather than reinterpreting registry settings as state. No global
-snapshot-file envelope version changes.
+Entity edit history preserves upstream automatic-capture metadata:
+`domain="entity"`, keyed by the HA entity ID. Registry UUIDs remain inside the
+snapshot as the durable restore identity. Baseline state/attributes snapshots,
+older upstream registry-shaped `entity` snapshots and interim
+`entity_registry`/UUID snapshots are classified by their actual stored shape
+before selecting the handler, resolving the target or creating a safety copy.
+Mixed/incomplete formats or a conflicting live UUID refuse before effects;
+registry metadata is never interpreted as state. Existing files are not rewritten.
 
-This changes the observable metadata of new automatic entity captures in both
-runtimes: `domain="entity", entity_id="light.example"` still selects historical
-state snapshots, but does not select new registry snapshots. For registry
-history, use `domain="entity_registry"` and the durable registry UUID returned
-as `entity_id` by `edits.create` or the backup listing. An explicit registry
-capture accepts an HA entity ID (such as `light.example`) or registry UUID.
-API and settings-UI list/delete
-filters match the saved domain and ID exactly; they do not expand entity aliases
-or combine the two snapshot types. Clear the filters to discover both histories,
-then select a returned filename for view/restore. Existing snapshots are not
-renamed or relabelled, and a bulk-delete filter does not silently broaden.
+API and settings-UI list/delete filters still match saved domain and ID exactly;
+they do not broaden across aliases. New automatic captures use the historical
+filter again. Clear filters to discover interim UUID history, then select its
+returned filename for view/restore. Deleted registry rows are not recreated.
 
 Registry restoration changes the user settings and option domains through the
 actual registry API. It compares the current row with the same typed before-image
@@ -473,12 +491,13 @@ digest is still compared. Native history and UI restore share the same guards,
 including deleted-file recreation. POSIX and HAOS path fixtures remain active
 on Linux; their Windows skips do not qualify a physical HAOS installation.
 
-Native HACS reads its published repository cache without refreshing GitHub,
-clearing the new flag or persisting metadata from an information request.
-Freshness and cached README availability are explicit. Use the existing
-`update_information` action for an admitted refresh. Public arguments and
-safety annotations remain unchanged; the shared prose describes this native
-read behavior and the historical remote endpoint's possible metadata writes.
+HACS and Marketplace info follow the installed store's normal policy: first
+info can refresh GitHub metadata, clear the new flag and save metadata. Search
+remains cache-based, and info never installs repository code. Disabled HACS can
+still explain its cache. Explicit `update_information` remains available for a
+later refresh. Authority, owner identity and the registered validator are checked
+around awaited provider calls; errors never trigger installation or transport
+fallback. Refresh failures retain known cached details with a warning.
 
 Mutations call the original HACS owners with installed validation and final
 actor, credential, visibility, owner, repository and method checks. Installing
@@ -507,11 +526,25 @@ selection, registered owner and tool capabilities after asynchronous instance
 resolution, immediately before the callback. Refusals before dispatch remain
 not-started; exceptions after a callback has begun remain unknown outcomes.
 
-In native custom scripts, `api_get`, `api_post` and `ws_send` retain their
-saved-script ABI names but return `UNSUPPORTED_OPERATION` before Home Assistant
-I/O. Saved source is preserved. Use `call_tool(name, args)` to invoke Engine
-with the current actor, tool policy and visibility checks; no REST/WebSocket
-emulation or semantic-map fallback is provided.
+Native raw compatibility is bounded and explicit. `ha_call_service(ws_command=...)`
+and script `ws_send` map twelve known read commands to the running Core owners:
+area/floor/label/device/entity registry reads, config/states/services, network URLs
+and Repairs issue reads. The running registered validators remain authoritative;
+no protocol handler or fabricated connection is used.
+
+Saved-script GET helpers support config, states (all or one entity) and services.
+POST supports templates, services (including response envelopes) and custom
+events through the corresponding Engine gates. Actor, enabled/allowed tools,
+exposure, BPS and visibility are checked on each nested call. Raw helpers refuse
+under hiding enforcement, and code execution remains unavailable on read-only
+connections. GET config uses the system-health tool's permission gate but returns
+Core's actual config body, not a health projection. WS config also respects the
+actual user's local-only external-URL restriction.
+
+GET events, WS template subscriptions/streaming, WS mutations and arbitrary
+third-party endpoints remain unported. They refuse before dispatch, preserve
+saved source and direct callers to dedicated tools or Legacy. No automatic
+transport fallback or replay follows a possible effect.
 
 Native Updates uses the published UpdateEntity owners, original update services
 and IssueRegistry callbacks. List/get preserve presentation and expose complete
@@ -523,8 +556,10 @@ entity classes remain excluded from category batches after renaming.
 Core/OS installs are scheduled, then revalidate the actor, policy, visibility and
 target before Core takes ownership in a clean task context. Their reply does not
 confirm installation completion, and later batch targets are not dispatched.
-Other operations retain known per-item results; a post-dispatch failure or an
-unverified skipped-version readback is unknown and is never replayed. The new
+Independent update targets continue after a per-item refusal or provider failure
+while authority remains valid. Each target is attempted at most once; a
+post-dispatch failure or unverified skipped-version readback remains unknown
+for that item and for the aggregate result, even if later items succeed. The new
 Container fixture exercises real UpdateEntity services and Repairs callbacks;
 it does not qualify a Supervisor or OS update. Public schemas and safety hints
 remain unchanged, with the native scheduling limit stated in the shared prose.
@@ -586,8 +621,11 @@ redirects disabled. Neither opens a Home Assistant API connection. An uncertain
 dispatch is never replayed. Real local transport tests prove these guards;
 the Container bench proves Supervisor absence, not HAOS app execution.
 
-Native full backups use Core's configured manager and local agent. Creation
-waits for completion and identifies its archive using a unique metadata nonce.
+Native full backups use Core's configured manager and selected agents. Automatic
+creation honors configured destinations; manual/safety creation uses the actual
+Core/Supervisor default destination. Creation waits for completion and verifies
+the archive nonce and protection on every selected copy. Restore pins one
+available registered copy and never retries another copy after dispatch.
 Deletion retains the newest/manual/age/confirmation gates and refuses an
 incomplete inventory. These are optimistic checks against other Core agents
 and external filesystem writers, rather than atomic archive transactions.

@@ -84,7 +84,7 @@ class HacsFacade:
         ] = False,
         ctx: Any = None,
     ) -> dict[str, Any]:
-        """Get cached HACS or Home Assistant Marketplace data — search the store or read repository details.
+        """Get HACS or Home Assistant Marketplace data — search the store or read repository details.
 
         Use ``action="search"`` to search/browse/list store repositories, or
         ``action="info"`` for one repository's full details (README, versions, GitHub
@@ -99,14 +99,12 @@ class HacsFacade:
         - List installed: ha_get_hacs_info(action="search", installed_only=True)
         - Repository details: ha_get_hacs_info(action="info", repository_id="441028036")
 
-        **Caveats:** ``info`` reads only the already-loaded store cache,
-        including cached README/additional information when available, and reports
-        freshness. By default it never refreshes GitHub or clears HACS's new flag.
-        include_releases=True explicitly fetches releases and release notes;
-        failures become warnings alongside the cached repository details. Use
-        ha_manage_hacs(action="update_information") to refresh explicitly. The
-        remote path needs the component cache capability for full details; without
-        it, cached catalog fields are returned with an explicit completeness note.
+        **Caveats:** search reads the loaded catalog. Info follows the store's
+        own metadata policy: the first read can fetch GitHub details, clear its
+        new flag and save metadata; it does not install repository code.
+        include_releases=True also fetches releases and release notes; failures
+        become warnings alongside the repository details. Use
+        ha_manage_hacs(action="update_information") for an explicit later refresh.
         Marketplace no longer supports appdaemon or python_script repositories.
         """
         if action == "search":

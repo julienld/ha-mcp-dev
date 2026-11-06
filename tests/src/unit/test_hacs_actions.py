@@ -137,7 +137,7 @@ class TestGetHacsInfo:
         assert result["installed_version"] == "4.0.0"
         # A numeric id needs no resolution round-trip — exactly one WS call.
         ws.send_command.assert_awaited_once()
-        assert ws.send_command.await_args.args[0] == "ha_mcp_tools/hacs_cache"
+        assert ws.send_command.await_args.args[0] == "hacs/repository/info"
 
     async def test_info_command_error_keeps_command_context(self, tools):
         from ha_mcp.client.rest_client import HomeAssistantCommandError
@@ -151,7 +151,7 @@ class TestGetHacsInfo:
         with _patched_hacs(ws), pytest.raises(ToolError) as excinfo:
             await tools.ha_get_hacs_info(action="info", repository_id="441028036")
         assert "kaboom" in str(excinfo.value)
-        assert "ha_mcp_tools/hacs_cache" in str(excinfo.value)
+        assert "hacs/repository/info" in str(excinfo.value)
 
 
 class TestManageHacsDownload:

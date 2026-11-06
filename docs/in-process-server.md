@@ -71,6 +71,13 @@ Native uses Home Assistant's existing address, locally or through your
 configured remote access. Use the URL shown in Configure; treat secret URLs
 as credentials and keep them out of logs and issue reports.
 
+The main MCP URL follows this entry's tool-search setting. Append
+`/catalog/full` to always list every permitted tool, or `/catalog/search`
+to always expose pinned tools with search and dispatch tools. Append
+`/readonly/catalog/full` or `/readonly/catalog/search` for the same choices
+with writes refused. These URLs share the entry's authentication and tool
+restrictions; selecting a catalog does not grant additional access.
+
 A Legacy direct-port connection has no corresponding native listener.
 Switching such an entry to Native requires updating the client's URL.
 HA-hosted webhook identifiers and existing authentication identities are

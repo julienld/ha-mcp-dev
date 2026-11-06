@@ -602,8 +602,13 @@ async def _async_handle_webhook(
         return auth_response
 
     if (native := cfg.get("native_manager")) is not None:
+        native_options: dict[str, Any] = {
+            "read_only": read_only or suffix.startswith("/readonly")
+        }
+        if "/catalog/" in suffix:
+            native_options["catalog_mode"] = suffix.rsplit("/", 1)[-1]
         response: web.StreamResponse = await native.async_handle_http(
-            request, cfg, read_only=read_only
+            request, cfg, **native_options
         )
         return response
 

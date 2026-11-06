@@ -6,7 +6,10 @@ import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from ha_mcp.tool_catalog import CatalogMode
 
 
 def _read_object(path: Path) -> dict[str, Any]:
@@ -184,6 +187,21 @@ def connection_read_only(policy: NativePolicy) -> bool:
         return False
 
 
+def connection_catalog_mode(policy: NativePolicy) -> CatalogMode:
+    """Resolve the admitted URL's catalog without consulting legacy settings."""
+    from ha_mcp._vendor.fastmcp.server.dependencies import get_http_request
+
+    try:
+        mode = get_http_request().scope.get("state", {}).get("ha_mcp_catalog_mode")
+    except RuntimeError:
+        mode = None
+    if mode == "full":
+        return "full"
+    if mode == "search":
+        return "search"
+    return "search" if policy.flag("enable_tool_search") else "full"
+
+
 def filter_catalogue(manager: Any, tools: Any) -> list[Any]:
     """Filter before presentation transforms so hidden tools cannot leak in search."""
     from ha_mcp.llm_exposure import effective_llm_api_exposed
@@ -257,6 +275,16 @@ def catalogue_middleware(manager: Any) -> Any:
             return await call_next(context)
 
     return CataloguePolicy()
+
+
+def catalogue_instructions_middleware(manager: Any) -> Any:
+    """Keep initialize and discover instructions aligned with the admitted URL."""
+    from ha_mcp.tool_catalog import ToolCatalogInstructionsMiddleware
+
+    return ToolCatalogInstructionsMiddleware(
+        lambda mode: manager.instructions_by_catalog[mode],
+        catalog_mode_for=lambda: connection_catalog_mode(manager.policy),
+    )
 
 
 def env_tool_states() -> dict[str, str]:

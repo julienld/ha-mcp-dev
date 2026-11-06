@@ -270,6 +270,22 @@ class NativeBackend:
         self, operation: str, arguments: dict[str, Any], context: CallContext
     ) -> Any:
         if operation in {
+            "services.websocket_command",
+            "code.api.get",
+            "code.api.template",
+        }:
+            from .native_raw_commands import (
+                execute_command,
+                execute_get,
+                execute_template,
+            )
+
+            if operation == "services.websocket_command":
+                return await execute_command(self, arguments, context)
+            if operation == "code.api.get":
+                return await execute_get(self, arguments["path"], context)
+            return await execute_template(self, arguments.get("data"), context)
+        if operation in {
             "helpers.backup.capture",
             "config.backup.capture",
             "registry.backup.capture",

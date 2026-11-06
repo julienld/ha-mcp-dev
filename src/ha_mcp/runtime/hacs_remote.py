@@ -117,6 +117,35 @@ async def cached_repository(
     }
 
 
+async def repository_info(
+    ws: Any, domain: str, identifier: str
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Read the real provider's info endpoint, retaining its metadata refresh policy."""
+    actual_id = identifier
+    if "/" in identifier:
+        rows = await command(ws, f"{domain}/repositories/list")
+        row = next(
+            (
+                row
+                for row in rows
+                if str(row.get("full_name", "")).casefold() == identifier.casefold()
+            ),
+            None,
+        )
+        if row is None:
+            raise ToolFailure(
+                "RESOURCE_NOT_FOUND",
+                f"Repository {identifier!r} not found",
+                status="not_started",
+            )
+        actual_id = str(row["id"])
+    result = await command(ws, f"{domain}/repository/info", repository_id=actual_id)
+    row = dict(result or {})
+    if "readme" not in row and "additional_info" in row:
+        row["readme"] = row["additional_info"]
+    return row, {"source": f"{domain}_info", "refresh_policy": "store_default"}
+
+
 async def remote_update_target(
     ws: Any, domain: str, repository_id: str
 ) -> dict[str, Any] | None:
@@ -226,7 +255,7 @@ class MarketplaceRemote:
             )
 
     async def info(self, identifier: str) -> dict[str, Any]:
-        row, cache = await cached_repository(self.ws, "marketplace", identifier)
+        row, cache = await repository_info(self.ws, "marketplace", identifier)
         return {**info_data(identifier, row), "cache": cache, "store": "marketplace"}
 
     async def search(

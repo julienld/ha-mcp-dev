@@ -243,22 +243,31 @@ async def call(hacs, action, **kwargs):
     return await hacs.engine.call(name, {"action": action, **kwargs}, hacs.actor)
 
 
-async def test_info_never_refreshes_clears_new_or_saves_even_on_unfetched_repository(
-    hacs,
-):
+async def test_info_refreshes_once_and_clears_new_like_the_store(hacs):
     hacs.repo.data.last_fetched = None
     hacs.repo.additional_info = None
     hacs.engine.read_only = True
     result = await call(hacs, "info", repository_id="EXAMPLE/FIXTURE")
     assert not result.is_error, result
     data = result.data["data"]
-    assert (
-        data["cache"]["refreshed_from_github"] is False
-        and not data["cache"]["readme_available"]
-    )
-    assert hacs.repo.data.new and hacs.repo.updated_info is False
-    hacs.repo.update_repository.assert_not_awaited()
-    hacs.owner.data.async_write.assert_not_awaited()
+    assert data["cache"]["refreshed_from_github"] is True
+    assert not hacs.repo.data.new and hacs.repo.updated_info is True
+    hacs.repo.update_repository.assert_awaited_once_with(ignore_issues=True, force=True)
+    hacs.owner.data.async_write.assert_awaited_once()
+    again = await call(hacs, "info", repository_id="1")
+    assert not again.is_error, again
+    hacs.repo.update_repository.assert_awaited_once()
+    hacs.owner.data.async_write.assert_awaited_once()
+
+
+async def test_info_refresh_failure_keeps_cached_details_with_warning(hacs):
+    hacs.repo.update_repository.side_effect = RuntimeError("provider unavailable")
+    result = await call(hacs, "info", repository_id="1")
+    assert not result.is_error, result
+    assert result.data["data"]["readme"] == "Cached README"
+    assert result.data["warnings"]
+    assert result.data["data"]["cache"]["refreshed_from_github"] is False
+    hacs.repo.update_repository.assert_awaited_once()
 
 
 async def test_search_keeps_scoring_pagination_and_metadata_without_network(hacs):
@@ -648,4 +657,21 @@ async def test_final_visibility_await_precedes_the_last_frozen_dispatch_guards(
     result = await call(hacs, "download", repository_id="1", version="2")
     assert result.is_error and result.status == "not_started", result.data
     original.assert_not_awaited()
+    hacs.owner.data.async_write.assert_not_awaited()
+
+
+@pytest.mark.parametrize("change", ["actor", "repository"])
+async def test_info_refresh_revalidates_before_returning_metadata(hacs, change):
+    async def refresh(**kwargs):
+        hacs.repo.additional_info = "DO NOT DISCLOSE STALE TARGET"
+        if change == "actor":
+            hacs.state.active = False
+        else:
+            hacs.repo.data.id = "replacement"
+
+    hacs.repo.update_repository.side_effect = refresh
+    result = await call(hacs, "info", repository_id="1")
+    assert result.is_error, result
+    assert "DO NOT DISCLOSE STALE TARGET" not in str(result.data)
+    hacs.repo.update_repository.assert_awaited_once()
     hacs.owner.data.async_write.assert_not_awaited()

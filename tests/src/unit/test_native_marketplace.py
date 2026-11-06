@@ -100,7 +100,7 @@ def marketplace(hacs, monkeypatch):
     return hacs
 
 
-async def test_marketplace_cached_info_preserves_core_fields_without_mutation(
+async def test_marketplace_info_preserves_core_fields_with_normal_refresh(
     marketplace,
 ):
     marketplace.repo.data.last_fetched = None
@@ -111,10 +111,12 @@ async def test_marketplace_cached_info_preserves_core_fields_without_mutation(
     assert data["data"]["future_core_field"] == {"kept": True}
     assert data["data"]["integration_categories"] == ["hub"]
     assert data["cache"]["source"] == "marketplace_cache"
-    assert not data["cache"]["refreshed_from_github"]
-    assert marketplace.repo.data.new
-    marketplace.repo.update_repository.assert_not_awaited()
-    marketplace.owner.data.async_write.assert_not_awaited()
+    assert data["cache"]["refreshed_from_github"]
+    assert not marketplace.repo.data.new
+    marketplace.repo.update_repository.assert_awaited_once_with(
+        ignore_issues=True, force=True
+    )
+    marketplace.owner.data.async_write.assert_awaited_once()
 
 
 async def test_marketplace_search_keeps_native_catalog_metadata(marketplace):

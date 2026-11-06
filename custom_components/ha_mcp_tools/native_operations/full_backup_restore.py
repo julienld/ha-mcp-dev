@@ -7,7 +7,6 @@ from typing import Any
 
 from homeassistant.helpers.json import json_bytes
 
-from ha_mcp.runtime.backup_values import _backup_protected
 from ha_mcp.tool_api import CallContext, ToolFailure
 from ha_mcp.utils.config_hash import json_values_equal
 from ha_mcp.utils.owned_executor import await_owned_io
@@ -47,7 +46,7 @@ class FullRestoreTarget:
                 status="not_started",
             )
         agent_id, agent, password = access.credentials(
-            require_password=self.password is not None
+            self.agent_id, require_password=self.password is not None
         )
         if (
             agent_id != self.agent_id
@@ -65,7 +64,7 @@ class FullRestoreTarget:
     def arguments(self) -> dict[str, Any]:
         return {
             "agent_id": self.agent_id,
-            "password": self.password if _backup_protected(self.image) else None,
+            "password": self.password,
             "restore_addons": list(self.restore_addons),
             "restore_folders": list(self.restore_folders),
             "restore_homeassistant": True,
@@ -104,22 +103,34 @@ async def schedule_full_restore(
     effective, addons, folders = _restore_selection(
         access, image, restore_database, restore_addons, restore_folders
     )
-    protected = _backup_protected(image)
-    if protected is None:
-        raise ToolFailure(
-            "CONFIG_VALIDATION_FAILED",
-            "The backup protection state is unknown",
-            status="not_started",
-        )
-    agent_id, agent, password = access.credentials(
-        require_password=protected or safety_backup
-    )
-    if agent_id not in image.get("agents", {}):
+    held_agents = image.get("agents", {})
+    available = [
+        agent_id for agent_id in held_agents if agent_id in owner.backup_agents
+    ]
+    if not available:
         raise ToolFailure(
             "RESOURCE_NOT_FOUND",
-            "The target backup is not available on the local agent",
+            "The target backup has no available agent copy",
             status="not_started",
         )
+    agent_id = next(
+        (
+            agent_id
+            for agent_id in available
+            if agent_id.startswith(("hassio.", "backup."))
+        ),
+        available[0],
+    )
+    protected = held_agents[agent_id].get("protected")
+    if not isinstance(protected, bool):
+        raise ToolFailure(
+            "CONFIG_VALIDATION_FAILED",
+            "The selected backup copy's protection state is unknown",
+            status="not_started",
+        )
+    agent_id, agent, password = access.credentials(agent_id, require_password=protected)
+    if safety_backup:
+        access.password()
     target = FullRestoreTarget(
         owner,
         owner._reader_writer,
@@ -179,7 +190,7 @@ async def schedule_full_restore(
         "restore_folders": folders,
         "warnings": warnings,
         "note": (
-            "A local safety backup of the selected restore parts completed before scheduling."
+            "A safety backup of the selected restore parts completed on Core's default destination before scheduling."
             if safety_backup
             else "No safety backup was created (safety_backup=false)."
         ),

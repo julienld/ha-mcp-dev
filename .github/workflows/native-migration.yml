@@ -13,6 +13,7 @@ on:
       - 'uv.lock'
       - '.github/workflows/native-migration.yml'
       - '.github/workflows/core-window.yml'
+      - '.github/workflows/legacy-core.yml'
   workflow_dispatch:
     inputs:
       target:
@@ -130,6 +131,11 @@ jobs:
       platform: ${{ inputs.platform }}
       server: ${{ inputs.server }}
       embedded_runtime: ${{ inputs.embedded_runtime }}
+
+  legacy-core:
+    needs: select-qualification
+    if: ${{ needs.select-qualification.outputs.route == 'native' }}
+    uses: ./.github/workflows/legacy-core.yml
 
   core-window:
     needs: select-qualification

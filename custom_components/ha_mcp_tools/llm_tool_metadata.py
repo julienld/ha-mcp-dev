@@ -1,4 +1,4 @@
-"""Core 2026.10 tool metadata and result objects for the LLM API's tools."""
+"""Project LLM tools onto the executing Core's metadata and result contract."""
 
 from __future__ import annotations
 
@@ -26,15 +26,17 @@ def declare_metadata(
     """Set the 2026.10 tool metadata; a hint left out keeps Core's safe default."""
     tool.integration = DOMAIN
     tool.title = title
-    if hints:
-        tool.annotations = llm.ToolAnnotations(
+    annotations = getattr(llm, "ToolAnnotations", None)
+    if hints and annotations is not None:
+        tool.annotations = annotations(
             **{field: hints[hint] for hint, field in _HINT_FIELDS if hint in hints}
         )
 
 
-def tool_result(data: JsonObjectType, *, error: bool) -> llm.ToolResult:
-    """Preserve the payload and its failure flag in Core's result object."""
-    return llm.ToolResult(data=data, error=error)
+def tool_result(data: JsonObjectType, *, error: bool) -> Any:
+    """Core 2026.8/9 consumes the original dict, including MCP's isError flag."""
+    result = getattr(llm, "ToolResult", None)
+    return data if result is None else result(data=data, error=error)
 
 
 def tool_hints(tool: Any) -> dict[str, Any] | None:

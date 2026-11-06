@@ -123,9 +123,16 @@ class NativeRestoreOperations:
             "entity_registry",
             "entity_exposure",
         }:
-            self.before = await self.snapshots.domains.current(self.data, self.actor)
-            return self.before is not None
+            return await self._identity_needs_safety()
         return await self._storage_needs_safety(domain)
+
+    async def _identity_needs_safety(self) -> bool:
+        self.before = await self.snapshots.domains.current(self.data, self.actor)
+        if self.data["domain"] == "entity_registry" and self.before is not None:
+            self.snapshots.domains.entities(self.actor).validate_snapshot_restore(
+                self.data["config"], self.before
+            )
+        return self.before is not None
 
     async def _storage_needs_safety(self, domain: str) -> bool:
         helper_type = "zone" if domain == "zone" else domain.removeprefix("helper_")
@@ -174,12 +181,15 @@ class NativeRestoreOperations:
             if self.dashboard_owner is not None
             else self.data["entity_id"]
         )
+        domain = self.data["domain"]
+        if domain == "entity_registry":
+            domain, identifier = "entity", before["entity_id"]
 
         def capture() -> Path | None:
             from homeassistant.helpers.json import json_bytes
 
             return store.capture(
-                self.data["domain"],
+                domain,
                 identifier,
                 json.loads(json_bytes(before)),
                 "ha_manage_backup.restore.safety",

@@ -297,7 +297,7 @@ async def test_core_service_has_real_actor_and_returned_state(updates: Any) -> N
 
 
 @pytest.mark.parametrize("failure", [RuntimeError, asyncio.CancelledError])
-async def test_after_effect_failure_is_unknown_and_stops_remaining_targets(
+async def test_after_effect_failure_is_unknown_and_continues_independent_targets(
     updates: Any, failure: type[BaseException]
 ) -> None:
     async def fail(
@@ -305,15 +305,17 @@ async def test_after_effect_failure_is_unknown_and_stops_remaining_targets(
     ) -> None:
         updates.calls.append(data["entity_id"])
         updates.entities[data["entity_id"]].installed_version = "2.0"
-        raise failure("after effect")
+        if data["entity_id"] == "update.native_a":
+            raise failure("after effect")
 
     updates.manager.hass.services.async_call.side_effect = fail
     result = await invoke(updates, action="install", entity_ids=list(updates.entities))
-    assert result.status == "outcome_unknown" and result.data["failed"] == 2, (
+    assert result.status == "outcome_unknown" and result.data["failed"] == 1, (
         result.data
     )
-    assert updates.calls == ["update.native_a"]
-    assert result.data["results"][1]["not_attempted"]
+    assert updates.calls == ["update.native_a", "update.native_b"]
+    assert result.data["succeeded"] == 1
+    assert result.data["results"][1]["success"]
 
 
 async def test_read_only_calls_keep_reads_but_never_dispatch(updates: Any) -> None:
@@ -448,3 +450,28 @@ async def test_update_owner_drains_two_cancellations_before_releasing_its_lock(
     with pytest.raises(asyncio.CancelledError):
         await asyncio.wait_for(task, 1)
     await asyncio.wait_for(waiter, 1)
+
+
+async def test_install_refusal_does_not_stop_independent_batch_target(
+    updates: Any,
+) -> None:
+    updates.entities["update.native_a"].installed_version = "2.0"
+    result = await invoke(updates, action="install", entity_ids=list(updates.entities))
+    assert result.data["succeeded"] == 1, result.data
+    assert [row[2]["entity_id"] for row in updates.calls] == ["update.native_b"]
+    assert result.data["results"][0]["error"]["code"] == "SERVICE_CALL_FAILED"
+
+
+async def test_batch_authority_loss_stops_remaining_targets(updates: Any) -> None:
+    async def fail(
+        domain: str, action: str, data: dict[str, Any], **kwargs: Any
+    ) -> None:
+        updates.calls.append(data["entity_id"])
+        updates.entities[data["entity_id"]].installed_version = "2.0"
+        updates.manager.backend.authorize.side_effect = PermissionError("revoked")
+        raise RuntimeError("after effect")
+
+    updates.manager.hass.services.async_call.side_effect = fail
+    result = await invoke(updates, action="install", entity_ids=list(updates.entities))
+    assert result.is_error and result.status == "outcome_unknown", result.data
+    assert updates.calls == ["update.native_a"]

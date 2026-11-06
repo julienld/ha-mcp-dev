@@ -122,8 +122,12 @@ def _store(*, row=None, info=None, domain="marketplace"):
     )
 
     async def send(name, **values):
-        if name == f"{domain}/info":
-            result = state
+        info_replies = {
+            f"{domain}/info": state,
+            f"{domain}/repository/info": repository,
+        }
+        if name in info_replies:
+            result = info_replies[name]
         elif name == "ha_mcp_tools/hacs_cache":
             result = {
                 "store": domain,
@@ -329,7 +333,7 @@ class TestNativeFieldsReachTheCaller:
         assert result["data"]["additional_info"] == "# README"
         assert "replaces_built_in" in result["data"]
         assert "readme_note" in result
-        assert not any(
+        assert any(
             call.args[0] == "marketplace/repository/info"
             for call in world.ws.send_command.await_args_list
         )

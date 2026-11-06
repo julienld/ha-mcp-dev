@@ -1,4 +1,4 @@
-"""Cached HACS search/info, with explicit opt-in release reads."""
+"""Store search and normal info refresh, with opt-in release reads."""
 
 from typing import Any
 
@@ -6,6 +6,8 @@ from ha_mcp.runtime.hacs_results import info_data, search_data
 from ha_mcp.runtime.hacs_values import CATEGORY_MAP, _filter_and_score_repos
 from ha_mcp.runtime.progress import report_progress
 from ha_mcp.runtime.projection import timezone_metadata
+from ha_mcp.utils.owned_executor import await_owned_io
+from ha_mcp.utils.registry_update_lock import registry_update_lock
 
 from .hacs_access import HacsAccess, repository_image
 from .registry_access import registry_json
@@ -144,9 +146,16 @@ class HacsReads:
         _payload, registration = access.validate(
             access.command("info"), {"repository_id": str(repository.data.id)}
         )
-        before = repository_image(repository)
-        data = access.project(repository)
-        freshness = access.cache(repository)
+        from .hacs_info import refresh_info
+
+        async with registry_update_lock("hacs", "repositories"):
+            refreshed, warnings = await await_owned_io(
+                refresh_info(access, repository, registration)
+            )
+            before = repository_image(repository)
+            data = access.project(repository)
+            freshness = access.cache(repository)
+            freshness["refreshed_from_github"] = refreshed
         await access.observe(repository, before)
         access.pin_validator(access.command("info"), registration)
         extra: dict[str, Any] = {}
@@ -158,10 +167,11 @@ class HacsReads:
             {
                 **info_data(repository_id, data),
                 "cache": freshness,
-                "note": (
-                    "Repository metadata remains cached; releases and release notes were requested separately."
-                    if include_releases
-                    else "Cached store metadata only. Use ha_manage_hacs(action='update_information') to refresh GitHub metadata explicitly."
+                "note": "Repository details follow the store info refresh policy; no installation is performed.",
+                **(
+                    {"warnings": [*warnings, *extra.pop("warnings", [])]}
+                    if warnings
+                    else {}
                 ),
                 **extra,
             }

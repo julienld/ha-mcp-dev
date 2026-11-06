@@ -106,7 +106,8 @@ class NativeCode:
             meta={
                 "ha_mcp": {
                     "native_support": {
-                        "note": "Native code mode supports call_tool and delete_saved_tool. Raw api_get, api_post and ws_send are unavailable. Nested approvals return pending errors without automatically replaying the script."
+                        "partial": True,
+                        "note": "Native code mode supports call_tool, delete_saved_tool and bounded native mappings for api_get, api_post and ws_send. GET config returns Core's configuration body under ha_get_system_health admission; states and services use ha_get_state and ha_list_services admission. POST services/events invoke ha_call_service/ha_call_event; template rendering uses ha_eval_template admission and Core's text renderer. Raw helpers are unavailable while entity visibility hiding is enforced. Unported endpoints and commands are refused before dispatch; use call_tool or the legacy runtime. Nested approvals return pending errors without automatically replaying the script.",
                     }
                 }
             },
@@ -179,15 +180,18 @@ class NativeCode:
             )
 
         async def run_code(code: str) -> Any:
+            from .native_code_api import NativeCodeAPI
+
+            api = NativeCodeAPI(bridge)
             code = await self.manager.settings_ui._io(prepare_native_code, code)
             return await run_sandboxed_code(
                 code,
                 {
                     "call_tool": bridge.call_tool,
                     "delete_saved_tool": bridge.delete_saved_tool,
-                    "api_get": bridge.unsupported,
-                    "api_post": bridge.unsupported,
-                    "ws_send": bridge.unsupported,
+                    "api_get": api.api_get,
+                    "api_post": api.api_post,
+                    "ws_send": api.ws_send,
                 },
                 self.settings,
                 self.monty,
@@ -266,17 +270,9 @@ class _NativeBridge:
             )
         return None
 
-    async def unsupported(self, *_args: Any, **_kwargs: Any) -> dict[str, Any]:
-        return (
-            self._limit()
-            or UnsupportedOperation("raw API access from native code mode").data
-        )
-
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
         from ha_mcp.errors import ErrorCode
         from ha_mcp.renamed_tools import current_tool_name
-
-        from .native_approvals import MCP_APPROVAL_CONTEXT
 
         if error := self._limit():
             return error
@@ -285,15 +281,57 @@ class _NativeBridge:
                 ErrorCode.AUTH_INSUFFICIENT_PERMISSIONS,
                 f"Tool '{name}' cannot be called from sandbox code",
             )
+        return await self._invoke_child(name, arguments)
+
+    async def _raw_boundary(self) -> None:
+        visibility = getattr(self.owner.manager, "visibility", None)
+        if visibility is not None:
+            await visibility.before(
+                "ha_manage_custom_tool",
+                {"code": "native raw API helper"},
+                self._child_actor,
+            )
+
+    async def _invoke_child(
+        self,
+        name: str,
+        arguments: dict[str, Any],
+        *,
+        operation: str | None = None,
+        payload: dict[str, Any] | None = None,
+        raw: bool = False,
+    ) -> Any:
+        from .native_approvals import MCP_APPROVAL_CONTEXT
+
         # A nested approval must not seal the outer script as a replayable
         # continuation: earlier script calls may already have changed HA.
         token = MCP_APPROVAL_CONTEXT.set(None)
         try:
             await self.owner.manager.refresh_policy()
             await self.owner._authorize(self.actor, writes=True)
-            result = await self.owner.manager.engine.call(
-                name, arguments, self._child_actor
-            )
+            if raw:
+                await self._raw_boundary()
+            if operation is None:
+                result = await self.owner.manager.engine.call(
+                    name, arguments, self._child_actor
+                )
+            else:
+
+                async def invoke() -> Any:
+                    await self._raw_boundary()
+                    result = await self.owner.manager.backend.execute(
+                        operation, payload or {}, self._child_actor
+                    )
+                    await self._raw_boundary()
+                    return result
+
+                if name not in self.owner.manager.engine.tools:
+                    raise ToolFailure(
+                        "UNKNOWN_TOOL", f"Unknown tool {name!r}.", status="not_started"
+                    )
+                result = await self.owner.manager.engine.call_owned(
+                    name, invoke, self._child_actor, writes=False, arguments=arguments
+                )
         except ToolFailure as failure:
             return failure.data
         finally:

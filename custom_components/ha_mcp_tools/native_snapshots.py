@@ -200,6 +200,8 @@ class NativeSnapshots:
                 raise ValueError(
                     "Entity registry snapshot does not match its durable identity"
                 )
+            domain = "entity"
+            payload = {**payload, "backup_id": payload["current_config"]["entity_id"]}
         if domain == "entity_exposure" and (
             payload["current_config"].get("entity_id") != payload["backup_id"]
             or "preferences" not in payload["current_config"]
@@ -397,6 +399,9 @@ class NativeSnapshots:
         await self.manager.backend.authorize(actor)
         data = await self._io(self._store().read_snapshot, name)
         validate_snapshot_identity(data)
+        from ha_mcp.runtime.entity_snapshot_values import entity_snapshot_target
+
+        data = entity_snapshot_target(data)
         if _is_flow_helper_domain(data["domain"]):
             data["entity_id"] = _flow_entry_id(
                 data["entity_id"],
@@ -461,6 +466,19 @@ class NativeSnapshots:
         try:
             data = await self._io(store.read_snapshot, name)
             validate_snapshot_identity(data)
+            from ha_mcp.runtime.entity_snapshot_values import entity_snapshot_target
+
+            try:
+                data = entity_snapshot_target(data)
+            except ValueError as error:
+                from ha_mcp.runtime.snapshot_payloads import BackupRestoreError
+
+                raise BackupRestoreError(
+                    str(error),
+                    reason="invalid_snapshot",
+                    restored_from=name,
+                    safety_backup=None,
+                ) from error
             from .native_backup_visibility import guard_snapshot_visibility
 
             await guard_snapshot_visibility(self.manager, actor, "restore", data)

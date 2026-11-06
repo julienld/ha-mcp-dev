@@ -3,6 +3,7 @@
 import asyncio
 import importlib
 import io
+import json
 import os
 import socket
 import sys
@@ -164,12 +165,17 @@ async def run_probes(config: Path) -> list[str]:
             console.print_exception(show_locals=False)
         assert "minimal traceback fixture" in text.getvalue()
         await _native(config)
+        from tests.native.test_backup_agents_contract import run_contract
+
+        backup_proof = await run_contract(config / "backup-agent-fixture")
+        print("REAL_CORE_BACKUP_AGENTS=" + json.dumps(backup_proof, sort_keys=True))
         await _legacy_http()
         return [
             "installed_wheel_imported_from_isolated_venv",
             "private_Rich_markdown_and_traceback",
             "JSON_schema_reference_resolution",
             "native_prewarm_and_Engine_read_with_real_Core_actor_and_state",
+            "real_Core_BackupManager_multi_agent_memory_provider_and_reader_writer_contract",
             "FastMCP_HTTP_app_and_real_private_Legacy_client",
             "lazy_memory_store_and_tool_result_envelope",
             "no_shared_MCP_or_FastMCP_import",

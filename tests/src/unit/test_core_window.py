@@ -167,7 +167,7 @@ def test_release_floor_guard_checks_hacs_and_both_runtime_modes(resolver, tmp_pa
             'MIN_NATIVE_HOME_ASSISTANT_VERSION = "2026.10.0"',
         )
     )
-    with pytest.raises(ValueError, match="raise the HACS and runtime floors"):
+    with pytest.raises(ValueError, match="Native runtime floor"):
         resolver.check_floor(tmp_path, window)
 
 
@@ -266,3 +266,28 @@ def test_required_pr_gate_cannot_let_docs_skip_the_core_window():
     assert script.index("needs.core-window.result") < script.index(
         "needs.changes.outputs.run"
     )
+
+
+@pytest.mark.parametrize("defect", [None, "hacs", "legacy_newer"])
+def test_legacy_install_floor_can_remain_below_native_window(
+    resolver, tmp_path, defect
+):
+    component = tmp_path / "custom_components/ha_mcp_tools"
+    component.mkdir(parents=True)
+    window = resolver.make_window(
+        "2026.11.0", {"2026.10.0": "3.14", "2026.11.0": "3.14"}
+    )
+    legacy = "2026.12.0" if defect == "legacy_newer" else "2026.8.0"
+    for directory in [tmp_path, component]:
+        (directory / "hacs.json").write_text(json.dumps({"homeassistant": legacy}))
+    if defect == "hacs":
+        (component / "hacs.json").write_text(json.dumps({"homeassistant": "2026.9.0"}))
+    (component / "const.py").write_text(
+        f'MIN_EMBEDDED_HOME_ASSISTANT_VERSION = "{legacy}"\n'
+        'MIN_NATIVE_HOME_ASSISTANT_VERSION = "2026.10.0"\n'
+    )
+    if defect:
+        with pytest.raises(ValueError):
+            resolver.check_floor(tmp_path, window)
+    else:
+        resolver.check_floor(tmp_path, window)

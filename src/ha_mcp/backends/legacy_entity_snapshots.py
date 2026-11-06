@@ -6,6 +6,7 @@ from typing import Any
 from ha_mcp.errors import HomeAssistantError
 from ha_mcp.runtime.entity_snapshot_values import (
     entity_registry_identity,
+    entity_registry_matches,
     entity_restore_payloads,
 )
 from ha_mcp.runtime.snapshot_payloads import (
@@ -79,13 +80,12 @@ async def restore_entity_registry(
             reason="config_conflict",
             apply_status="not_applied",
         )
-    if not json_values_equal(
-        entity_registry_identity(current), entity_registry_identity(config)
-    ):
+    if not entity_registry_matches(config, current):
         raise BackupRestoreError(
             "The entity registration has a different durable identity",
             reason="identity_changed",
         )
+    await validate_registry_restore(client, config, current)
     result = None
     confirmed_phases: list[str] = []
     for payload in entity_restore_payloads(config, current):
@@ -106,8 +106,8 @@ async def restore_entity_registry(
             )
         result = response.get("result")
         written = result.get("entity_entry") if isinstance(result, dict) else None
-        if not isinstance(written, dict) or not json_values_equal(
-            entity_registry_identity(written), entity_registry_identity(config)
+        if not isinstance(written, dict) or not entity_registry_matches(
+            config, written
         ):
             raise HomeAssistantError(
                 "Entity registry restore did not return the same durable identity"
@@ -126,6 +126,49 @@ async def restore_entity_registry(
     return result
 
 
+async def validate_registry_restore(
+    client: Any, saved: dict[str, Any], current: dict[str, Any]
+) -> None:
+    """Refuse another registration or an occupied rename before capturing safety."""
+    from ha_mcp.tools.config_helpers.registry import validate_registry_ids
+
+    if not entity_registry_matches(saved, current):
+        raise BackupRestoreError(
+            "The entity registration has a different durable identity",
+            reason="identity_changed",
+        )
+    entity_restore_payloads(saved, current)
+    if saved["entity_id"] != current["entity_id"]:
+        registered = await _read(client, "config/entity_registry/list")
+        states = await client.get_states()
+        if any(
+            not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows)
+            for rows in (registered, states)
+        ):
+            raise HomeAssistantError(
+                "Entity collision lookup did not return complete entries"
+            )
+        if any(
+            row.get("entity_id") == saved["entity_id"] for row in [*registered, *states]
+        ):
+            raise BackupRestoreError(
+                "The saved entity ID is occupied; it will not be overwritten",
+                reason="entity_id_collision",
+            )
+    if (
+        saved.get("area_id")
+        or saved.get("labels")
+        or any((saved.get("categories") or {}).values())
+    ):
+        await validate_registry_ids(
+            client,
+            saved.get("area_id"),
+            saved.get("labels"),
+            saved.get("categories"),
+            fail_closed=True,
+        )
+
+
 async def capture_entity_registry(client: Any, entity_id: str, source: str) -> None:
     from ha_mcp.backup_manager import _CAPTURE_TRANSIENT_ERRORS, get_backup_manager
     from ha_mcp.config import get_global_settings
@@ -137,8 +180,8 @@ async def capture_entity_registry(client: Any, entity_id: str, source: str) -> N
         row = await fetch_entity_registry(client, entity_id)
         if row is not None:
             await get_backup_manager(client, settings).maybe_snapshot_known(
-                "entity_registry",
-                row["id"],
+                "entity",
+                row["entity_id"],
                 row,
                 tool_name=source,
             )

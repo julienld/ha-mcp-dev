@@ -207,14 +207,22 @@ def check_floor(
     declarations[component + "hacs.json"] = json.loads(read(component + "hacs.json"))[
         "homeassistant"
     ]
+    native = declarations["MIN_NATIVE_HOME_ASSISTANT_VERSION"]
+    legacy = declarations["MIN_EMBEDDED_HOME_ASSISTANT_VERSION"]
+    if native != window["minimum"]:
+        raise ValueError(
+            f"Native runtime floor must equal Core window minimum {window['minimum']}: {native}"
+        )
+    if not isinstance(legacy, str) or version_tuple(legacy) > version_tuple(native):
+        raise ValueError(f"Legacy runtime floor must not exceed Native: {legacy}")
     drift = {
-        name: value
-        for name, value in declarations.items()
-        if value != window["minimum"]
+        name: declarations[name]
+        for name in ("hacs.json", component + "hacs.json")
+        if declarations[name] != legacy
     }
     if drift:
         raise ValueError(
-            f"Core window requires minimum {window['minimum']}; raise the HACS and runtime floors together before release: {drift}"
+            f"HACS install floors must equal the Legacy runtime floor {legacy}: {drift}"
         )
 
 

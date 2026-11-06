@@ -20,7 +20,7 @@ from .test_native_engine_backend import native as native
     ("arguments", "code", "message"),
     [
         (
-            {"ws_command": "repairs/list_issues"},
+            {"ws_command": "custom_extension/arbitrary_command"},
             "UNSUPPORTED_OPERATION",
             "does not implement",
         ),

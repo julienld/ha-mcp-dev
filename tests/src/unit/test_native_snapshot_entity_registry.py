@@ -40,6 +40,7 @@ def entity_history(runtime, monkeypatch):
     manager.hass.data = {
         "websocket_api": {"config/entity_registry/update": (None, dict)}
     }
+    manager.hass.states = SimpleNamespace(get=lambda _entity_id: None)
     access = importlib.import_module(
         "custom_components.ha_mcp_tools.native_operations.registry_access"
     )
@@ -52,6 +53,11 @@ def entity_history(runtime, monkeypatch):
     manager.backend.execute = AsyncMock(
         side_effect=AssertionError("Registry history must use the Core owner")
     )
+
+    def unexpected_state_owner(_actor):
+        raise AssertionError("Registry history was routed to the state owner")
+
+    monkeypatch.setattr(snapshots.domains, "states", unexpected_state_owner)
     path = store.capture("entity_registry", "uuid-first", saved, "fixture")
     return manager, snapshots, store, path, registry, capture
 
@@ -73,7 +79,8 @@ async def test_registry_history_diff_and_restore_follow_uuid_after_entity_rename
     )
     assert registry.rows["sensor.first"].modified_at == 2.0
     assert store.read_snapshot(result["safety_backup"])["config"] == before
-    assert len(store.list_snapshots(domain="entity_registry")) == 2
+    assert len(store.list_snapshots(domain="entity_registry")) == 1
+    assert len(store.list_snapshots(domain="entity", entity_id="sensor.renamed")) == 1
     assert "modified_at" not in registry.calls[0][2]
     capture.assert_not_awaited()
     manager.backend.execute.assert_not_awaited()
@@ -139,7 +146,7 @@ async def test_registry_capture_callback_accepts_only_matching_domain_source_pai
     )
     assert any(
         store.read_snapshot(item["name"])["tool"] == "ha_set_entity"
-        for item in store.list_snapshots(domain="entity_registry")
+        for item in store.list_snapshots(domain="entity", entity_id="sensor.renamed")
     )
     with pytest.raises(ValueError, match="domain/source"):
         await snapshots.registry_backup(
@@ -189,3 +196,81 @@ async def test_registry_capture_cannot_persist_a_row_under_another_registry_uuid
             CallContext("owner"),
         )
     assert len(store.list_snapshots(domain="entity_registry")) == before
+
+
+async def test_upstream_entity_snapshot_uses_registry_owner_and_exact_safety(
+    entity_history,
+):
+    _, snapshots, store, _, registry, _ = entity_history
+    saved = copy.deepcopy(registry.rows["sensor.renamed"].extended_dict)
+    saved.update(entity_id="sensor.first", name="Historical")
+    for key in (
+        "created_at",
+        "modified_at",
+        "platform",
+        "unique_id",
+        "config_entry_id",
+    ):
+        saved.pop(key, None)
+    path = store.capture("entity", "sensor.first", saved, "upstream")
+    original = path.read_bytes()
+    result = await snapshots.restore_snapshot(path.name, CallContext("owner"))
+    assert registry.rows["sensor.first"].name == "Historical"
+    safety = store.read_snapshot(result["safety_backup"])
+    assert safety["config"]["entity_id"] == "sensor.renamed"
+    assert safety["config"]["id"] == saved["id"]
+    assert path.read_bytes() == original
+
+
+async def test_ambiguous_entity_format_fails_before_safety_or_dispatch(entity_history):
+    _, snapshots, store, _, registry, _ = entity_history
+    row = registry.rows["sensor.renamed"].extended_dict
+    path = store.capture("entity", row["entity_id"], {**row, "state": "on"}, "bad")
+    before = len(store.list_snapshots())
+    with pytest.raises(BackupRestoreError):
+        await snapshots.restore_snapshot(path.name, CallContext("owner"))
+    assert len(store.list_snapshots()) == before and registry.calls == []
+
+
+async def test_upstream_history_never_overwrites_reassigned_saved_alias(entity_history):
+    _, snapshots, store, _, registry, _ = entity_history
+    saved = copy.deepcopy(registry.rows["sensor.renamed"].extended_dict)
+    saved["entity_id"] = "sensor.first"
+    registry.rows["sensor.first"] = registry.new("sensor.first", "replacement")
+    path = store.capture("entity", "sensor.first", saved, "upstream")
+    with pytest.raises(BackupRestoreError) as raised:
+        await snapshots.restore_snapshot(path.name, CallContext("owner"))
+    assert raised.value.outcome["apply_status"] == "not_applied"
+    assert registry.calls == []
+    assert registry.rows["sensor.first"].id == "replacement"
+
+
+async def test_explicit_entity_capture_keeps_the_public_alias_and_registry_image(
+    entity_history,
+):
+    manager, _, _, _, registry, _ = entity_history
+    from custom_components.ha_mcp_tools.native_operations.backup_capture import (
+        NativeCaptureSources,
+    )
+
+    identifier, current = await NativeCaptureSources(
+        manager, CallContext("owner")
+    ).read("entity", "sensor.renamed")
+    assert identifier == "sensor.renamed"
+    assert current == registry.rows["sensor.renamed"].extended_dict
+
+
+async def test_public_entity_view_checks_visibility_of_the_current_uuid_owner(
+    entity_history,
+):
+    manager, _, store, path, _, _ = entity_history
+    from custom_components.ha_mcp_tools.native_backup_visibility import (
+        guard_snapshot_visibility,
+    )
+
+    manager.visibility = SimpleNamespace(before=AsyncMock())
+    stored = store.read_snapshot(path.name)
+    public = {**stored, "domain": "entity", "entity_id": stored["config"]["entity_id"]}
+    await guard_snapshot_visibility(manager, CallContext("owner"), "view", public)
+    arguments = manager.visibility.before.await_args.args[1]
+    assert arguments["entity_ids"] == ["sensor.renamed"]

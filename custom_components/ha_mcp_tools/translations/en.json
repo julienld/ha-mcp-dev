@@ -15,7 +15,7 @@
             },
             "server": {
                 "title": "HA-MCP Server",
-                "description": "Run HA-MCP natively inside Home Assistant. New installations use Home Assistant's HTTP listener and the available native tools; no server token or separate port is needed.\n\nRemote access and both LLM bridges start disabled. The administrator sidebar remains available; Assist access requires its separate opt-in. Choose an owner for secret-URL and legacy OAuth access; Home Assistant sign-in uses the signed-in user's own identity.",
+                "description": "Run HA-MCP inside Home Assistant. On Core 2026.10 or newer, setup creates a Native server using Home Assistant's HTTP listener. Choose an active administrator as owner for secret-URL and legacy OAuth access; Home Assistant sign-in uses the signed-in user's identity.\n\nOn Core 2026.8/9, setup creates a Legacy server using your chosen administrator token and a separate server port. Choose whether that port accepts local-machine or local-network connections. New Home Assistant account sign-in requires Core 2026.10 or newer; secret URLs and legacy OAuth remain available on older supported Core versions.\n\nRemote webhook access and Assist start disabled. Native LLM API import is a separate opt-in. The administrator sidebar remains available.",
                 "data": {
                     "remote_access": "Remote access through Home Assistant",
                     "bind_host": "Network access",
@@ -42,7 +42,7 @@
         },
         "abort": {
             "already_configured": "This entry is already set up.",
-            "unsupported_home_assistant": "Native HA-MCP requires Home Assistant {required} or newer, but this instance is running {installed}. Existing Legacy entries and the HA-MCP File & YAML Tools entry remain available."
+            "unsupported_home_assistant": "HA-MCP requires Home Assistant {required} or newer for this runtime; this instance runs {installed}. Choose a compatible runtime or component version, or upgrade Home Assistant."
         },
         "error": {
             "invalid_token": "Home Assistant does not recognise this token. Copy the whole token, or create a new one.",

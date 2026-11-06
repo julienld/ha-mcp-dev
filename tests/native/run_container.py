@@ -22,6 +22,7 @@ from blueprint_source import blueprint_source
 from bulk_checks import exercise_bulk
 from calendar_checks import exercise_calendars
 from camera_checks import exercise_camera
+from catalog_checks import exercise_catalogs
 from code_checks import exercise_code_mode
 from configuration_checks import (
     exercise_configuration,
@@ -456,6 +457,7 @@ async def exercise(checks: Checks, *, published_tag: str | None = None) -> dict:
     catalog = (await checks.rpc("tools/list"))["result"]["tools"]
     assert {"ha_get_state", "ha_list_services"} <= {tool["name"] for tool in catalog}
     checks.passed("existing_webhook_URL_and_modern_MCP")
+    await exercise_catalogs(checks, BASE, message, unpack)
     await exercise_llm_defaults(checks)
     await checks.control("guard", {})
     await exercise_oauth(checks)

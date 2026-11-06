@@ -459,6 +459,7 @@ class CategorizedSearchTransform(BM25SearchTransform):
         effect_resolver: Callable[[str, dict[str, Any]], bool | None] | None = None,
         read_action_resolver: Callable[[str], bool] | None = None,
         read_only_resolver: Callable[[], bool] | None = None,
+        search_active_resolver: Callable[[], bool] = tool_search_active,
         **kwargs: Any,
     ) -> None:
         super().__init__(
@@ -488,6 +489,7 @@ class CategorizedSearchTransform(BM25SearchTransform):
         self._effect_resolver = effect_resolver
         self._read_action_resolver = read_action_resolver
         self._read_only_resolver = read_only_resolver
+        self._search_active = search_active_resolver
 
         # Category caches rebuilt when the catalog hash changes,
         # matching BM25SearchTransform's staleness detection pattern.
@@ -883,7 +885,7 @@ class CategorizedSearchTransform(BM25SearchTransform):
     async def transform_tools(self, tools: Sequence[Tool]) -> Sequence[Tool]:
         """Replace tool listing with search + categorized call proxies."""
         tools = self._filter_context_catalogue(tools)
-        if not tool_search_active():
+        if not self._search_active():
             return tools
         pinned = [t for t in tools if t.name in (self._always_visible or [])]
 
@@ -936,7 +938,7 @@ class CategorizedSearchTransform(BM25SearchTransform):
         be found when the LLM calls them. On a full-catalog connection the
         synthetic names do not exist.
         """
-        if not tool_search_active():
+        if not self._search_active():
             return await call_next(name, version=version)
         if name == self._call_read_name:
             return self._make_categorized_proxy(

@@ -78,7 +78,11 @@ async def test_hidden_tools_are_absent_from_search_and_assist_keeps_full_catalog
         entry=SimpleNamespace(options={"enable_llm_api": True}),
     )
     mcp.add_transform(catalogue_transform(manager))
-    mcp.add_transform(CategorizedSearchTransform(always_visible=[]))
+    mcp.add_transform(
+        CategorizedSearchTransform(
+            always_visible=[], search_active_resolver=lambda: True
+        )
+    )
     async with Client(mcp) as client:
         listed = {tool.name for tool in await client.list_tools()}
         assert "ha_search_tools" in listed and "visible_read" not in listed
@@ -90,3 +94,29 @@ async def test_hidden_tools_are_absent_from_search_and_assist_keeps_full_catalog
         manager.policy = NativePolicy()
         refreshed = await client.call_tool("ha_search_tools", {"query": "kitchen"})
         assert "hidden_write" in json.dumps(refreshed.data)
+
+
+def test_native_fixed_catalog_urls_keep_identity_visibility_and_readonly(tmp_path):
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import asyncio; from tests.src.unit._native_catalog_probe import run; asyncio.run(run())",
+        ],
+        cwd=Path(__file__).resolve().parents[3],
+        env={
+            **os.environ,
+            "HA_MCP_CONFIG_DIR": str(tmp_path),
+            "ENABLE_TOOL_SEARCH": "false",
+        },
+        capture_output=True,
+        text=True,
+        timeout=55,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr

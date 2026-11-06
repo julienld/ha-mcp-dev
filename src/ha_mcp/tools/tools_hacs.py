@@ -26,6 +26,7 @@ from ..runtime.hacs_remote import (
     MarketplaceRemote,
     cached_repository,
     command,
+    repository_info,
     try_hacs_update,
     unknown_command,
 )
@@ -265,12 +266,12 @@ class HacsTools:
                 )
             return await self._store_result(data)
         try:
-            result, cache = await cached_repository(ws_client, "hacs", repository_id)
+            result, cache = await repository_info(ws_client, "hacs", repository_id)
         except HomeAssistantCommandError as cmd_err:
             exception_to_structured_error(
                 cmd_err,
                 context={
-                    "command": "ha_mcp_tools/hacs_cache",
+                    "command": "hacs/repository/info",
                     "repository_id": repository_id,
                 },
                 raise_error=True,

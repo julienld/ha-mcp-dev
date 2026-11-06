@@ -105,7 +105,9 @@ def test_manual_qualification_rejects_ambiguous_modes(
             == "${{ needs.select-qualification.outputs.route == '" + route + "' }}"
         ]
         assert set(selected) == (
-            {"unit", "core-window", "package"} if route == "native" else {route}
+            {"unit", "core-window", "legacy-core", "package"}
+            if route == "native"
+            else {route}
         )
         for name in selected:
             assert "select-qualification" in jobs[name]["needs"]

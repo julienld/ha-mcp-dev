@@ -144,11 +144,22 @@ owns the detailed pipeline contract.
 
 ## Qualification and rollback
 
-New releases start at Core **2026.10.0** for both component runtimes. The release
-window selects the current released stable monthly generation and its predecessor,
-bounded by that minimum. Source floors, HACS metadata and the resolved window
-must agree before publication; dates and unreleased tags do not advance it. See
-[compatibility](compatibility.md) for the amd64/aarch64 contract and its limits.
+The paired component retains a **2026.8.0** installation and Legacy runtime
+minimum. Native requires **2026.10.0** or newer; Core 2026.8/9 retains the
+administrator-token setup and creates Legacy server entries. Existing entries,
+authentication choices and endpoint identities stay in place. The Legacy Assist
+adapter returns dictionaries on Core 2026.8/9 and the newer result and metadata
+objects on modern Core.
+
+The Native release window selects the current released stable monthly generation
+and its predecessor, bounded by the Native minimum; dates and unreleased tags do
+not advance it. The separate `legacy-core.yml` lane installs the same paired
+artifacts under real Core 2026.8.0 and 2026.9.0 constraints on amd64/aarch64. It
+exercises config-entry creation, the embedded worker, direct-port and HA-webhook
+reads and registered Assist APIs before and after a complete process restart.
+This lane must complete on the candidate SHA before claiming old-Core support;
+local stub tests alone do not qualify it. See [compatibility](compatibility.md)
+for the Native window and evidence limits.
 
 Require evidence tied to the exact source, repository, tag, artifact hashes,
 Core/Python versions and architecture. Check the actual runtime, Core diagnostics,
@@ -172,9 +183,9 @@ from another lane.
 Before an upgrade, take a recoverable backup. Preserve config-entry, webhook and
 LLM API identifiers, saved authentication choices, opt-in flags and legacy
 entries; never delete/recreate entries to update code. Native is the new-entry
-default, while existing entries without `runtime_mode` retain legacy. Runtime
-switches must keep capability and credential checks; no automatic transport or
-authentication fallback is allowed.
+default on Core 2026.10+, while existing entries without `runtime_mode` retain
+legacy. Runtime switches must keep capability and credential checks; no automatic
+transport or authentication fallback is allowed.
 
 To roll back code, select a compatible previous published version with its
 paired ZIP/wheel and restart Core. Before downgrading Core, select an artifact

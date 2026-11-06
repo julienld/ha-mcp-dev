@@ -185,9 +185,10 @@ not cover every optional integration's dependency combination.
 
 ## Core version window and API changes
 
-New component releases start at Core **2026.10.0**, for both native and legacy
-runtime selection. The compatibility window is the current **released stable
-monthly generation plus its predecessor**, bounded by that initial minimum.
+Legacy component installation starts at Core **2026.8.0**; Native runtime
+selection starts at **2026.10.0**. The Native qualification window is the current
+**released stable monthly generation plus its predecessor**, bounded by its
+initial minimum.
 Until November stable is released, only October is required. November stable
 selects October/November; December stable selects November/December. Calendar
 dates, beta, release-candidate and development tags never advance the window.
@@ -206,18 +207,21 @@ not the complete E2E suite; the existing container/HAOS suites remain, and
 `native-e2e.yml` uses the same window for full native qualification. The separate
 native HTTP bench and full unit suite are not multiplied by this matrix.
 
-The source floor is raised explicitly: both `hacs.json` files and
-`MIN_EMBEDDED_HOME_ASSISTANT_VERSION` / `MIN_NATIVE_HOME_ASSISTANT_VERSION` must
-equal the window's exact minimum. A separate gate blocks the PR and new stable,
-development and mirror releases on drift; qualification still runs to expose
-new-Core failures. Raise the four declarations together and inspect all window
-results before release. Network/metadata failures fail closed, without reusing
-a stale matrix. No recurring task is added. Run
+The Native source floor is raised explicitly:
+`MIN_NATIVE_HOME_ASSISTANT_VERSION` must equal the window's exact minimum.
+Both `hacs.json` files instead retain the Legacy installation floor declared by
+`MIN_EMBEDDED_HOME_ASSISTANT_VERSION`; it must not exceed the Native floor.
+Legacy Core 2026.8/9 has a separate amd64/aarch64 constrained-install and restart
+contract in `legacy-core.yml`. Do not raise that installation floor merely to
+advance the Native qualification window. A separate gate blocks PRs and new
+stable, development and mirror releases on declaration drift; qualification
+still runs to expose new-Core failures. Network/metadata failures fail closed,
+without reusing a stale matrix. Run
 `uv run -s scripts/core_window.py --check-floor` to inspect the current window.
 
 `native_release.py` also checks the exported revision against a freshly resolved
 window before building a release; generated HACS metadata derives from that
-validated runtime floor. Only non-publishable `native-ci-*` qualification builds
+validated Legacy installation floor; Native admission keeps its own minimum. Only non-publishable `native-ci-*` qualification builds
 may bypass source-floor agreement, and cannot prepare a HACS distribution tree.
 Creation, options selection and startup still enforce the fixed version shipped
 in that component before loading modern owners, without automatically changing

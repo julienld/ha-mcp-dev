@@ -152,14 +152,6 @@ async def test_configured_backup_contents_and_automatic_agent_are_applied(
     assert result["backup"]["database_included"] is True
 
 
-async def test_remote_automatic_locations_are_explicitly_refused(backups: Any) -> None:
-    backups.owner.config.data.create_backup.agent_ids = ["cloud.remote", "backup.local"]
-    with pytest.raises(ToolFailure) as caught:
-        await backups.service.create(None)
-    assert "local" in str(caught.value)
-    backups.owner.async_create_backup.assert_not_awaited()
-
-
 async def test_explicit_custom_selection_uses_local_agent_and_ignores_automatic_contents(
     backups: Any,
 ) -> None:

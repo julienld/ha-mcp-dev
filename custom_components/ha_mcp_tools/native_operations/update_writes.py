@@ -80,11 +80,14 @@ class UpdateWrites(UpdateReads):
                 continue
             try:
                 result = await self._update(action, entity_id, backup, bool(cats))
-            except Exception as error:  # noqa: BLE001 - preserve per-item failures and stop the tail
+            except Exception as error:  # noqa: BLE001 - preserve each target outcome
                 failure = registry_failure(error, {"entity_id": entity_id})
                 results.append({**failure.data, "entity_id": entity_id})
                 unknown |= failure.status == "outcome_unknown"
-                stopped = failure.code != "ENTITY_NOT_FOUND"
+                try:
+                    await self._admit()
+                except Exception:  # noqa: BLE001 - no further effects after authority loss
+                    stopped = True
             else:
                 succeeded += 1
                 results.append(result)
@@ -219,7 +222,7 @@ class UpdateWrites(UpdateReads):
                 continue
             try:
                 await self._repair(item, action == "ignore_repair")
-            except Exception as error:  # noqa: BLE001 - preserve per-item failures and stop the tail
+            except Exception as error:  # noqa: BLE001 - preserve each target outcome
                 failure = registry_failure(error, item)
                 if action == "unignore_repair" and failure.code == "RESOURCE_NOT_FOUND":
                     details = failure.data["error"]

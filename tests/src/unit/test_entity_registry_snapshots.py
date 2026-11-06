@@ -50,6 +50,7 @@ def registry_history(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple:
     client._request = AsyncMock(
         return_value={"state": "42", "attributes": {"unrelated": True}}
     )
+    client.get_states = AsyncMock(return_value=[])
     client.get_entity_registry_entry = AsyncMock(
         side_effect=lambda entity_id: copy.deepcopy(rows.get(entity_id))
     )
@@ -122,7 +123,7 @@ def registry_history(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple:
 
 
 @pytest.mark.parametrize("action", ["set", "remove", "bulk_remove", "bulk_expose"])
-async def test_entity_tools_capture_actual_registry_fields_under_durable_ids(
+async def test_entity_tools_capture_registry_fields_under_public_entity_ids(
     registry_history: tuple, action: str
 ) -> None:
     tools, manager, client, rows, _ = registry_history
@@ -146,8 +147,10 @@ async def test_entity_tools_capture_actual_registry_fields_under_durable_ids(
         if action.startswith("bulk_")
         else [before["sensor.first"]]
     )
-    assert {item["entity_id"] for item in captured} == {row["id"] for row in expected}
-    assert all(item["domain"] == "entity_registry" for item in captured)
+    assert {item["entity_id"] for item in captured} == {
+        row["entity_id"] for row in expected
+    }
+    assert all(item["domain"] == "entity" for item in captured)
     assert sorted(
         (item["config"] for item in captured), key=lambda row: row["id"]
     ) == sorted(expected, key=lambda row: row["id"])
@@ -161,7 +164,7 @@ async def test_registry_history_follows_renamed_identity_and_clears_new_option_d
     before = copy.deepcopy(rows["sensor.first"])
     await tools.ha_set_entity(entity_id="sensor.first", new_entity_id="sensor.renamed")
     saved = next(
-        item for item in manager.list_snapshots() if item["domain"] == "entity_registry"
+        item for item in manager.list_snapshots() if item["domain"] == "entity"
     )
     rows["sensor.renamed"]["options"]["new_domain"] = {"new": True}
     result = await manager.restore_snapshot(saved["name"])
@@ -178,11 +181,17 @@ async def test_old_entity_state_history_keeps_its_original_domain_semantics(
 ) -> None:
     _, manager, client, _, _ = registry_history
     original = {"state": "old", "attributes": {"unit": "W"}}
-    handler = manager.handler_for("entity")
-    await handler.restore(client, "sensor.first", original)
-    client._request.assert_awaited_once_with(
-        "POST", "states/sensor.first", json=original
-    )
+    path = manager._write_snapshot("entity", "sensor.first", original, "baseline")
+    result = await manager.restore_snapshot(path.name)
+    safety = manager.read_snapshot(result["safety_backup"])
+    assert safety["config"] == {"state": "42", "attributes": {"unrelated": True}}
+    writes = [
+        call for call in client._request.await_args_list if call.args[0] == "POST"
+    ]
+    assert len(writes) == 1
+    assert writes[0].args == ("POST", "states/sensor.first")
+    assert writes[0].kwargs == {"json": original}
+    client.send_websocket_message.assert_not_awaited()
 
 
 async def test_registry_restore_refuses_an_edit_made_while_its_safety_copy_is_saved(
@@ -307,3 +316,91 @@ async def test_registry_restore_does_not_confirm_a_last_phase_changed_by_a_liste
         await manager.restore_snapshot(saved["name"])
     assert raised.value.outcome["apply_status"] == "unknown"
     assert rows["sensor.first"]["name"] == "Listener changed the final write"
+
+
+async def test_upstream_entity_registry_history_restores_by_uuid_before_safety(
+    registry_history: tuple,
+) -> None:
+    _, manager, client, rows, writes = registry_history
+    fields = (
+        "id",
+        "entity_id",
+        "name",
+        "icon",
+        "area_id",
+        "device_class",
+        "aliases",
+        "labels",
+        "categories",
+        "hidden_by",
+        "disabled_by",
+        "options",
+    )
+    saved = {key: copy.deepcopy(rows["sensor.first"][key]) for key in fields}
+    path = manager._write_snapshot("entity", "sensor.first", saved, "upstream")
+    original = path.read_bytes()
+    row = rows.pop("sensor.first")
+    row.update(entity_id="sensor.renamed", name="Changed")
+    rows["sensor.renamed"] = row
+    rows["sensor.first"] = {
+        **copy.deepcopy(row),
+        "id": "replacement",
+        "entity_id": "sensor.first",
+        "name": "Other",
+    }
+    with pytest.raises(bm.BackupRestoreError) as raised:
+        await manager.restore_snapshot(path.name)
+    # The saved alias is occupied: never restore into the replacement or send a state.
+    assert raised.value.outcome["apply_status"] == "not_applied"
+    assert not writes
+    client._request.assert_not_awaited()
+    assert path.read_bytes() == original
+
+
+async def test_upstream_entity_registry_history_restores_renamed_registration(
+    registry_history,
+):
+    _, manager, client, rows, _ = registry_history
+    saved = copy.deepcopy(rows["sensor.first"])
+    for key in ("created_at", "platform", "unique_id", "config_entry_id"):
+        saved.pop(key)
+    path = manager._write_snapshot("entity", "sensor.first", saved, "upstream")
+    row = rows.pop("sensor.first")
+    row.update(entity_id="sensor.renamed", name="Changed")
+    rows["sensor.renamed"] = row
+    result = await manager.restore_snapshot(path.name)
+    assert rows["sensor.first"]["name"] == saved["name"]
+    safety = manager.read_snapshot(result["safety_backup"])
+    assert safety["config"]["entity_id"] == "sensor.renamed"
+    assert safety["config"]["id"] == saved["id"]
+    client._request.assert_not_awaited()
+
+
+@pytest.mark.parametrize("capture", ["automatic", "explicit"])
+async def test_entity_default_capture_keeps_public_entity_id_filters(
+    registry_history, capture
+):
+    tools, manager, _, _, _ = registry_history
+    if capture == "automatic":
+        await tools.ha_set_entity(entity_id="sensor.first", name="Changed")
+    else:
+        await manager.maybe_snapshot("entity", "sensor.first", force=True)
+    selected = manager.list_snapshots(domain="entity", entity_id="sensor.first")
+    assert len(selected) == 1
+    assert manager.read_snapshot(selected[0]["name"])["config"]["id"] == "uuid-first"
+
+
+async def test_entity_delete_does_not_expand_to_uuid_history_or_another_alias(
+    registry_history,
+):
+    _, manager, _, rows, _ = registry_history
+    row = rows["sensor.first"]
+    selected = manager._write_snapshot("entity", "sensor.first", row, "upstream")
+    durable = manager._write_snapshot("entity_registry", row["id"], row, "native-v1")
+    other = manager._write_snapshot(
+        "entity", "sensor.other", {**row, "entity_id": "sensor.other"}, "upstream"
+    )
+    originals = {path: path.read_bytes() for path in (durable, other)}
+    result = manager.delete_bulk(domain="entity", entity_id="sensor.first")
+    assert result["deleted"] == [selected.name]
+    assert all(path.read_bytes() == original for path, original in originals.items())

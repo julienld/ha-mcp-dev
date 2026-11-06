@@ -103,7 +103,10 @@ from .client.rest_client import (
 )
 from .errors import get_error_code
 from .runtime import snapshot_flow_restore as _shared_flow_restore
-from .runtime.entity_snapshot_values import entity_registry_identity
+from .runtime.entity_snapshot_values import (
+    entity_registry_identity,
+    entity_snapshot_target,
+)
 from .runtime.snapshot_compare import comparison_values, diff_snapshot_values
 from .runtime.snapshot_files import (
     _TEXT_DOMAINS,
@@ -923,6 +926,7 @@ class BackupManager(SnapshotFilesMixin):
         try:
             data = await asyncio.to_thread(self.read_snapshot, name)
             _validate_snapshot_envelope(data)
+            data = entity_snapshot_target(data)
         except FileNotFoundError as err:
             raise BackupRestoreError(
                 f"Backup {name!r} not found",
@@ -979,7 +983,11 @@ class BackupManager(SnapshotFilesMixin):
     async def _restore_snapshot_data(
         self, name: str, data: dict[str, Any], *, take_safety_backup: bool
     ) -> dict[str, Any]:
-        handler = self.handler_for(data["domain"])
+        handler = (
+            DomainHandler("entity", _fetch_entity_state, _restore_entity_state)
+            if data["domain"] == "entity"
+            else self.handler_for(data["domain"])
+        )
         if handler is None:
             raise BackupRestoreError(
                 f"No restore handler registered for domain {data['domain']!r}",
@@ -1064,13 +1072,18 @@ class BackupManager(SnapshotFilesMixin):
         """Read a snapshot and the live config for its stable target identity."""
         data = await asyncio.to_thread(self.read_snapshot, name)
         _validate_snapshot_envelope(data)
+        data = entity_snapshot_target(data)
         domain = data["domain"]
         if _is_flow_helper_domain(domain):
             snapshot = _validate_flow_snapshot(
                 data["entity_id"], data["config"], _flow_type(domain)
             )
             data["entity_id"] = snapshot["entry_id"]
-        handler = self.handler_for(domain)
+        handler = (
+            DomainHandler("entity", _fetch_entity_state, _restore_entity_state)
+            if domain == "entity"
+            else self.handler_for(domain)
+        )
         if handler is None:
             raise LookupError(f"No diff handler registered for domain {domain!r}")
         target = await self._comparison_target(domain, data)
@@ -1646,7 +1659,7 @@ async def _restore_todo_item(client: Any, entity_id: str, config: Any) -> Any:
     return await restore_todo(backend, actor, entity_id, config, before)
 
 
-# Historical entity snapshots — state/attributes only, separate from registry edits.
+# Historical state payloads get a dedicated handler during diff and restoration.
 
 
 async def _fetch_entity_state(client: Any, entity_id: str) -> Any:
@@ -1654,8 +1667,12 @@ async def _fetch_entity_state(client: Any, entity_id: str) -> Any:
 
 
 async def _restore_entity_state(client: Any, entity_id: str, config: Any) -> Any:
-    # Keep the original state-only snapshot meaning; registry history has its own domain.
+    # The payload classifier keeps registry images away from the state endpoint.
     if isinstance(config, dict):
+        if config.get("state") is None or "id" in config:
+            raise InvalidBackupSnapshotError(
+                "Entity state snapshot does not specify a state"
+            )
         payload = {
             "state": config.get("state"),
             "attributes": config.get("attributes", {}),
@@ -2409,7 +2426,7 @@ def register_default_handlers(mgr: BackupManager, _client: Any) -> None:
         DomainHandler("area_or_floor", _fetch_area_or_floor, _restore_area_or_floor)
     )
     mgr.register(DomainHandler("todo_item", _fetch_todo_item, _restore_todo_item))
-    mgr.register(DomainHandler("entity", _fetch_entity_state, _restore_entity_state))
+    mgr.register(DomainHandler("entity", fetch_entity_registry, _restore_entity_state))
     mgr.register(
         DomainHandler("entity_registry", fetch_entity_registry, restore_entity_registry)
     )
@@ -2453,18 +2470,30 @@ class _LegacyRestoreOperations:
                     "The saved entity registration no longer exists; restore cannot recreate it.",
                     reason="entry_deleted",
                 )
+            from .backends.legacy_entity_snapshots import validate_registry_restore
+
+            await validate_registry_restore(
+                self.manager._client, self.config, self.registry_before
+            )
             return True
+        if self.domain == "entity":
+            self.registry_before = await self.handler.fetch(
+                self.manager._client, self.entity_id
+            )
+            return self.registry_before is not None
         return await self.manager._restore_needs_safety(
             self.handler, self.entity_id, self.config
         )
 
     async def capture_safety(self, outcome: dict[str, Any]) -> Path | None:
-        if self.domain == "entity_registry":
+        if self.domain in {"entity_registry", "entity"}:
             if not getattr(self.manager._settings, "enable_auto_backup", False):
                 return None
             return await self.manager.maybe_snapshot_known(
-                self.domain,
-                self.entity_id,
+                "entity",
+                self.registry_before["entity_id"]
+                if self.domain == "entity_registry"
+                else self.entity_id,
                 self.registry_before,
                 tool_name="ha_manage_backup.restore.safety",
                 force=True,
@@ -2486,6 +2515,20 @@ class _LegacyRestoreOperations:
                 self.entity_id,
                 self.config,
                 expected=self.registry_before,
+            )
+        if self.domain == "entity":
+            from .utils.config_hash import json_values_equal
+
+            if not json_values_equal(
+                await self.handler.fetch(self.manager._client, self.entity_id),
+                self.registry_before,
+            ):
+                raise BackupRestoreError(
+                    "The state changed after its safety image was read",
+                    reason="config_conflict",
+                )
+            return await self.handler.restore(
+                self.manager._client, self.entity_id, self.config
             )
         # Absence commits to recreation; a target reappearing cannot be edited
         # without the recovery point that an existing target requires.

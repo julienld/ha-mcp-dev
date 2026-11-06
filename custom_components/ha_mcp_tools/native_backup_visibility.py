@@ -17,6 +17,9 @@ async def guard_snapshot_visibility(
         return
     from homeassistant.helpers import entity_registry as er
 
+    from ha_mcp.runtime.entity_snapshot_values import entity_snapshot_target
+
+    data = entity_snapshot_target(data)
     registry = er.async_get(manager.hass)
     domain, identifier = data.get("domain", ""), data.get("entity_id", "")
     config = data.get("config")

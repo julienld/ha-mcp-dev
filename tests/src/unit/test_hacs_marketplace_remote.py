@@ -37,8 +37,9 @@ def remote():
     state = {"warning_accepted": True, "github_connected": True, "startup": False}
 
     async def send(name, **values):
-        if name == "marketplace/info":
-            return {"success": True, "result": copy.deepcopy(state)}
+        info_replies = {"marketplace/info": state, "marketplace/repository/info": row}
+        if name in info_replies:
+            return {"success": True, "result": copy.deepcopy(info_replies[name])}
         if name == "hacs/info":
             raise HomeAssistantCommandError("Unknown command", "unknown_command")
         if name == "ha_mcp_tools/hacs_cache":
@@ -151,12 +152,12 @@ async def test_search_keeps_selected_store_info_and_filtered_catalog(
     assert result["count"] == 1 and result["category_filter"] == "lovelace"
 
 
-async def test_remote_info_never_calls_mutating_info_endpoint(remote):
+async def test_remote_info_preserves_the_store_info_refresh_policy(remote):
     result = await remote.store.info("1")
     assert result["data"]["can_install"]
     assert result["data"]["integration_categories"] == ["hub"]
     remote.ws.send_command.assert_awaited_once_with(
-        "ha_mcp_tools/hacs_cache", repository_id="1"
+        "marketplace/repository/info", repository_id="1"
     )
 
 

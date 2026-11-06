@@ -46,7 +46,7 @@ SERVER_ENTRY_TITLE = "HA-MCP Server"
 # version so the requirement cannot resolve there, and
 # that requirement gates the whole integration before any entry's config flow
 # runs, so a lower runtime floor here would promise what the load cannot keep.
-MIN_EMBEDDED_HOME_ASSISTANT_VERSION = "2026.10.0"
+MIN_EMBEDDED_HOME_ASSISTANT_VERSION = "2026.8.0"
 # Native execution is exercised separately on this exact upstream installation
 # minimum and the supported monthly trains; dependency alignment is not parity.
 MIN_NATIVE_HOME_ASSISTANT_VERSION = "2026.10.0"

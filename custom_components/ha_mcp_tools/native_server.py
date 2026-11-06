@@ -32,8 +32,10 @@ from .const import (
 from .http_adapter import serve_asgi, serve_buffered_asgi
 from .native_server_policy import (
     NativePolicy,
+    catalogue_instructions_middleware,
     catalogue_middleware,
     catalogue_transform,
+    connection_catalog_mode,
     connection_read_only,
     load_initial_policy,
     load_policy,
@@ -69,6 +71,8 @@ def _prewarm() -> bool:
     importlib.import_module(f"{__package__}.native_code")
     for module in (
         "native_settings",
+        "native_code_api",
+        "native_operations.hacs_info",
         "native_snapshots",
         "native_snapshot_restore",
         "native_snapshot_flows",
@@ -227,6 +231,7 @@ class NativeServerManager:
         self.backend: Any = None
         self.mcp: Any = None
         self.instructions = ""
+        self.instructions_by_catalog: dict[str, str] = {}
         self.app: Any = None
         self.lifespan_state: dict[str, Any] = {}
         self.accepting = False
@@ -361,6 +366,7 @@ class NativeServerManager:
         register_import_tools(self)
         await register_resources(self)
         self.mcp.add_middleware(RenamedToolAliasMiddleware())
+        self.mcp.add_middleware(catalogue_instructions_middleware(self))
         self.mcp.add_middleware(catalogue_middleware(self))
         self.mcp.add_middleware(approval_context_middleware())
         await self.refresh_policy()
@@ -386,8 +392,6 @@ class NativeServerManager:
         from ha_mcp.transforms import CategorizedSearchTransform
 
         self.search_enabled = self.policy.flag("enable_tool_search")
-        if not self.search_enabled:
-            return
         default = Settings.model_fields["tool_search_max_results"].default
         maximum = int(
             os.environ.get(
@@ -406,6 +410,9 @@ class NativeServerManager:
                 effect_resolver=self._search_call_effect,
                 read_action_resolver=self._search_has_read_actions,
                 read_only_resolver=self._search_read_only,
+                search_active_resolver=lambda: (
+                    connection_catalog_mode(self.policy) == "search"
+                ),
             )
         )
 
@@ -463,9 +470,15 @@ class NativeServerManager:
             if instruction_inputs != self._instruction_inputs:
                 # Bundled skills are fixed for this entry's loaded generation.
                 # Keep policy reads/admission fresh; reuse only the derived text.
-                self.instructions = await self.settings_ui._io(
-                    build_instructions, policy, self.engine.enabled_tools
-                )
+                self.instructions_by_catalog = {
+                    mode: await self.settings_ui._io(
+                        build_instructions, policy, self.engine.enabled_tools, search
+                    )
+                    for mode, search in (("full", False), ("search", True))
+                }
+                self.instructions = self.instructions_by_catalog[
+                    "search" if policy.flag("enable_tool_search") else "full"
+                ]
                 self.mcp.instructions = self.instructions
                 self._instruction_inputs = instruction_inputs
 
@@ -676,9 +689,16 @@ class NativeServerManager:
         )
 
     async def async_handle_http(
-        self, request: web.Request, cfg: dict[str, Any], *, read_only: bool = False
+        self,
+        request: web.Request,
+        cfg: dict[str, Any],
+        *,
+        read_only: bool = False,
+        catalog_mode: str | None = None,
     ) -> web.StreamResponse:
         """Admit bounded concurrent streams; long SSE has its own generous budget."""
+        if catalog_mode not in (None, "full", "search"):
+            raise ValueError("Unsupported catalog mode")
         if not self.is_running:
             return web.Response(status=503, text="MCP server is not available")
         if len(self._http_tasks) >= self.http_limit:
@@ -694,7 +714,12 @@ class NativeServerManager:
             context = await self.request_context(request, cfg, read_only=read_only)
             await self.backend.authorize(context)
             await self.refresh_policy()
-            state = {**self.lifespan_state, "ha_mcp_context": context}
+            state = {
+                **self.lifespan_state,
+                "ha_mcp_context": context,
+                "ha_mcp_catalog_mode": catalog_mode
+                or ("search" if self.policy.flag("enable_tool_search") else "full"),
+            }
             if isinstance(request, MockRequest):
                 return await self._cloudhook(request, state)
             async with asyncio.timeout(self.stream_seconds):

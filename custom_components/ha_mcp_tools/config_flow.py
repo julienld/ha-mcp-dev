@@ -46,6 +46,7 @@ from homeassistant.helpers.selector import (
 from homeassistant.loader import async_get_integration
 
 from . import server_credentials
+from .config_flow_legacy import async_legacy_server, server_minimum
 from .config_flow_llm import schema_fields
 from .config_flow_text import (
     _COMMON_FALLBACKS,
@@ -249,19 +250,22 @@ class HaMcpToolsConfigFlow(ConfigFlow, domain=DOMAIN):  # type: ignore[call-arg]
     async def async_step_server(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Choose an owner and optional remote access for a native server."""
-        if not version_supported(HA_VERSION, MIN_NATIVE_HOME_ASSISTANT_VERSION):
+        """Choose the runtime supported by Core, preserving old Legacy setup."""
+        if not version_supported(HA_VERSION, server_minimum(user_input)):
             return self.async_abort(
                 reason="unsupported_home_assistant",
                 description_placeholders={
                     "installed": HA_VERSION,
-                    "required": MIN_NATIVE_HOME_ASSISTANT_VERSION,
+                    "required": server_minimum(user_input),
                 },
             )
 
         # Ignore abandoned dialogs, but reject every duplicate submitted entry.
         await self.async_set_unique_id(_SERVER_UNIQUE_ID, raise_on_progress=False)
         self._abort_if_unique_id_configured()
+
+        if not version_supported(HA_VERSION, MIN_NATIVE_HOME_ASSISTANT_VERSION):
+            return await async_legacy_server(self, user_input)
 
         errors: dict[str, str] = {}
         values = user_input or {}

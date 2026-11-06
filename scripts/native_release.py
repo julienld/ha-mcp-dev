@@ -534,7 +534,7 @@ def prepare_hacs_snapshot(
         if isinstance(node, ast.Assign)
         and any(
             isinstance(target, ast.Name)
-            and target.id == "MIN_NATIVE_HOME_ASSISTANT_VERSION"
+            and target.id == "MIN_EMBEDDED_HOME_ASSISTANT_VERSION"
             for target in node.targets
         )
     )

@@ -59,6 +59,7 @@ def backups(native: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
         backup_agents={"backup.local": SimpleNamespace(name="local")},
         config=SimpleNamespace(
             data=SimpleNamespace(
+                agents={},
                 create_backup=SimpleNamespace(
                     password="fixture-protection",
                     agent_ids=[],
@@ -67,7 +68,7 @@ def backups(native: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
                     include_addons=None,
                     include_all_addons=False,
                     include_folders=None,
-                )
+                ),
             )
         ),
     )
@@ -122,6 +123,11 @@ def backups(native: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
     )
     module = importlib.import_module(
         "custom_components.ha_mcp_tools.native_operations.full_backups"
+    )
+    monkeypatch.setattr(
+        module.SupervisorAccess,
+        "_read",
+        AsyncMock(return_value={"default_backup_mount": None}),
     )
     service = module.NativeFullBackups(manager, CallContext("actor"))
     return SimpleNamespace(

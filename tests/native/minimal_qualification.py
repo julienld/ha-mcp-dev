@@ -96,6 +96,7 @@ def qualify(
     expected_arch: str,
     python_source: str,
     repository: str = REPOSITORY,
+    runtime: str = "native",
 ) -> None:
     if sys.platform != "linux":
         raise RuntimeError("Run qualification with the Linux Core image's Python")
@@ -218,6 +219,8 @@ def qualify(
                 str(output.resolve()),
                 "--repository",
                 repository,
+                "--runtime",
+                runtime,
             ],
             env=install_env,
             log=log,
@@ -238,6 +241,7 @@ def main() -> None:
     parser.add_argument("--work-directory", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--repository", default=REPOSITORY)
+    parser.add_argument("--runtime", choices=("native", "legacy"), default="native")
     parser.add_argument("--image-receipt", type=Path, required=True)
     parser.add_argument("--expected-core", required=True)
     parser.add_argument("--expected-arch", required=True)
@@ -248,6 +252,7 @@ def main() -> None:
         args.work_directory,
         args.output,
         repository=args.repository,
+        runtime=args.runtime,
         image_receipt=args.image_receipt,
         expected_core=args.expected_core,
         expected_arch=args.expected_arch,

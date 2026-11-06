@@ -67,17 +67,8 @@ async def exercise_code_mode(checks: Any, base: str) -> None:
         "native_code_opt_in_Monty_saved_script_survives_reload_and_runs_as_current_actor"
     )
 
-    raw = await checks.call(
-        "ha_manage_custom_tool",
-        {
-            "code": "[await api_get('/states'), await api_post('/services/input_boolean/toggle', {}), await ws_send({'type': 'get_states'})]",
-            "justification": "Qualify explicit native compatibility limits",
-        },
-    )
-    assert len(raw["data"]["result"]) == 3 and all(
-        item["error"]["code"] == "UNSUPPORTED_OPERATION"
-        for item in raw["data"]["result"]
-    ), raw
+    changed = await _raw_apis(checks)
+    await _raw_boundaries(checks, base)
     recursive = await checks.call(
         "ha_manage_custom_tool",
         {
@@ -90,9 +81,10 @@ async def exercise_code_mode(checks: Any, base: str) -> None:
     ), recursive
     assert (await checks.control("code_probe"))["state"] == changed["state"]
     checks.passed(
-        "native_code_raw_ABI_explicitly_unavailable_and_recursive_tool_reentry_refused"
+        "native_code_known_raw_APIs_use_Core_owners_and_unknown_commands_and_recursion_are_refused"
     )
-    await _approval_gate(checks, base, script)
+    raw_service = "await api_post('/services/input_boolean/toggle', {'entity_id': 'input_boolean.native_light'})"
+    await _approval_gate(checks, base, raw_service)
     deleted = await checks.call(
         "ha_manage_custom_tool",
         {
@@ -106,6 +98,104 @@ async def exercise_code_mode(checks: Any, base: str) -> None:
     assert "native_contract" not in listed["data"]["saved_tools"], listed
     checks.passed(
         "native_code_saved_script_deletion_persists_through_real_entry_reload"
+    )
+
+
+async def _raw_apis(checks: Any) -> dict[str, Any]:
+    before = await checks.control("code_probe")
+    raw = await checks.call(
+        "ha_manage_custom_tool",
+        {
+            "code": "[await api_get('/config'), await api_get('/states/input_boolean.native_light'), await api_get('/states'), await api_get('/services'), await api_post('/template', {'template': '{{ 40 + 2 }}'}), await ws_send({'type': 'config/area_registry/list'}), await ws_send({'type': 'get_states'}), await api_get('/native_unported'), await api_post('/native_unported', {}), await ws_send({'type': 'native_unported/command'})]",
+            "justification": "Qualify bounded native API compatibility and explicit limits",
+        },
+    )
+    config, state, states, services, template, areas, ws_states, *unknown = raw["data"][
+        "result"
+    ]
+    assert "location_name" in config and "time_zone" in config, raw
+    assert (
+        state["entity_id"] == "input_boolean.native_light" and state["context"]["id"]
+    ), raw
+    assert any(row["entity_id"] == state["entity_id"] for row in states), raw
+    assert any(row["entity_id"] == state["entity_id"] for row in ws_states), raw
+    assert any(row["domain"] == "input_boolean" for row in services), raw
+    assert template == 42 and isinstance(areas, list), raw
+    assert len(unknown) == 3 and all(
+        item["error"]["code"] == "UNSUPPORTED_OPERATION" for item in unknown
+    ), raw
+    assert (await checks.control("code_probe"))["state"] == before["state"]
+    posted = await checks.call(
+        "ha_manage_custom_tool",
+        {
+            "code": "await api_post('/services/input_boolean/toggle', {'entity_id': 'input_boolean.native_light'})",
+            "justification": "Qualify native raw service attribution",
+        },
+    )
+    after = await checks.control("code_probe")
+    assert (
+        after["state"] != before["state"]
+        and after["state_user_id"] == after["request_user_id"]
+    ), after
+    changed_state = next(
+        row
+        for row in posted["data"]["result"]
+        if row["entity_id"] == "input_boolean.native_light"
+    )
+    assert (
+        changed_state["context"]["id"]
+        and changed_state["context"]["user_id"] == after["request_user_id"]
+    ), posted
+    return after
+
+
+async def _raw_boundaries(checks: Any, base: str) -> None:
+    path = checks.path
+    try:
+        checks.path += "/readonly/catalog/full"
+        denied = await checks.rpc(
+            "tools/call",
+            {
+                "name": "ha_manage_custom_tool",
+                "arguments": {
+                    "code": "await api_get('/states')",
+                    "justification": "Read-only raw-code refusal",
+                },
+            },
+        )
+        assert denied["result"].get("isError") and "READ_ONLY" in json.dumps(denied), (
+            denied
+        )
+    finally:
+        checks.path = path
+    tools_url = base + "/api/ha_mcp_tools/ui/app/api/settings/tools"
+    response = await checks.client.get(tools_url)
+    response.raise_for_status()
+    original = response.json()
+    changed = await checks.client.post(
+        tools_url, json={"states": {"ha_list_services": "disabled"}}
+    )
+    changed.raise_for_status()
+    try:
+        result = await checks.call(
+            "ha_manage_custom_tool",
+            {
+                "code": "await api_get('/services')",
+                "justification": "Raw helpers preserve tool admission",
+            },
+        )
+        assert result["data"]["result"]["error"]["code"] == "TOOL_DISABLED", result
+    finally:
+        restored = await checks.client.post(
+            tools_url,
+            json={
+                "states": original["states"],
+                "llm_api": original["llm_api_overrides"],
+            },
+        )
+        restored.raise_for_status()
+    checks.passed(
+        "native_code_raw_helpers_preserve_readonly_and_disabled_tool_admission"
     )
 
 

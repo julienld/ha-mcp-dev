@@ -38,6 +38,7 @@ class NativeFullBackups:
     def __init__(self, manager: Any, actor: CallContext) -> None:
         self.manager, self.actor = manager, actor
         self.owner: Any = None
+        self.supervisor = SupervisorAccess(manager, actor)
 
     def pin(self) -> Any:
         if "backup" not in self.manager.hass.config.components:
@@ -108,24 +109,53 @@ class NativeFullBackups:
         return result
 
     def credentials(
-        self, *, require_password: bool = True
+        self, agent_id: str, *, require_password: bool = True
     ) -> tuple[str, Any, str | None]:
         owner = self.pin()
-        agent_id = "hassio.local" if self.supervised else "backup.local"
         if agent_id not in owner.backup_agents:
             raise ToolFailure(
                 "CONFIG_VALIDATION_FAILED",
-                "No local backup agent is available",
+                "The selected backup agent is unavailable",
                 status="not_started",
             )
+        password = self.password() if require_password else None
+        return agent_id, owner.backup_agents[agent_id], password
+
+    def password(self) -> str:
+        owner = self.pin()
         password = owner.config.data.create_backup.password or None
-        if require_password and (not isinstance(password, str) or not password):
+        if not isinstance(password, str) or not password:
             raise ToolFailure(
                 "CONFIG_VALIDATION_FAILED",
                 "Configure Home Assistant's default backup password before creating or restoring a full backup",
                 status="not_started",
             )
-        return agent_id, owner.backup_agents[agent_id], password
+        return password
+
+    async def creation_agents(self, automatic: bool) -> tuple[str, ...]:
+        if automatic:
+            return tuple(self.pin().config.data.create_backup.agent_ids)
+        if not self.supervised:
+            return ("backup.local",)
+        mounts = await self.supervisor._read("/mounts")
+        return (f"hassio.{mounts.get('default_backup_mount') or 'local'}",)
+
+    def destinations(self, agent_ids: tuple[str, ...]) -> tuple[tuple[Any, bool], ...]:
+        """Pin Core agent identities and effective per-destination protection."""
+        owner = self.pin()
+        if not agent_ids or len(set(agent_ids)) != len(agent_ids):
+            raise ToolFailure(
+                "CONFIG_VALIDATION_FAILED",
+                "Select at least one backup destination without duplicates",
+                status="not_started",
+            )
+        agents = owner.config.data.agents
+        selected = []
+        for agent_id in agent_ids:
+            _, agent, _ = self.credentials(agent_id, require_password=False)
+            settings = agents.get(agent_id)
+            selected.append((agent, settings.protected if settings else True))
+        return tuple(selected)
 
     @property
     def supervised(self) -> bool:
@@ -200,17 +230,11 @@ class NativeFullBackups:
                 return [f"Apps not installed: {', '.join(sorted(missing))}"]
         return []
 
-    def selection(
-        self, parts: dict[str, Any] | None, agent_id: str
-    ) -> tuple[dict[str, Any], bool]:
+    def selection(self, parts: dict[str, Any] | None) -> tuple[dict[str, Any], bool]:
         if parts and any(value is not None for value in parts.values()):
             return copy.deepcopy(parts), False
         config = self.pin().config.data.create_backup
         locations = config.agent_ids
-        if locations and locations != [agent_id]:
-            raise UnsupportedOperation(
-                "Native backups support only the local agent; automatic backup locations include other agents. Use explicit include_* selections for a manual local backup."
-            )
         selected = {
             "include_homeassistant": True,
             "include_database": config.include_database,
@@ -236,10 +260,12 @@ class NativeFullBackups:
     ) -> dict[str, Any]:
         async with registry_update_lock("core_backup", "operations"):
             await self.guard("create")
-            agent_id, agent, password = self.credentials()
-            reader_writer = self.pin()._reader_writer
-            selected, automatic = self.selection(parts, agent_id)
+            selected, automatic = self.selection(parts)
             contents = await self.contents(selected)
+            agent_ids = await self.creation_agents(automatic)
+            destinations = self.destinations(agent_ids)
+            password = self.password()
+            reader_writer = self.pin()._reader_writer
             config_name = self.pin().config.data.create_backup.name
             if automatic and name is not None:
                 raise ToolFailure(
@@ -256,18 +282,28 @@ class NativeFullBackups:
             )
 
             async def worker() -> dict[str, Any]:
-                current_parts, current_automatic = self.selection(parts, agent_id)
+                current_parts, current_automatic = self.selection(parts)
                 current_contents = await self.contents(current_parts)
+                current_ids = await self.creation_agents(current_automatic)
                 owner = await self.guard("create")
-                final_parts, final_automatic = self.selection(parts, agent_id)
-                current_id, current_agent, current_password = self.credentials()
+                final_parts, final_automatic = self.selection(parts)
+                final_ids = (
+                    tuple(owner.config.data.create_backup.agent_ids)
+                    if final_automatic
+                    else current_ids
+                )
+                current_destinations = self.destinations(final_ids)
                 if (
-                    (current_id, current_password)
-                    != (
-                        agent_id,
-                        password,
+                    current_ids != agent_ids
+                    or final_ids != agent_ids
+                    or any(
+                        current_agent is not agent or current_protected != protected
+                        for (current_agent, current_protected), (
+                            agent,
+                            protected,
+                        ) in zip(current_destinations, destinations, strict=True)
                     )
-                    or current_agent is not agent
+                    or self.password() != password
                     or owner._reader_writer is not reader_writer
                     or not json_values_equal(contents, current_contents)
                     or automatic != current_automatic
@@ -290,7 +326,7 @@ class NativeFullBackups:
                     # task is never cancelled just to satisfy a tool deadline.
                     job = await self._with_progress(
                         owner.async_create_backup(
-                            agent_ids=[agent_id],
+                            agent_ids=list(agent_ids),
                             extra_metadata={"ha_mcp_creation_id": nonce},
                             name=name,
                             password=password,
@@ -306,14 +342,23 @@ class NativeFullBackups:
                         == nonce
                     ]
                     if (
-                        agent_id in errors
+                        set(agent_ids).intersection(errors)
                         or len(matches) != 1
-                        or agent_id not in matches[0].get("agents", {})
+                        or not set(agent_ids).issubset(matches[0].get("agents", {}))
                     ):
                         raise RuntimeError(
-                            "Completed backup could not be identified on its local agent"
+                            "Completed backup could not be identified on every selected agent"
                         )
                     backup = matches[0]
+                    if any(
+                        backup["agents"][agent_id].get("protected") is not protected
+                        for agent_id, (_, protected) in zip(
+                            agent_ids, destinations, strict=True
+                        )
+                    ):
+                        raise RuntimeError(
+                            "A selected backup copy did not confirm its requested protection"
+                        )
                     if (
                         backup.get("failed_agent_ids")
                         or backup.get("failed_addons")
@@ -326,10 +371,10 @@ class NativeFullBackups:
                         "backup_job_id": job.backup_job_id,
                         "name": backup["name"],
                         "date": backup.get("date"),
-                        "size_bytes": backup["agents"][agent_id].get("size"),
+                        "size_bytes": backup["agents"][agent_ids[0]].get("size"),
                         "status": "Backup completed successfully",
                         "duration_seconds": int(time.monotonic() - started),
-                        "note": "Backup uses your Home Assistant's default backup password",
+                        "note": "Core applies each selected agent's backup protection settings using Home Assistant's default backup password",
                         "backup": backup,
                     }
                 except (Exception, asyncio.CancelledError) as error:

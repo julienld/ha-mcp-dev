@@ -5,6 +5,7 @@ from __future__ import annotations
 import mimetypes
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, cast
 
 from pydantic import PrivateAttr
@@ -42,11 +43,11 @@ def _read_file(source: SkillResource | SkillFileResource) -> str | bytes:
     """Resolve inside the trusted skill root again at every read."""
     if isinstance(source, SkillResource):
         if source.is_manifest:
-            return source._generate_manifest()
+            return cast(str, source._generate_manifest())
         relative = source.skill_info.main_file
     else:
         relative = source.file_path
-    path = safe_join(source.skill_info.path, relative)
+    path = cast(Path, safe_join(source.skill_info.path, relative))
     if source.mime_type.startswith("text/"):
         return path.read_text(encoding="utf-8")
     return path.read_bytes()
@@ -93,7 +94,9 @@ class _InstructionSettings:
     custom_instructions: str
 
 
-def build_instructions(policy: NativePolicy, enabled_tools: set[str]) -> str:
+def build_instructions(
+    policy: NativePolicy, enabled_tools: set[str], tool_search: bool | None = None
+) -> str:
     """Use the shared composer with this entry's settings, never global Settings."""
     from ha_mcp.server_instructions import (
         build_skills_instructions,
@@ -102,7 +105,9 @@ def build_instructions(policy: NativePolicy, enabled_tools: set[str]) -> str:
     from ha_mcp.utils.skill_loader import get_skills_dir
 
     settings = _InstructionSettings(
-        policy.flag("enable_tool_search"), policy.read_only, policy.custom_instructions
+        policy.flag("enable_tool_search") if tool_search is None else tool_search,
+        policy.read_only,
+        policy.custom_instructions,
     )
     skills = build_skills_instructions(
         get_skills_dir(),
