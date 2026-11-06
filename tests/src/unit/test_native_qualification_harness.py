@@ -2,6 +2,7 @@
 
 import importlib
 import subprocess
+from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -264,3 +265,59 @@ async def test_entity_bench_finds_pre_rename_history_by_public_entity_id(
         )
         with pytest.raises(SnapshotSelected):
             await entities.exercise_entities(checks, "http://fixture")
+
+
+async def test_cold_resource_qualification_precedes_clients_that_can_load_core(
+    harness, monkeypatch
+):
+    domain_tools = harness.exercise_domain_tools
+    for name in vars(harness):
+        if name.startswith("exercise_") and name not in {
+            "exercise_runtime",
+            "exercise_domain_tools",
+        }:
+            monkeypatch.setattr(harness, name, AsyncMock(return_value={}))
+
+    loaded = False
+    cold_checks = []
+
+    async def dashboards(*args):
+        assert loaded is False, "Cold Lovelace checks ran after unrelated readers"
+        cold_checks.append("dashboards")
+
+    async def resources(*args):
+        nonlocal loaded
+        assert loaded is False
+        loaded = True
+        cold_checks.append("resources")
+
+    async def cards(*args):
+        assert loaded is True
+        cold_checks.append("cards")
+
+    async def external(*args):
+        nonlocal loaded
+        loaded = True
+
+    async def exercise(checks, **kwargs):
+        await domain_tools(checks)
+        return {"ready": True}
+
+    monkeypatch.setattr(harness, "exercise_dashboards", dashboards)
+    monkeypatch.setattr(harness, "exercise_resources", resources)
+    monkeypatch.setattr(harness, "exercise_dashboard_card_types", cards)
+    monkeypatch.setattr(harness, "exercise_external_clients", external)
+    monkeypatch.setattr(harness, "exercise", exercise)
+    monkeypatch.setattr(harness, "blueprint_source", lambda _: nullcontext("fixture"))
+    monkeypatch.setattr(
+        harness,
+        "docker",
+        Mock(
+            return_value=SimpleNamespace(
+                stdout='[{"NetworkSettings":{"Networks":{"bridge":{"Gateway":"fixture"}}}}]'
+            )
+        ),
+    )
+    result = await harness.exercise_runtime(SimpleNamespace(), "fixture-user")
+    assert result == {"ready": True}
+    assert cold_checks == ["dashboards", "resources", "cards"]

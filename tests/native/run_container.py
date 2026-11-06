@@ -436,9 +436,6 @@ async def exercise_domain_tools(checks: Checks) -> None:
         await exercise_blueprints(checks, BASE, source_url)
     await exercise_events(checks)
     await exercise_camera(checks)
-    await exercise_dashboards(checks, BASE)
-    await exercise_resources(checks, BASE)
-    await exercise_dashboard_card_types(checks)
     await exercise_search(checks, receipt, BASE)
     await exercise_history(checks)
     await exercise_energy(checks)
@@ -522,6 +519,18 @@ async def exercise(checks: Checks, *, published_tag: str | None = None) -> dict:
     )
     final = await checks.ready()
     return final
+
+
+async def exercise_runtime(
+    checks: Checks, user_id: str, *, published_tag: str | None = None
+) -> dict:
+    """Qualify first-use state before other readers share the collection."""
+    await exercise_dashboards(checks, BASE)
+    await exercise_resources(checks, BASE)
+    await exercise_dashboard_card_types(checks)
+    await exercise_external_clients(checks, user_id)
+    await exercise_standard_proxy(checks)
+    return await exercise(checks, published_tag=published_tag)
 
 
 async def main(*, published_tag: str | None = None) -> None:
@@ -620,9 +629,9 @@ async def main(*, published_tag: str | None = None) -> None:
                 checks, published_tag=published_tag, phase="after_setup"
             )
             await checks.control("guard", {})
-            await exercise_external_clients(checks, identities["alpha"]["user_id"])
-            await exercise_standard_proxy(checks)
-            evidence = await exercise(checks, published_tag=published_tag)
+            evidence = await exercise_runtime(
+                checks, identities["alpha"]["user_id"], published_tag=published_tag
+            )
             # Do not persist generated identities or access/refresh tokens.
             evidence.pop("entry_id", None)
             evidence.pop("path", None)
