@@ -70,7 +70,8 @@ async def test_native_registry_failure_after_first_write_never_replays_or_loses_
     assert registry.rows["sensor.first"].name == "Saved"
     safety = [
         store.read_snapshot(item["name"])
-        for item in store.list_snapshots(domain="entity_registry")
-        if item["name"] != path.name
+        for item in store.list_snapshots(domain="entity", entity_id="sensor.renamed")
     ]
     assert len(safety) == 1 and safety[0]["config"] == before
+    assert safety[0]["config"]["id"] == "uuid-first"
+    assert store.read_snapshot(path.name)["domain"] == "entity_registry"

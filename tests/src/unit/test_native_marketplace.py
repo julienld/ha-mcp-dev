@@ -288,6 +288,9 @@ def update_entity(marketplace, monkeypatch):
         marketplace=marketplace.owner,
         entity_id="update.renamed_by_user",
         unique_id="1",
+        installed_version="1",
+        latest_version="2",
+        in_progress=False,
     )
     target = SimpleNamespace(entity_id=entity.entity_id, entity=entity, unique_id="1")
     row = SimpleNamespace(
@@ -399,3 +402,15 @@ async def test_catalog_rename_requires_explicit_repository_choice(marketplace):
     )
     assert result.is_error and result.status == "not_started"
     marketplace.owner.async_register_repository.assert_not_awaited()
+
+
+@pytest.mark.parametrize("latest", [None, "1"])
+async def test_versionless_native_reinstall_preserves_direct_store_owner(
+    marketplace, update_entity, latest
+):
+    update_entity.entity.latest_version = latest
+    marketplace.repo.data.last_version = "1"
+    result = await call(marketplace, "download", repository_id="1")
+    assert not result.is_error, result.data
+    marketplace.repo.async_install_repository.assert_awaited_once()
+    marketplace.hass.services.async_call.assert_not_awaited()

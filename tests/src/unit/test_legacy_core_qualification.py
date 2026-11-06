@@ -1,9 +1,11 @@
 """Legacy qualification must prove restart continuity and never run Native."""
 
 import json
+import sys
 from pathlib import Path
 from subprocess import CompletedProcess
-from unittest.mock import Mock
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 import yaml
@@ -103,3 +105,54 @@ def test_old_core_lane_qualifies_both_architectures_with_legacy_not_native() -> 
     )
     assert "--runtime legacy" in command
     assert "--entrypoint python" in command and '"$IMAGE_ID"' in command
+
+
+async def test_legacy_probe_creates_the_real_long_lived_token_kind(monkeypatch):
+    from tests.native.legacy_core_compat import setup_entry
+
+    from .test_legacy_core_compat import const
+
+    monkeypatch.setitem(
+        sys.modules,
+        "homeassistant.auth.const",
+        SimpleNamespace(GROUP_ID_ADMIN="system-admin"),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "homeassistant.auth.models",
+        SimpleNamespace(TOKEN_TYPE_LONG_LIVED_ACCESS_TOKEN="long_lived_access_token"),
+    )
+    entry = SimpleNamespace(entry_id="fixture-entry", options={})
+    flow = SimpleNamespace(
+        async_init=AsyncMock(return_value={"flow_id": "flow"}),
+        async_configure=AsyncMock(
+            side_effect=[
+                {"type": "form", "step_id": "server"},
+                {"type": "create_entry", "result": entry},
+            ]
+        ),
+    )
+    user, refresh = object(), object()
+    auth = SimpleNamespace(
+        async_create_user=AsyncMock(return_value=user),
+        async_create_refresh_token=AsyncMock(return_value=refresh),
+        async_create_access_token=Mock(return_value="fixture-token"),
+    )
+    entries = SimpleNamespace(
+        flow=flow,
+        async_entries=lambda _domain: [],
+        async_unload=AsyncMock(return_value=True),
+        async_setup=AsyncMock(return_value=True),
+        async_update_entry=Mock(),
+    )
+    hass = SimpleNamespace(
+        auth=auth, config_entries=entries, async_block_till_done=AsyncMock()
+    )
+    assert await setup_entry(hass, "first_start") is entry
+    auth.async_create_refresh_token.assert_awaited_once_with(
+        user, token_type="long_lived_access_token", client_name="Legacy qualification"
+    )
+    assert (
+        entries.async_update_entry.call_args.kwargs["options"][const.OPT_ENABLE_LLM_API]
+        is True
+    )

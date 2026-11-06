@@ -433,3 +433,26 @@ def test_source_harness_resolves_the_unmodified_shared_receipt_and_policy(
             ROOT / "tests/native/fixtures/native_fixture" / name
         ).read_bytes()
     assert not (tmp_path / "custom_components/ha_mcp_tools").exists()
+
+
+def test_core_constraint_receipt_accepts_new_no_argument_pip_owner(
+    tmp_path, monkeypatch
+):
+    constraints = tmp_path / "package_constraints.txt"
+    constraints.write_text("pydantic==2.13.4\n")
+    requirements = SimpleNamespace(
+        __file__=str(tmp_path / "requirements.py"),
+        CONSTRAINT_FILE=constraints.name,
+        pip_kwargs=lambda: {"constraints": str(constraints)},
+    )
+    monkeypatch.setitem(sys.modules, "homeassistant.requirements", requirements)
+    import homeassistant
+
+    monkeypatch.setattr(homeassistant, "requirements", requirements, raising=False)
+    receipt = _load(
+        "core11_constraint_receipt",
+        ROOT / "tests/native/fixtures/native_fixture/dependency_receipt.py",
+    )
+    result = receipt.core_constraint_context()
+    assert result["sha256"] == hashlib.sha256(constraints.read_bytes()).hexdigest()
+    assert result["text"] == constraints.read_bytes().decode()

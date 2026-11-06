@@ -260,6 +260,12 @@ def minimal(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
                 }
             )
         )
+        (component / "pip_compat.py").write_bytes(
+            (
+                Path(__file__).resolve().parents[3]
+                / "custom_components/ha_mcp_tools/pip_compat.py"
+            ).read_bytes()
+        )
         return (
             {"revision": "source", "files": {wheel.name: "hash"}},
             {"wheel": wheel.name, "dependency": dependency},
@@ -320,6 +326,12 @@ def minimal(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
             _install_requirements_if_missing=world.owner,
             async_get_integration_with_requirements=world.dependency_owner,
         ),
+    )
+    monkeypatch.setattr(
+        importlib.import_module("homeassistant"),
+        "requirements",
+        sys.modules["homeassistant.requirements"],
+        raising=False,
     )
     monkeypatch.setitem(
         sys.modules, "homeassistant.util", SimpleNamespace(package=world.package)
@@ -633,3 +645,14 @@ async def test_failed_core_base_bootstrap_stops_before_creating_an_actor(
         await minimal_probes._native(tmp_path)
     auth.assert_not_awaited()
     native_base.hass.async_stop.assert_awaited_once_with(force=True)
+
+
+def test_minimal_installer_accepts_core_no_argument_pip_owner(minimal, monkeypatch):
+    monkeypatch.setattr(
+        sys.modules["homeassistant.requirements"],
+        "pip_kwargs",
+        lambda: {"constraints": str(minimal.constraints)},
+    )
+    minimal.run()
+    assert json.loads(minimal.output.read_text())["complete"]
+    assert minimal.owner.call_count == len(minimal.requirements)

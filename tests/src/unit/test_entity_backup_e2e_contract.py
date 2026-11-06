@@ -35,8 +35,8 @@ class RegistryBackupClient:
         self.sequence += 1
         name = f"capture-{self.sequence}.json"
         self.backups[name] = {
-            "domain": "entity_registry",
-            "entity_id": "durable-registry-id",
+            "domain": "entity",
+            "entity_id": self.entry["entity_id"],
             "config": {"id": "durable-registry-id", **copy.deepcopy(self.entry)},
         }
         return name

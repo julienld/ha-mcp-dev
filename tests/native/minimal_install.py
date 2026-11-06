@@ -5,6 +5,7 @@ import asyncio
 import importlib
 import importlib.metadata
 import json
+import runpy
 import site
 import subprocess
 import sys
@@ -173,9 +174,9 @@ def install(
         decisions=[],
     )
     save(output, proof)
-    from homeassistant.requirements import pip_kwargs
     from homeassistant.util import package
 
+    pip_kwargs = runpy.run_path(str(component / "pip_compat.py"))["pip_kwargs"]
     kwargs = pip_kwargs(str(config))
 
     def observe(label: str) -> None:

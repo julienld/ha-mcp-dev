@@ -127,3 +127,8 @@ def _reject_foreign_params(action: str, **per_action: dict[str, Any]) -> None:
                 context={"action": action, "foreign_parameters": sorted(foreign)},
             )
         )
+
+
+def versionless_install_refused(installed_version: Any, latest_version: Any) -> bool:
+    """Core update.services rejects an unspecified version under this condition."""
+    return latest_version is None or installed_version == latest_version

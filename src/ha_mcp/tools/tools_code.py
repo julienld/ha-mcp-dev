@@ -532,6 +532,8 @@ def register_code_tools(mcp: Any, client: Any, **kwargs: Any) -> None:
 
 
 __all__ = [
+    "_API_POST_BLOCKED_PREFIXES",
+    "_BLOCKED_HA_INTERNAL_EVENTS",
     "_MAX_SAVED_TOOLS",
     "_SAVED_TOOLS_SCHEMA_VERSION",
     "_classify_sandbox_error",

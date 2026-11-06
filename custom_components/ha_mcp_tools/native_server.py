@@ -557,14 +557,16 @@ class NativeServerManager:
 
     async def _cleanup(self) -> None:
         self.accepting = False
-        await self._drain_owned_resources()
-        tasks = tuple(self._http_tasks)
-        for task in tasks:
-            task.cancel()
-        if tasks:
-            await asyncio.gather(*tasks, return_exceptions=True)
-        self._stop_requested.set()
-        await self._finish_lifespan()
+        try:
+            await self._drain_owned_resources()
+        finally:
+            tasks = tuple(self._http_tasks)
+            for task in tasks:
+                task.cancel()
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
+            self._stop_requested.set()
+            await self._finish_lifespan()
         self._stopped = True
 
     async def _drain_owned_resources(self) -> None:

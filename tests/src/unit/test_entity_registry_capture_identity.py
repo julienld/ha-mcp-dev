@@ -23,7 +23,12 @@ async def test_alias_capture_can_restore_the_same_registration_after_rename(
     assert result["entity_id"] == "uuid-first"
     assert result["domain"] == "entity_registry"
     assert rows["sensor.first"] == before and "sensor.renamed" not in rows
-    assert manager.list_snapshots(domain="entity", entity_id="sensor.first") == []
+    public = manager.list_snapshots(domain="entity", entity_id="sensor.first")
+    assert len(public) == 1
+    assert manager.read_snapshot(public[0]["name"])["config"] == before
+    safety = manager.read_snapshot(result["safety_backup"])
+    assert safety["domain"] == "entity" and safety["entity_id"] == "sensor.renamed"
+    assert safety["config"]["id"] == before["id"]
     assert (
         manager.list_snapshots(domain="entity_registry", entity_id="sensor.first") == []
     )

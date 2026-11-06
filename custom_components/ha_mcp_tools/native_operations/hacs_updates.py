@@ -5,6 +5,7 @@ from typing import Any
 
 from homeassistant.core import Context
 
+from ha_mcp.runtime.hacs_values import versionless_install_refused
 from ha_mcp.tool_api import ToolFailure
 
 from .hacs_access import HacsAccess
@@ -54,6 +55,14 @@ def install_service(
 ) -> tuple[Any, dict[str, Any], UpdateTarget] | None:
     target = repository_update_target(access, repository)
     if target is None:
+        return None
+    if (
+        version is None
+        and target.entity.in_progress is False
+        and versionless_install_refused(
+            target.entity.installed_version, target.entity.latest_version
+        )
+    ):
         return None
     service = access.hass.services.async_services_for_domain("update").get("install")
     if service is None or not callable(service.schema):

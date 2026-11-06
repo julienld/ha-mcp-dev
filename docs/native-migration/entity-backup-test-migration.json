@@ -3,9 +3,9 @@
   "retired_revision": "8857277613c45de8cc45582e3cd565a0c1f804f9",
   "scope": "Scenario-by-scenario replacement of retired entity registry server-adapter tests; test functions are mapped before parameter expansion.",
   "owners": {
-    "entity": "Historical StateMachine values; never registry interpretation",
-    "entity_registry_legacy": "ha_mcp.backends.legacy_entity_snapshots, UUID keys",
-    "entity_registry_native": "NativeEntityRegistry through NativeSnapshots, UUID keys"
+    "entity": "Public entity-ID keyed history; state and registry-shaped images select their actual owner before target resolution and safety capture",
+    "entity_registry_legacy": "ha_mcp.backends.legacy_entity_snapshots resolves durable UUIDs; reads interim UUID-keyed registry files and upstream entity-ID keyed registry images",
+    "entity_registry_native": "NativeEntityRegistry through NativeSnapshots, UUID resolution with public entity-ID safety captures"
   },
   "records": [
     {
@@ -19,9 +19,9 @@
     {
       "retired": "tests/src/unit/test_entity_backup.py::TestEntityBackup::test_snapshot_holds_the_registry_fields_and_options",
       "status": "covered",
-      "reason": "Actual captures preserve the complete Core registry row and every bulk target under its UUID.",
+      "reason": "Actual automatic captures preserve the complete Core registry row and every bulk target under its public entity ID, retaining its UUID in the image.",
       "coverage": [
-        "tests/src/unit/test_entity_registry_snapshots.py::test_entity_tools_capture_actual_registry_fields_under_durable_ids"
+        "tests/src/unit/test_entity_registry_snapshots.py::test_entity_tools_capture_registry_fields_under_public_entity_ids"
       ]
     },
     {
@@ -137,31 +137,34 @@
     {
       "retired": "tests/src/unit/test_entity_backup.py::TestEntityBackup::test_a_state_snapshot_from_an_earlier_version_is_refused",
       "status": "domain_contract_changed",
-      "reason": "State payloads remain valid only for historical domain entity. Registry history rejects them without writes; it must not restore the old registry interpretation of entity.",
+      "reason": "State-shaped entity payloads retain their original StateMachine meaning; registry-shaped entity and interim entity_registry images select the registry owner before safety. Mixed formats and state payloads claimed as registry history are refused without writes.",
       "coverage": [
         "tests/src/unit/test_entity_backup.py::test_state_payload_cannot_be_restored_as_registry_history",
         "tests/src/unit/test_entity_registry_snapshots.py::test_old_entity_state_history_keeps_its_original_domain_semantics",
-        "tests/src/unit/test_native_snapshot_entity_state.py::test_old_entity_snapshot_reads_real_state_and_restores_only_state_attributes"
+        "tests/src/unit/test_native_snapshot_entity_state.py::test_old_entity_snapshot_reads_real_state_and_restores_only_state_attributes",
+        "tests/src/unit/test_entity_registry_snapshots.py::test_upstream_entity_registry_history_restores_by_uuid_before_safety"
       ]
     },
     {
       "retired": "tests/src/unit/test_entity_backup.py::TestStateSnapshotFromAnEarlierVersion::test_restore_writes_no_safety_backup",
       "status": "domain_contract_changed",
-      "reason": "State payloads remain valid only for historical domain entity. Registry history rejects them without writes; it must not restore the old registry interpretation of entity.",
+      "reason": "State-shaped entity payloads retain their original StateMachine meaning; registry-shaped entity and interim entity_registry images select the registry owner before safety. Mixed formats and state payloads claimed as registry history are refused without writes.",
       "coverage": [
         "tests/src/unit/test_entity_backup.py::test_state_payload_cannot_be_restored_as_registry_history",
         "tests/src/unit/test_entity_registry_snapshots.py::test_old_entity_state_history_keeps_its_original_domain_semantics",
-        "tests/src/unit/test_native_snapshot_entity_state.py::test_old_entity_snapshot_reads_real_state_and_restores_only_state_attributes"
+        "tests/src/unit/test_native_snapshot_entity_state.py::test_old_entity_snapshot_reads_real_state_and_restores_only_state_attributes",
+        "tests/src/unit/test_entity_registry_snapshots.py::test_upstream_entity_registry_history_restores_by_uuid_before_safety"
       ]
     },
     {
       "retired": "tests/src/unit/test_entity_backup.py::TestStateSnapshotFromAnEarlierVersion::test_diff_is_refused",
       "status": "domain_contract_changed",
-      "reason": "State payloads remain valid only for historical domain entity. Registry history rejects them without writes; it must not restore the old registry interpretation of entity.",
+      "reason": "State-shaped entity payloads retain their original StateMachine meaning; registry-shaped entity and interim entity_registry images select the registry owner before safety. Mixed formats and state payloads claimed as registry history are refused without writes.",
       "coverage": [
         "tests/src/unit/test_entity_backup.py::test_state_payload_cannot_be_restored_as_registry_history",
         "tests/src/unit/test_entity_registry_snapshots.py::test_old_entity_state_history_keeps_its_original_domain_semantics",
-        "tests/src/unit/test_native_snapshot_entity_state.py::test_old_entity_snapshot_reads_real_state_and_restores_only_state_attributes"
+        "tests/src/unit/test_native_snapshot_entity_state.py::test_old_entity_snapshot_reads_real_state_and_restores_only_state_attributes",
+        "tests/src/unit/test_entity_registry_snapshots.py::test_upstream_entity_registry_history_restores_by_uuid_before_safety"
       ]
     },
     {
@@ -321,9 +324,9 @@
     {
       "retired": "tests/src/unit/test_entity_backup.py::test_a_bulk_call_backs_up_no_entity",
       "status": "covered",
-      "reason": "Actual captures preserve the complete Core registry row and every bulk target under its UUID.",
+      "reason": "Actual automatic captures preserve the complete Core registry row and every bulk target under its public entity ID, retaining its UUID in the image.",
       "coverage": [
-        "tests/src/unit/test_entity_registry_snapshots.py::test_entity_tools_capture_actual_registry_fields_under_durable_ids"
+        "tests/src/unit/test_entity_registry_snapshots.py::test_entity_tools_capture_registry_fields_under_public_entity_ids"
       ]
     },
     {

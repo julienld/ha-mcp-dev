@@ -40,7 +40,9 @@ def release_reads(hacs, monkeypatch):
     return hacs
 
 
-async def test_hacs_optional_releases_use_owner_without_mutating_info(release_reads):
+async def test_hacs_optional_releases_use_owner_after_normal_info_refresh(
+    release_reads,
+):
     result = await call(release_reads, "info", repository_id="1", include_releases=True)
     assert not result.is_error, result.data
     data = result.data["data"]
@@ -49,9 +51,11 @@ async def test_hacs_optional_releases_use_owner_without_mutating_info(release_re
         {"name": "Version two", "tag": "2", "body": "Native release notes"}
     ]
     release_reads.repo.async_get_releases.assert_awaited_once_with()
-    release_reads.repo.update_repository.assert_not_awaited()
-    release_reads.owner.data.async_write.assert_not_awaited()
-    assert release_reads.repo.data.new
+    release_reads.repo.update_repository.assert_awaited_once_with(
+        ignore_issues=True, force=True
+    )
+    release_reads.owner.data.async_write.assert_awaited_once()
+    assert not release_reads.repo.data.new
 
 
 async def test_release_failure_is_warning_beside_cached_repository(release_reads):

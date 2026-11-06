@@ -19,11 +19,11 @@ class BackupSelected(Exception):
         "test_deleted_registry_restore_refuses_without_recreating_the_entity",
     ],
 )
-async def test_entity_restore_scenario_selects_the_durable_registry_history(
+async def test_entity_restore_scenario_selects_the_public_entity_history(
     monkeypatch, scenario
 ):
-    # capture_entity_registry keys history by the registry row's id, which
-    # differs from both the helper's name and its renameable entity_id.
+    # Registry UUID remains inside the image; history is selected using the
+    # public entity ID captured by the writer, distinct from that UUID.
     registry_id = "44ca272a46cb46eb850bad205bc54568"
     entry = {"hidden": False}
 
@@ -51,10 +51,10 @@ async def test_entity_restore_scenario_selects_the_durable_registry_history(
         await getattr(scenarios.TestEntityCaptureRestore(), scenario)(
             client, core, monkeypatch
         )
-    lookup.assert_awaited_once_with(
-        client, domain="entity_registry", entity_id=registry_id
-    )
     core.send_websocket_message.assert_awaited_once()
-    assert core.send_websocket_message.call_args.args[0]["type"] == (
-        "config/entity_registry/get"
+    registry_read = core.send_websocket_message.call_args.args[0]
+    assert registry_read["type"] == "config/entity_registry/get"
+    assert registry_read["entity_id"] != registry_id
+    lookup.assert_awaited_once_with(
+        client, domain="entity", entity_id=registry_read["entity_id"]
     )

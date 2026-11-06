@@ -21,7 +21,11 @@ from .hacs_results import (
     remove_data,
     search_data,
 )
-from .hacs_values import CATEGORY_MAP, _filter_and_score_repos
+from .hacs_values import (
+    CATEGORY_MAP,
+    _filter_and_score_repos,
+    versionless_install_refused,
+)
 from .validation import validate_identifier_not_empty
 
 
@@ -189,12 +193,38 @@ async def pin_remote_update(
         )
 
 
+async def _versionless_reinstall(ws: Any, target: dict[str, Any]) -> bool:
+    states = await command(ws, "get_states")
+    if not isinstance(states, list):
+        return False
+    state = next(
+        (
+            row
+            for row in states
+            if isinstance(row, dict) and row.get("entity_id") == target["entity_id"]
+        ),
+        None,
+    )
+    attributes = state.get("attributes") if state else None
+    return (
+        isinstance(attributes, dict)
+        and {"installed_version", "latest_version"} <= attributes.keys()
+        and attributes.get("in_progress") is False
+        and versionless_install_refused(
+            attributes["installed_version"], attributes["latest_version"]
+        )
+    )
+
+
 async def try_hacs_update(
     ws: Any, repository_id: str, version: str | None
 ) -> dict[str, Any] | None:
-    """Prefer update.install; return None only before dispatch when no entity exists."""
+    """Prefer update.install; choose the store before dispatch for an actual reinstall."""
     target = await remote_update_target(ws, "hacs", repository_id)
     if target is None:
+        return None
+    if version is None and await _versionless_reinstall(ws, target):
+        await pin_remote_update(ws, "hacs", repository_id, target)
         return None
     before, _cache = await cached_repository(ws, "hacs", repository_id)
     values = {"entity_id": target["entity_id"]}
@@ -422,6 +452,15 @@ class MarketplaceRemote:
                 target = await remote_update_target(
                     self.ws, "marketplace", str(before["id"])
                 )
+                if (
+                    target is not None
+                    and version is None
+                    and await _versionless_reinstall(self.ws, target)
+                ):
+                    await pin_remote_update(
+                        self.ws, "marketplace", str(before["id"]), target
+                    )
+                    target = None
                 if target is not None:
                     name = "call_service"
                     values = {

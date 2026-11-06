@@ -52,10 +52,8 @@ async def wait_ready(hass: Any) -> Any:
 
 
 async def setup_entry(hass: Any, phase: str) -> Any:
-    from homeassistant.auth.const import (
-        GROUP_ID_ADMIN,
-        TOKEN_TYPE_LONG_LIVED_ACCESS_TOKEN,
-    )
+    from homeassistant.auth.const import GROUP_ID_ADMIN
+    from homeassistant.auth.models import TOKEN_TYPE_LONG_LIVED_ACCESS_TOKEN
 
     from custom_components.ha_mcp_tools.const import (
         DOMAIN,

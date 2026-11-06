@@ -1,4 +1,4 @@
-"""Legacy registry history uses durable UUIDs; historical entity files hold state.
+"""Registry history keeps durable identities inside public entity-ID captures.
 
 Retired scenarios and their canonical coverage are recorded in
 docs/native-migration/entity-backup-test-migration.json.
@@ -29,6 +29,12 @@ def history(registry_history):
     command = client.send_websocket_message.side_effect
 
     async def core_update(payload):
+        if payload["type"] == "config/category_registry/list":
+            assert payload["scope"] == "automation"
+            return {
+                "success": True,
+                "result": [{"category_id": "saved-category", "name": "Saved category"}],
+            }
         # Core merges category scopes, removing only those explicitly set null.
         if (
             payload["type"] == "config/entity_registry/update"
@@ -103,8 +109,10 @@ async def test_registry_backup_restores_each_user_setting(history, edit):
     assert rows["sensor.first"] == before
     assert result["domain"] == "entity_registry" and result["entity_id"] == before["id"]
     safety = manager.read_snapshot(result["safety_backup"])
-    assert safety["entity_id"] == before["id"]
-    assert safety["config"]["entity_id"] == edit.get("entity_id", "sensor.first")
+    assert safety["domain"] == "entity"
+    assert safety["entity_id"] == edit.get("entity_id", "sensor.first")
+    assert safety["config"]["entity_id"] == safety["entity_id"]
+    assert safety["config"]["id"] == before["id"]
     client._request.assert_not_awaited()
 
 

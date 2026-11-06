@@ -43,11 +43,12 @@ def _read_file(source: SkillResource | SkillFileResource) -> str | bytes:
     """Resolve inside the trusted skill root again at every read."""
     if isinstance(source, SkillResource):
         if source.is_manifest:
-            return cast(str, source._generate_manifest())
+            manifest: str = source._generate_manifest()
+            return manifest
         relative = source.skill_info.main_file
     else:
         relative = source.file_path
-    path = cast(Path, safe_join(source.skill_info.path, relative))
+    path: Path = safe_join(source.skill_info.path, relative)
     if source.mime_type.startswith("text/"):
         return path.read_text(encoding="utf-8")
     return path.read_bytes()

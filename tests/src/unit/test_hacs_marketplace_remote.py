@@ -37,7 +37,20 @@ def remote():
     state = {"warning_accepted": True, "github_connected": True, "startup": False}
 
     async def send(name, **values):
-        info_replies = {"marketplace/info": state, "marketplace/repository/info": row}
+        info_replies = {
+            "marketplace/info": state,
+            "marketplace/repository/info": row,
+            "get_states": [
+                {
+                    "entity_id": "update.user_renamed",
+                    "attributes": {
+                        "installed_version": row["installed_version"],
+                        "latest_version": row["available_version"],
+                        "in_progress": False,
+                    },
+                }
+            ],
+        }
         if name in info_replies:
             return {"success": True, "result": copy.deepcopy(info_replies[name])}
         if name == "hacs/info":
@@ -316,3 +329,34 @@ async def test_remote_update_entity_replacement_before_dispatch_is_refused(remot
         call.args[0] != "call_service"
         for call in remote.ws.send_command.await_args_list
     )
+
+
+@pytest.mark.parametrize("domain", ["hacs", "marketplace"])
+@pytest.mark.parametrize("latest", [None, "1"])
+async def test_versionless_reinstall_selects_store_before_any_service_dispatch(
+    remote, domain, latest
+):
+    remote.row.update(
+        installed_version="1", available_version=latest, pending_upgrade=True
+    )
+
+    async def send(name, **values):
+        result = await remote.send(name, **values)
+        if name == "config/entity_registry/list":
+            result["result"][0]["platform"] = domain
+        if name == "ha_mcp_tools/hacs_cache":
+            result["result"]["store"] = domain
+        return result
+
+    remote.ws.send_command.side_effect = send
+    if domain == "hacs":
+        assert await try_hacs_update(remote.ws, "1", None) is None
+    else:
+        await remote.store.write("download", "1")
+    assert not any(
+        c.args[0] == "call_service" for c in remote.ws.send_command.call_args_list
+    )
+    if domain == "marketplace":
+        remote.ws.send_command.assert_any_await(
+            "marketplace/repository/install", repository="1", _wait_timeout=120.0
+        )

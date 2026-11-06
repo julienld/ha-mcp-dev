@@ -2,6 +2,7 @@
     "domain": "ha_mcp_tools",
     "name": "HA-MCP Custom Component",
     "after_dependencies": [
+        "api",
         "auth",
         "backup",
         "blueprint",

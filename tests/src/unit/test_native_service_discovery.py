@@ -1,4 +1,4 @@
-"""Native discovery describes the service path without promising raw WebSocket."""
+"""Native discovery distinguishes mapped commands from arbitrary WebSocket."""
 
 from types import SimpleNamespace
 
@@ -14,7 +14,7 @@ install()
 from custom_components.ha_mcp_tools.native_server import _project_tool  # noqa: E402
 
 
-def test_native_mcp_and_assist_disclose_unsupported_ws_parameter(
+def test_native_mcp_and_assist_disclose_bounded_ws_support(
     native: object,
 ) -> None:
     from custom_components.ha_mcp_tools.native_catalog import build_native_catalog
@@ -32,15 +32,22 @@ def test_native_mcp_and_assist_disclose_unsupported_ws_parameter(
     definition = next(
         tool for tool in build_native_catalog(manager) if tool.name == "ha_call_service"
     )
+    supported = definition.meta["ha_mcp"]["native_support"]["commands"]
+    assert {"repairs/list_issues", "network/url", "config/entity_registry/get"} <= set(
+        supported
+    )
+    assert "third_party/execute" not in supported
     for projected in (_project_tool(manager, definition), describe_tool(definition)):
-        assert "ws_command is not supported in native mode" in projected.description
+        assert "bounded set of known one-shot commands" in projected.description
+        assert "other commands are refused before dispatch" in projected.description
+        assert "Unavailable in Read Only Mode" in projected.description
         assert "WebSocket" not in projected.description.splitlines()[0]
         assert "**WebSocket command escape hatch" not in projected.description
         schema = getattr(projected, "parameters", None) or projected.input_schema
-        assert (
-            "not supported in native mode"
-            in schema["properties"]["ws_command"]["description"].lower()
-        )
+        ws_help = schema["properties"]["ws_command"]["description"]
+        assert all(command in ws_help for command in supported)
+        assert "Other commands are refused before dispatch" in ws_help
+        assert "legacy runtime" in ws_help
         assert "raw command payload" not in schema["properties"]["data"]["description"]
         wait_help = schema["properties"]["wait"]["description"]
         assert "legacy" not in wait_help

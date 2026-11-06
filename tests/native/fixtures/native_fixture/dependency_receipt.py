@@ -34,9 +34,11 @@ def _dependency_policy() -> Any:
 
 def core_constraint_context(constraint_path: Path | None = None) -> dict[str, Any]:
     if constraint_path is None:
-        from homeassistant.requirements import pip_kwargs
+        from homeassistant import requirements
 
-        constraint_path = Path(pip_kwargs(None)["constraints"])
+        constraint_path = Path(requirements.__file__).with_name(
+            requirements.CONSTRAINT_FILE
+        )
     raw = constraint_path.read_bytes()
     return {
         "text": raw.decode("utf-8"),

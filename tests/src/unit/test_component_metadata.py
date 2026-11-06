@@ -6,6 +6,8 @@ import importlib.util
 import json
 from pathlib import Path
 
+from packaging.version import Version
+
 _REPO_ROOT = Path(__file__).parents[3]
 
 
@@ -18,8 +20,8 @@ def test_hacs_requires_supported_home_assistant_version() -> None:
     entries included, since requirements are installed before the entry type
     is known.
 
-    Both HACS manifests and both runtime declarations must agree on the
-    supported minimum. Installability against Core's constraints is exercised
+    Both HACS manifests must agree with the Legacy installation minimum;
+    Native can require a newer Core. Installability against Core's constraints is exercised
     by the real-Core qualification matrix, not inferred from this metadata.
     """
     metadata = json.loads((_REPO_ROOT / "hacs.json").read_text(encoding="utf-8"))
@@ -34,7 +36,9 @@ def test_hacs_requires_supported_home_assistant_version() -> None:
     spec.loader.exec_module(const)
     assert metadata["homeassistant"] == const.MIN_EMBEDDED_HOME_ASSISTANT_VERSION
 
-    assert metadata["homeassistant"] == const.MIN_NATIVE_HOME_ASSISTANT_VERSION
+    assert Version(metadata["homeassistant"]) <= Version(
+        const.MIN_NATIVE_HOME_ASSISTANT_VERSION
+    )
     component_metadata = json.loads(
         (const_path.parent / "hacs.json").read_text(encoding="utf-8")
     )

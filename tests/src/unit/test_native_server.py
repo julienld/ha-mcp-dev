@@ -334,3 +334,37 @@ def test_native_prewarm_routes_sdk_logs_without_legacy_state_or_core_handler_cha
         logger.handlers[:], logger.propagate, logger.level, logger.filters[:] = original
         for item, filters in zip(sdk_loggers, old_filters, strict=True):
             item.filters[:] = filters
+
+
+async def test_failed_owned_drain_still_closes_http_and_lifespan():
+    runtime = manager()
+    exited = asyncio.Event()
+
+    @asynccontextmanager
+    async def lifespan(_app):
+        try:
+            yield {}
+        finally:
+            exited.set()
+
+    runtime.app = SimpleNamespace(lifespan=lifespan)
+    runtime._supervisor = asyncio.create_task(runtime._supervise())
+    await asyncio.wait_for(runtime._ready.wait(), 1)
+    request = asyncio.create_task(asyncio.Event().wait())
+    runtime._http_tasks.add(request)
+    runtime.engine.stop = AsyncMock(
+        side_effect=[RuntimeError("owned work remains"), None]
+    )
+    try:
+        with pytest.raises(RuntimeError, match="owned work remains"):
+            await runtime.async_stop()
+        assert request.cancelled()
+        assert runtime._stop_requested.is_set() and exited.is_set()
+        assert not runtime._stopped
+        await runtime.async_stop()
+        assert runtime._stopped and runtime.engine.stop.await_count == 2
+    finally:
+        request.cancel()
+        await asyncio.gather(request, return_exceptions=True)
+        runtime._stop_requested.set()
+        await asyncio.gather(runtime._supervisor, return_exceptions=True)
