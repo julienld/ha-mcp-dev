@@ -360,3 +360,19 @@ async def test_versionless_reinstall_selects_store_before_any_service_dispatch(
         remote.ws.send_command.assert_any_await(
             "marketplace/repository/install", repository="1", _wait_timeout=120.0
         )
+
+
+async def test_admitted_store_invalid_identifier_names_supported_formats(remote):
+    with pytest.raises(ToolFailure) as refused:
+        await remote.store.write(
+            "add_repository",
+            repository="invalid-format-no-slash",
+            category="integration",
+        )
+    assert refused.value.status == "not_started"
+    assert refused.value.code == "VALIDATION_INVALID_PARAMETER"
+    message = str(refused.value)
+    assert (
+        "format" in message.lower() and "owner/repo" in message and "HTTP(S)" in message
+    )
+    remote.ws.send_command.assert_awaited_once_with("marketplace/info")

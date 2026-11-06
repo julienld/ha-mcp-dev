@@ -63,7 +63,7 @@ def _repository_full_name(repository: str | None) -> str | None:
     except ValueError as error:
         raise ToolFailure(
             "VALIDATION_INVALID_PARAMETER",
-            "repository must be an owner/repo name or a GitHub HTTP(S) repository URL",
+            "Invalid repository format: use an owner/repo name or a GitHub HTTP(S) repository URL",
             status="not_started",
         ) from error
 
