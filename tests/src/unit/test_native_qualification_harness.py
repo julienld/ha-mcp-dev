@@ -325,54 +325,163 @@ async def test_cold_resource_qualification_precedes_clients_that_can_load_core(
     assert cold_checks == ["dashboards", "resources", "cards"]
 
 
-@pytest.mark.parametrize("fails", [False, True])
-@pytest.mark.parametrize("entrypoint", ["_async_ensure_loaded", "async_load"])
-async def test_resource_load_observer_preserves_core_result_and_failure(
-    harness, monkeypatch, fails, entrypoint
+@pytest.mark.parametrize("bundled_marketplace", [False, True])
+async def test_store_absence_probe_respects_cores_ignored_marketplace(
+    harness, bundled_marketplace
 ):
-    from pathlib import Path
-
-    path = (
-        Path(harness.__file__).parent / "fixtures/native_fixture/resource_load_probe.py"
+    stores = importlib.import_module("hacs_checks")
+    code = "CONFIG_CONFLICT" if bundled_marketplace else "COMPONENT_NOT_INSTALLED"
+    message = (
+        "Expected one loaded Marketplace owner"
+        if bundled_marketplace
+        else "HACS is not loaded"
     )
-    spec = importlib.util.spec_from_file_location("_resource_load_observer", path)
-    observer = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(observer)
-    failure = RuntimeError("private fixture detail")
-    calls = []
+    checks = SimpleNamespace(
+        control=AsyncMock(
+            return_value={
+                "hacs_loaded": False,
+                "marketplace_component": bundled_marketplace,
+                "marketplace_loaded": 0,
+                "marketplace_entries": [{"source": "ignore"}]
+                if bundled_marketplace
+                else [],
+            }
+        ),
+        rpc=AsyncMock(
+            return_value={
+                "result": {
+                    "isError": True,
+                    "structuredContent": {"error": {"code": code, "message": message}},
+                }
+            }
+        ),
+        passed=Mock(),
+    )
+    await stores.exercise_hacs_absence(checks)
+    assert checks.rpc.await_count == 6
 
-    class CoreResources:
-        loaded = False
 
-        async def async_load(self):
-            calls.append(self)
-            self.loaded = True
-            if fails:
-                raise failure
-            return "original-result"
+async def test_store_absence_probe_rejects_an_active_marketplace_before_tool_calls(
+    harness,
+):
+    stores = importlib.import_module("hacs_checks")
+    checks = SimpleNamespace(
+        control=AsyncMock(
+            return_value={
+                "hacs_loaded": False,
+                "marketplace_component": True,
+                "marketplace_loaded": 1,
+                "marketplace_entries": [{"source": "system"}],
+            }
+        ),
+        rpc=AsyncMock(
+            return_value={
+                "result": {
+                    "isError": True,
+                    "structuredContent": {"error": {"code": "COMPONENT_NOT_INSTALLED"}},
+                }
+            }
+        ),
+        passed=Mock(),
+    )
+    with pytest.raises(AssertionError):
+        await stores.exercise_hacs_absence(checks)
+    checks.rpc.assert_not_awaited()
 
-        async def _async_ensure_loaded(self):
-            return await self.async_load()
 
+@pytest.fixture
+def optional_store(harness, monkeypatch):
+    path = Path(harness.__file__).parent / "fixtures/native_fixture/optional_store.py"
+    spec = importlib.util.spec_from_file_location("_optional_store_fixture", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    entries = []
+
+    class MissingIntegration(Exception):
+        pass
+
+    integration = AsyncMock()
     monkeypatch.setitem(
         sys.modules,
-        "homeassistant.components.lovelace.resources",
-        SimpleNamespace(ResourceStorageCollection=CoreResources),
+        "homeassistant.loader",
+        SimpleNamespace(
+            IntegrationNotFound=MissingIntegration,
+            async_get_integration=integration,
+        ),
     )
-    owner = CoreResources()
-    data = {}
-    hass = SimpleNamespace(data={"lovelace": SimpleNamespace(resources=owner)})
-    observer.observe_resource_loading(hass, data)
-    if fails:
-        with pytest.raises(RuntimeError) as raised:
-            await getattr(owner, entrypoint)()
-        assert raised.value is failure
+    monkeypatch.setitem(
+        sys.modules,
+        "homeassistant.config_entries",
+        SimpleNamespace(SOURCE_IGNORE="ignore"),
+    )
+
+    async def init(domain, *, context, data):
+        entry = SimpleNamespace(source=context["source"], unique_id=data["unique_id"])
+        entries.append(entry)
+        return {"type": "create_entry", "result": entry}
+
+    flow = SimpleNamespace(async_init=AsyncMock(side_effect=init))
+    hass = SimpleNamespace(
+        config_entries=SimpleNamespace(
+            flow=flow,
+            async_entries=lambda _: list(entries),
+            async_loaded_entries=lambda _: [],
+        )
+    )
+    return SimpleNamespace(
+        module=module,
+        hass=hass,
+        entries=entries,
+        flow=flow,
+        integration=integration,
+        missing=MissingIntegration,
+    )
+
+
+@pytest.mark.parametrize("available", [False, True])
+async def test_fixture_ignores_core_store_via_its_flow_without_recreating_on_restart(
+    optional_store, available
+):
+    fixture = optional_store
+    if not available:
+        fixture.integration.side_effect = fixture.missing
+    await fixture.module.prepare_optional_store_absence(fixture.hass)
+    if available:
+        entry = fixture.entries[0]
+        assert entry.source == "ignore"
+        await fixture.module.prepare_optional_store_absence(fixture.hass)
+        assert fixture.entries == [entry]
+        fixture.flow.async_init.assert_awaited_once()
+        assert fixture.flow.async_init.await_args.args == ("marketplace",)
     else:
-        assert await getattr(owner, entrypoint)() == "original-result"
-    assert calls == [owner] and owner.loaded is True
-    probe = data["resource_load_probe"]
-    assert probe["initial_loaded"] is False
-    first = probe["first_load"]
-    assert first["loaded_before"] is False and first["loaded_after"] is True
-    assert any(row["function"] == "observed" for row in first["stack"])
-    assert "private fixture detail" not in str(probe)
+        assert fixture.entries == []
+        fixture.flow.async_init.assert_not_awaited()
+
+
+async def test_optional_store_fixture_preserves_unowned_existing_entries(
+    optional_store,
+):
+    fixture = optional_store
+    entry = SimpleNamespace(source="user", unique_id="unowned")
+    fixture.entries.append(entry)
+    with pytest.raises(AssertionError):
+        await fixture.module.prepare_optional_store_absence(fixture.hass)
+    assert fixture.entries == [entry]
+    fixture.flow.async_init.assert_not_awaited()
+
+
+async def test_optional_store_fixture_does_not_hide_flow_or_loader_failures(
+    optional_store,
+):
+    fixture = optional_store
+    fixture.flow.async_init.side_effect = None
+    fixture.flow.async_init.return_value = {"type": "abort", "reason": "refused"}
+    with pytest.raises(AssertionError):
+        await fixture.module.prepare_optional_store_absence(fixture.hass)
+    assert fixture.entries == []
+    failure = RuntimeError("Core loader unavailable")
+    fixture.integration.side_effect = failure
+    with pytest.raises(RuntimeError) as raised:
+        await fixture.module.prepare_optional_store_absence(fixture.hass)
+    assert raised.value is failure
+    fixture.flow.async_init.assert_awaited_once()

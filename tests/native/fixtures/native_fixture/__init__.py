@@ -174,6 +174,10 @@ class FixtureView(HomeAssistantView):
             from .dashboards import dashboard_probe
 
             return web.json_response(await dashboard_probe(self.hass))
+        if operation == "store_probe":
+            from .optional_store import store_probe
+
+            return web.json_response(store_probe(self.hass))
         if operation == "event":
             return web.json_response(
                 {
@@ -421,9 +425,9 @@ async def async_setup(hass, config):
         "remote_import_sites": [],
     }
     hass.data[DOMAIN] = data
-    from .resource_load_probe import observe_resource_loading
+    from .optional_store import prepare_optional_store_absence
 
-    observe_resource_loading(hass, data)
+    await prepare_optional_store_absence(hass)
     from .events import observe_events
 
     observe_events(hass)
