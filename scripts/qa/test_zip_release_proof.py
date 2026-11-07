@@ -10,6 +10,26 @@ from zip_release_proof import REPOSITORY, Proof, checked_context
 
 
 class PublicationGuards(unittest.TestCase):
+    def test_only_owned_latest_fallback_is_allowed_until_cleanup(self) -> None:
+        proof = Proof.__new__(Proof)
+        baseline = {
+            "heads/master": "master",
+            "tags/stable": "stable",
+            "tags/latest": None,
+            "latest_release_id": None,
+        }
+        proof.state = {"baseline": baseline, "release_ids": [42]}
+        proof.check_active_snapshot(baseline)
+        proof.check_active_snapshot({**baseline, "latest_release_id": 42})
+        for change in (
+            {"heads/master": "changed"},
+            {"tags/stable": "changed"},
+            {"tags/latest": "changed"},
+            {"latest_release_id": 99},
+        ):
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                proof.check_active_snapshot({**baseline, **change})
+
     def test_publication_requires_the_registered_fork_manual_runner(self) -> None:
         environment = {
             "GITHUB_REPOSITORY": REPOSITORY,

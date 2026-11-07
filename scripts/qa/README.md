@@ -18,7 +18,11 @@ including a concurrent alias update, retry, and refusal to move backwards.
 Every remote write is confined to `julienld/ha-mcp-dev` and temporary
 `qa-zip-<run>-<attempt>-<variant>-...` refs/releases. Protected refs and latest
 release identity are recorded before and after the proof. Cleanup always runs;
-its failure fails the job. The report, cleanup state and exact downloaded ZIP
+its failure fails the job. In a fork without stable releases, GitHub's latest
+endpoint can temporarily select an owned QA release despite `make_latest=false`.
+Only an ID created by that run is allowed during the proof; cleanup must restore
+the exact original latest-release identity. Git refs never get this exception.
+The report, cleanup state and exact downloaded ZIP
 are retained as artifacts for 14 days. If the runner dies before cleanup,
 use its `state.json` to remove only that run's exact QA release IDs and tag
 names; never delete by a broad wildcard.

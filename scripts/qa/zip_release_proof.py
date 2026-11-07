@@ -783,6 +783,18 @@ class Proof:
             namespace_adapter="tag/ref labels; make_latest=false; namespaced Git CAS",
         )
 
+    def check_active_snapshot(self, observed: dict) -> None:
+        baseline = self.state["baseline"]
+        protected = {**observed, "latest_release_id": baseline["latest_release_id"]}
+        if protected != baseline:
+            raise ValueError("A protected fork Git ref changed")
+        latest = observed["latest_release_id"]
+        if (
+            latest != baseline["latest_release_id"]
+            and latest not in self.state["release_ids"]
+        ):
+            raise ValueError("An unrelated latest release changed")
+
     def execute(self) -> None:
         repository = self.api(f"repos/{REPOSITORY}")
         assert (
@@ -798,9 +810,14 @@ class Proof:
         self.exercise_assets()
         if self.variant == "activation":
             self.exercise_finalizer()
-        assert self.snapshot() == self.state["baseline"], (
-            "A protected fork ref or latest release changed"
-        )
+        observed = self.snapshot()
+        self.check_active_snapshot(observed)
+        self.state["active_snapshot"] = observed
+        if observed["latest_release_id"] != self.state["baseline"]["latest_release_id"]:
+            self.event(
+                "GitHub latest fallback selected an owned temporary QA release",
+                release_id=observed["latest_release_id"],
+            )
         self.state.update(passed=True, digest=self.digest)
         self.save()
         write_json(self.output / "report.json", self.state)
