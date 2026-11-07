@@ -13,6 +13,7 @@ evidence of their original candidate, rather than current behavior.
 ## Upstream functional reference, 7 November 2026
 
 The current integration target is upstream
+`e18a242ac180e11d8df3847009db2e60221b6527`, including the functional update at
 `8b022630215c7a516d9e0b92aa39c4d3cc94dc5d`. Upstream remains the functional
 reference for both runtimes. Native adapts those choices to actual Core owners;
 it does not retain an API retired upstream through a fork-only compatibility
