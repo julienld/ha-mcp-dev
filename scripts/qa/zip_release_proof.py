@@ -31,7 +31,7 @@ REPOSITORY = "julienld/ha-mcp-dev"
 TRAILERS = "\n\nCodex-Session: 01a1ab9a-90da-7452-9bec-86e40464cba2\nT3-Thread: a79d9703-47c6-4084-a1d7-62b70915a8f2"
 SUBJECTS = {
     "assets": "1a153e83d72496b8851ad22485bafe01d4beeda7",
-    "activation": "592116f9edb1858152c83796f1f6b10b5d1ed901",
+    "activation": "549ee160c4a8536988654e6bd3d739a9810179f1",
 }
 
 

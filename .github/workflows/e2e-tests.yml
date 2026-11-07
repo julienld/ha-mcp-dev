@@ -413,7 +413,7 @@ jobs:
       subject_sha: ${{ steps.subject.outputs.sha }}
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      SUBJECT_SHA: ${{ inputs.proof_variant == 'assets' && '1a153e83d72496b8851ad22485bafe01d4beeda7' || '592116f9edb1858152c83796f1f6b10b5d1ed901' }}
+      SUBJECT_SHA: ${{ inputs.proof_variant == 'assets' && '1a153e83d72496b8851ad22485bafe01d4beeda7' || '549ee160c4a8536988654e6bd3d739a9810179f1' }}
     steps:
       - name: Register immutable subject
         id: subject
