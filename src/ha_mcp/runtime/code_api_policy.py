@@ -1,5 +1,6 @@
 """Shared saved-script path normalization and protected-write policies."""
 
+import posixpath
 import urllib.parse
 from typing import Any
 
@@ -87,11 +88,15 @@ def api_post_policy_refusal(normalized: str) -> str | None:
     leading ``/`` and ``api/`` prefix, so for example
     ``"/api/states/sun.sun"`` arrives here as ``"states/sun.sun"``.
     """
+    # Match the resolved path while forwarding keeps the original query string.
+    path = posixpath.normpath(
+        "/" + urllib.parse.unquote(urllib.parse.urlsplit(normalized).path)
+    ).lstrip("/")
     for prefix, what, alternative in _API_POST_BLOCKED_PREFIXES:
-        if normalized.startswith(prefix) or normalized == prefix.rstrip("/"):
+        if path.startswith(prefix) or path == prefix.rstrip("/"):
             return f"{what} are blocked from the sandbox; {alternative}."
-    if normalized.startswith("events/"):
-        event_name = normalized[len("events/") :]
+    if path.startswith("events/"):
+        event_name = path[len("events/") :]
         if event_name in _BLOCKED_HA_INTERNAL_EVENTS:
             return (
                 f"Firing HA-internal event {event_name!r} from the sandbox "
@@ -149,7 +154,8 @@ def _normalize_endpoint(endpoint: Any) -> str:
     # is against actual path segments, and percent-decode each segment
     # so encoded forms (``%2e%2e`` and similar) don't slip past on
     # reverse-proxy setups that decode-then-resolve.
-    for segment in ep.split("/"):
+    # A query must not disguise a parent segment such as "..?x=1".
+    for segment in urllib.parse.urlsplit(ep).path.split("/"):
         if urllib.parse.unquote(segment) == "..":
             raise ValueError(
                 "endpoint must not contain '..' path segments "

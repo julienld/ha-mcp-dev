@@ -2,12 +2,27 @@
 
 import ast
 
+from ha_mcp.errors import create_error_response
+from ha_mcp.runtime.code_validation import _classify_sandbox_error
+from ha_mcp.runtime.errors import raise_failure
 from ha_mcp.tool_api import ToolFailure
 
 
 def prepare_native_code(code: str) -> str:
     """Await direct delete_saved_tool calls; reject ambiguous uses before running."""
-    tree = ast.parse(code)
+    try:
+        tree = ast.parse(code)
+    except SyntaxError as error:
+        code_value, message, suggestions = _classify_sandbox_error(error)
+        raise_failure(
+            create_error_response(
+                code_value,
+                message,
+                suggestions=suggestions,
+                context={"sandbox_error_type": "SyntaxError"},
+            ),
+            status="not_started",
+        )
     parents = {
         child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)
     }

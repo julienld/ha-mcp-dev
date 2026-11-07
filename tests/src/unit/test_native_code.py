@@ -48,6 +48,30 @@ async def runtime(tmp_path, monkeypatch, *, persistent=False):
     return manager, code
 
 
+async def test_parse_failure_reports_not_started_without_running_the_sandbox(
+    tmp_path, monkeypatch
+):
+    from custom_components.ha_mcp_tools import native_code
+    from ha_mcp.tool_api import CallContext
+
+    manager, _code = await runtime(tmp_path, monkeypatch)
+    sandbox = AsyncMock()
+    monkeypatch.setattr(native_code, "run_sandboxed_code", sandbox)
+    result = await manager.engine.call(
+        "ha_manage_custom_tool",
+        {"code": "if :", "justification": "Check malformed code", "save_as": "invalid"},
+        CallContext("alice"),
+    )
+
+    assert result.is_error and result.status == "not_started", result
+    assert result.data["error"]["code"] == "SANDBOX_SYNTAX_UNSUPPORTED"
+    assert "line 1" in result.data["error"]["message"]
+    assert result.data["sandbox_error_type"] == "SyntaxError"
+    assert not result.data["saved_registry_changed"]
+    assert result.data["operations"] == []
+    sandbox.assert_not_awaited()
+
+
 async def test_sandbox_uses_engine_and_cannot_launder_recursive_proxies(
     tmp_path, monkeypatch
 ):

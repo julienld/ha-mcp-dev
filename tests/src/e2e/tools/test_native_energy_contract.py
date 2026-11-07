@@ -158,7 +158,7 @@ async def test_core_parameter_errors_retain_validation_classification(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("fields", [None, ["entities"]])
-async def test_history_schema_does_not_warn_when_core_describes_it_completely(
+async def test_history_schema_reports_completeness_for_the_running_core(
     mcp_client: Client,
     ha_client: HomeAssistantClient,
     fields: list[str] | None,
