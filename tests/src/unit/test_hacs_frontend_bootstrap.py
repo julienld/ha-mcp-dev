@@ -26,6 +26,7 @@ _REAL_BUILD_OPENER = urllib.request.build_opener
 
 @pytest.fixture(autouse=True)
 def isolated_github_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("HACS_FRONTEND_RELEASE_TAG", raising=False)
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     monkeypatch.delenv("HACS_FRONTEND_GITHUB_TOKEN", raising=False)
 
@@ -523,3 +524,28 @@ def test_authenticated_metadata_failure_is_not_retried_or_logged_with_token(
     assert token not in caplog.text
     assert not _frontend(state).exists()
     assert not (state / ".hacs_frontend.lock").exists()
+
+
+@pytest.mark.parametrize("tag", ["1.0.0", "v1.0.0-beta.1"])
+def test_prefetched_tag_needs_no_metadata_request(seed, monkeypatch, tag):
+    monkeypatch.setenv("HACS_FRONTEND_RELEASE_TAG", tag)
+
+    def unexpected_metadata(*args, **kwargs):
+        pytest.fail("Prefetched release tag attempted another metadata request")
+
+    monkeypatch.setattr(seed.urllib.request, "build_opener", unexpected_metadata)
+    assert seed._hacs_frontend_release_tag() == tag
+
+
+@pytest.mark.parametrize(
+    "tag", ["", "..", "../other", "1\nINJECTED=true", "https://other.test/tag"]
+)
+def test_prefetched_tag_rejects_path_and_environment_injection(seed, monkeypatch, tag):
+    monkeypatch.setenv("HACS_FRONTEND_RELEASE_TAG", tag)
+
+    def unexpected_metadata(*args, **kwargs):
+        pytest.fail("Invalid release tag attempted a metadata request")
+
+    monkeypatch.setattr(seed.urllib.request, "build_opener", unexpected_metadata)
+    with pytest.raises(ValueError, match="release tag"):
+        seed._hacs_frontend_release_tag()

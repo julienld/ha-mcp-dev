@@ -4,6 +4,7 @@ import importlib.util
 import json
 import logging
 import os
+import re
 import shutil
 import sqlite3
 import tempfile
@@ -240,6 +241,11 @@ class _HacsMetadataRedirectRefused(urllib.request.HTTPRedirectHandler):
 
 
 def _hacs_frontend_release_tag() -> str:
+    prefetched = os.environ.get("HACS_FRONTEND_RELEASE_TAG")
+    if prefetched is not None:
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", prefetched):
+            raise ValueError("Invalid HACS frontend release tag")
+        return prefetched
     request = urllib.request.Request(
         "https://api.github.com/repos/hacs/frontend/releases/latest",
         headers={"Accept": "application/vnd.github+json"},

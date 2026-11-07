@@ -54,12 +54,22 @@ def test_pull_request_performance_worker_receives_no_frontend_metadata_token() -
     workflow = yaml.safe_load(
         (root / ".github/workflows/performance-tests.yml").read_text(encoding="utf-8")
     )
-    step = next(
-        row
-        for row in workflow["jobs"]["performance-tests"]["steps"]
-        if row.get("id") == "perf_tests"
-    )
+    steps = workflow["jobs"]["performance-tests"]["steps"]
+    step = next(row for row in steps if row.get("id") == "perf_tests")
     assert (
-        step["env"]["HACS_FRONTEND_GITHUB_TOKEN"]
-        == "${{ github.event_name != 'pull_request' && github.token || '' }}"
+        not {"GH_TOKEN", "GITHUB_TOKEN", "HACS_FRONTEND_GITHUB_TOKEN"}
+        & step["env"].keys()
     )
+    metadata = next(row for row in steps if row.get("id") == "hacs_frontend_metadata")
+    checkout = next(
+        row for row in steps if row.get("uses", "").startswith("actions/checkout@")
+    )
+    assert steps.index(metadata) < steps.index(checkout)
+    assert metadata["env"] == {"GH_TOKEN": "${{ github.token }}"}
+    assert "gh api repos/hacs/frontend/releases/latest" in metadata["run"]
+    assert "HACS_FRONTEND_RELEASE_TAG=" in metadata["run"]
+    validation = metadata["run"].index('if [[ ! "$tag" =~')
+    publication = metadata["run"].index("printf 'HACS_FRONTEND_RELEASE_TAG=")
+    assert validation < publication
+    assert "exit 1" in metadata["run"][validation:publication]
+    assert "python" not in metadata["run"] and "uv run" not in metadata["run"]

@@ -52,6 +52,18 @@ jobs:
     timeout-minutes: 20
 
     steps:
+    - name: Resolve public HACS frontend release before checkout
+      id: hacs_frontend_metadata
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        tag="$(gh api repos/hacs/frontend/releases/latest --jq .tag_name)"
+        if [[ ! "$tag" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$ ]]; then
+          echo "Invalid HACS frontend release tag"
+          exit 1
+        fi
+        printf 'HACS_FRONTEND_RELEASE_TAG=%s\n' "$tag" >> "$GITHUB_ENV"
+
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       with:
         persist-credentials: false
@@ -115,7 +127,6 @@ jobs:
         exit $exit_code
       env:
         HAMCP_ENV_FILE: "tests/.env.test"
-        HACS_FRONTEND_GITHUB_TOKEN: ${{ github.event_name != 'pull_request' && github.token || '' }}
 
     - name: Upload performance results
       if: always()
