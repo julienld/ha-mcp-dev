@@ -403,6 +403,9 @@ jobs:
   # shallow checkout omits the ``stable`` tag the stable scenario checks out from.
   zip-release-sandbox:
     name: Live ZIP Release Sandbox
+    concurrency:
+      group: zip-release-proof-publication
+      cancel-in-progress: false
     if: github.event_name == 'workflow_dispatch' && inputs.proof_variant != 'none' && github.repository == 'julienld/ha-mcp-dev' && startsWith(github.ref, 'refs/heads/qualify/zip-release-proof-')
     runs-on: ubuntu-latest
     timeout-minutes: 20
