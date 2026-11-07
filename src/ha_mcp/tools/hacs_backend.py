@@ -280,6 +280,8 @@ async def fetch_releases(
 
 __all__ = [
     "CATEGORY_HELP",
+    "HACS_API",
+    "STORE_APIS",
     "StoreApi",
     "accept_warning",
     "detect_store_api",
