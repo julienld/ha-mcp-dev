@@ -34,6 +34,20 @@ from ._component_routing_helpers import (
 
 WS_CONFIG_ENTRIES = "ha_mcp_tools/config_entries"
 
+
+async def test_subentries_are_read_without_the_optional_component() -> None:
+    subentries = [{"subentry_id": "child", "subentry_type": "sensor", "title": "Child"}]
+    client = RoutingClient(single_entry=_row(), subentries=subentries)
+    ws = make_ws(WS_CONFIG_ENTRIES, info_exc=_CAPSLESS)
+
+    result = await _get(ws, client, entry_id="cfg1", include_subentries=True)
+
+    assert result["subentries"] == subentries
+    assert result["subentry_count"] == 1
+    assert client.list_config_subentries_calls == 1
+    assert client.start_options_flow_calls == 0
+
+
 _CAPSLESS = HomeAssistantCommandError("no info", "unknown_command")
 _CAPS_CONFIG_ENTRIES = {
     "schema_version": 1,

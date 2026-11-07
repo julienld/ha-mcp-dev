@@ -158,9 +158,9 @@ class HelperListingTools(BackendTools):
         *,
         describe: bool,
     ) -> dict[str, Any]:
+        from .flow_description import describe_helper_response
         from .flows.session import FlowSession
         from .flows.settings import FlowSettings, bind_flow_settings
-        from .helper_describe import describe_helper_response
 
         flags = await self.backend.execute("config.flow.settings", {}, self.context)
         with bind_flow_settings(FlowSettings(lambda: flags["redact_secrets"])):

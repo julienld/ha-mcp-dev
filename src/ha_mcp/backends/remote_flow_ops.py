@@ -150,7 +150,7 @@ class RemoteFlows:
             finally:
                 self.owned.pop(flow_id, None)
         if operation == "config.flow.read":
-            result = await self.client._request(
+            result: dict[str, Any] = await self.client._request(
                 "GET",
                 f"/config/config_entries/{'' if kind == 'config' else 'options/' if kind == 'options' else 'subentries/'}flow/{flow_id}",
             )

@@ -5,7 +5,7 @@ from typing import Any, NoReturn
 from ha_mcp.errors import ErrorCode, create_error_response
 
 from .errors import raise_failure as raise_tool_error
-from .helper_describe import compact_field
+from .flow_description import compact_field
 
 
 def _flatten(schema: list[Any]) -> list[dict[str, Any]]:

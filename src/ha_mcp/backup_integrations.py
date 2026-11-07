@@ -38,7 +38,7 @@ if TYPE_CHECKING:
     pass
 
 
-async def fetch_integration(client: Any, entity_id: str) -> Any:
+async def fetch_integration(client: Any, entity_id: str) -> dict[str, Any] | None:
     from .tools import component_config_entries
     from .tools.component_api import component_supports, get_component_caps
 

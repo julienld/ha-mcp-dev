@@ -99,7 +99,9 @@ class IntegrationEntryReads(IntegrationInspection):
                 await fetch_options_schema(self._flow_client(), entry_id, resp)
 
             if include_subentries:
-                subentries = await self._fetch_config_subentries(entry_id)
+                subentries = await self.backend.execute(
+                    "config.subentries.list", {"entry_id": entry_id}, self.context
+                )
                 resp["subentry_count"] = len(subentries)
                 resp["subentries"] = subentries
 

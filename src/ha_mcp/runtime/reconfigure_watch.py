@@ -3,7 +3,7 @@
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
-from typing import Any
+from typing import Any, cast
 
 from ha_mcp.utils.owned_executor import await_owned_io
 
@@ -26,10 +26,13 @@ async def watch_entry_reload(
         if watch is None:
             return None
         try:
-            return await client.backend.execute(
-                "config.entries.observe",
-                {**watch, "entry_id": entry_id},
-                client.context,
+            return cast(
+                dict[str, Any] | None,
+                await client.backend.execute(
+                    "config.entries.observe",
+                    {**watch, "entry_id": entry_id},
+                    client.context,
+                ),
             )
         except Exception:
             logger.warning(

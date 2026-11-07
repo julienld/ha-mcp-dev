@@ -127,12 +127,14 @@ class NativeSnapshots:
                 )
             from .native_operations.snapshot_sources import integration_snapshot
 
-            current = await integration_snapshot(self.manager.hass, payload["entry_id"])
-            if current is None:
+            integration_current = await integration_snapshot(
+                self.manager.hass, payload["entry_id"]
+            )
+            if integration_current is None:
                 raise _FlowHelperReadError(
                     "Integration entry no longer exists", "entry_missing"
                 )
-            return current
+            return integration_current
         if payload.get("kind") == "flow":
             return await flow_snapshot(self.manager.hass, payload)
         if payload.get("kind") == "subentry":
