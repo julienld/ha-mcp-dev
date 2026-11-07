@@ -209,7 +209,7 @@ async def test_stored_view_hash_preserves_raw_transform_and_legacy_view(
     from ha_mcp.runtime.config_reads import AutomationReadTools
 
     reader = AutomationReadTools(engine.backend, actor)
-    compatible = await reader.ha_config_get_automation(identifier="uid")
+    compatible = await reader.ha_config_get_automation(entity_id="uid")
     stored = await reader.ha_config_get_automation(
         entity_id="uid", config_format="stored"
     )

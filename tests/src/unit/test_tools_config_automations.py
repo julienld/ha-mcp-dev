@@ -208,7 +208,7 @@ class TestGetAutomation:
         mock_client.send_websocket_message = AsyncMock(side_effect=ws)
 
         result = await tools.ha_config_get_automation(
-            entity_id="automation.morning_routine"
+            entity_id="automation.morning_routine", config_format="stored"
         )
 
         assert result["config"] == STORED

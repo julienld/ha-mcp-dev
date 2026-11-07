@@ -23,7 +23,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from ha_mcp.client.rest_client import NON_ADMIN_TOKEN_WARNING
-from ha_mcp.tools import helper_flows
+from ha_mcp.runtime import helper_flows
 from ha_mcp.tools.smart_search import SmartSearchTools
 
 # The real catalog read, before the autouse conftest stub replaces it.

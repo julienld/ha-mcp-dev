@@ -122,15 +122,18 @@ class IntegrationWriteTools(BackendTools):
         return nullcontext()
 
     @asynccontextmanager
-    async def _integration_session(self) -> AsyncIterator[FlowSession]:
+    async def _integration_session(
+        self, entry_id: str | None, *, helper_type: str | None
+    ) -> AsyncIterator[FlowSession]:
         session = FlowSession(
             self.backend,
             self.context,
             capture_backup=True,
+            helper_type=helper_type,
             source_tool="ha_set_integration",
-            entry_guard=self._entry_write_guard,
         )
-        async with backend_flow_settings(self.backend, self.context):
+        guard = self._entry_write_guard(entry_id) if entry_id else nullcontext()
+        async with guard, backend_flow_settings(self.backend, self.context):
             yield session
 
     @staticmethod
@@ -444,7 +447,12 @@ class IntegrationWriteTools(BackendTools):
         - Debug logging: ha_set_integration(domain="zha", log_level="DEBUG"), then log_level="DEFAULT" to stop
         - KNX project: ha_set_integration(entry_id="abc123", ws_command="knx/get_knx_project")
         """
-        async with self._integration_session() as session:
+        async with self._integration_session(
+            entry_id,
+            helper_type="integration"
+            if enabled is not None or config is None
+            else None,
+        ) as session:
             # Only reconfigure takes these; every other mode refuses them.
             reconfigure_guards: dict[str, Any] = {
                 "expected_device_id": expected_device_id,

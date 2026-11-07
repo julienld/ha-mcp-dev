@@ -55,7 +55,8 @@ def test_native_trace_contract_cannot_accept_a_caller_supplied_progress_context(
     )
     assert "ctx" not in definition.input_schema["properties"]
     assert definition.validate is not None
-    with pytest.raises(ToolFailure, match="Extra inputs are not permitted"):
+    with pytest.raises(ToolFailure, match="extra parameter\\(s\\): ctx") as error:
         definition.validate(
             {"automation_id": "automation.example", "ctx": {"user_id": "someone"}}
         )
+    assert error.value.code == "INVALID_ARGUMENTS"

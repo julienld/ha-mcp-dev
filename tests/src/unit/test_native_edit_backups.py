@@ -124,10 +124,11 @@ async def test_edit_backup_bench_observes_registered_configuration_without_state
 def test_native_backup_schema_does_not_accept_transport_context(edits: Any) -> None:
     definition = edits.engine.tools["ha_manage_backup"]
     assert "ctx" not in definition.input_schema["properties"]
-    with pytest.raises(ToolFailure, match="Extra inputs"):
+    with pytest.raises(ToolFailure, match="extra parameter\\(s\\): ctx") as error:
         definition.validate(
             {"scope": "edits", "action": "list", "ctx": {"caller": "fake"}}
         )
+    assert error.value.code == "INVALID_ARGUMENTS"
 
 
 async def test_edit_list_view_diff_restore_and_delete_use_the_same_real_store(

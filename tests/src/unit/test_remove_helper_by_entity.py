@@ -17,6 +17,7 @@ from ha_mcp import backup_manager as bm
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp.client.rest_client import HomeAssistantAuthError
 from ha_mcp.errors import DEFAULT_SUGGESTIONS
+from ha_mcp.runtime import helper_flows as flow_catalog
 from ha_mcp.tools import helper_flows
 from ha_mcp.tools.helpers import exception_to_structured_error
 from ha_mcp.tools.tools_integrations import IntegrationTools
@@ -162,7 +163,7 @@ async def test_unreadable_helper_list_is_a_connection_error_not_a_refusal(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """An unparseable flow_handlers reply must not read as 'not a helper'."""
-    monkeypatch.setattr(helper_flows, "_fetch_helper_flow_types", _REAL_FETCH)
+    monkeypatch.setattr(flow_catalog, "_fetch_helper_flow_types", _REAL_FETCH)
     client = _client(
         {"entity_id": "sensor.my_otp", "platform": "otp", "config_entry_id": "e"},
         helper_flow_domains={},
@@ -293,7 +294,7 @@ async def test_a_helper_whose_options_are_not_backed_up_is_removed_with_the_reas
     """Through the real capture: the by-design skip lets the delete run, tells
     the caller why no backup was taken, and is not logged as a fetch failure."""
     monkeypatch.setattr(
-        helper_flows,
+        flow_catalog,
         "_fetch_helper_flow_types",
         AsyncMock(return_value=frozenset({*_HELPER_FLOW_DOMAINS, "my_custom_helper"})),
     )
@@ -335,7 +336,7 @@ async def test_a_custom_helper_named_by_type_is_snapshotted_once_before_deleting
     """An explicit custom helper_type is a flow type: the outer capture leaves
     it to the flow path, which snapshots the resolved entry once."""
     monkeypatch.setattr(
-        helper_flows,
+        flow_catalog,
         "_fetch_helper_flow_types",
         AsyncMock(return_value=frozenset({*_HELPER_FLOW_DOMAINS, "my_custom_helper"})),
     )

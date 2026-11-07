@@ -239,10 +239,10 @@ async def test_cached_read_proxy_keeps_integration_metadata_but_rechecks_flow_ef
             )
             assert denied.is_error
         backend.redaction_enabled = lambda: True
-        denied = await client.call_tool(
+        redacted = await client.call_tool(
             "ha_call_read_tool",
             {"name": "ha_get_integration", "arguments": {"entry_id": "entry"}},
             raise_on_error=False,
         )
-        assert denied.is_error
+        assert not redacted.is_error, redacted
     assert "config.flow.start" not in backend.operations

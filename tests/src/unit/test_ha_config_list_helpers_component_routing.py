@@ -44,6 +44,7 @@ from ha_mcp.client.rest_client import (
     HomeAssistantCommandTimeout,
     HomeAssistantConnectionError,
 )
+from ha_mcp.runtime import helper_flows as flow_catalog
 from ha_mcp.tools import component_api, helper_flows, tools_config_helpers
 from ha_mcp.tools.config_helpers import registry as helper_registry
 from ha_mcp.tools.config_helpers.listing import _shape_collection_helper_record
@@ -866,7 +867,7 @@ async def test_all_types_refuses_a_listing_that_misses_a_custom_helper_flow(
     """A helper flow Core lists but the component did not cover (an older
     component without custom helpers) -> hard error, not a partial listing."""
     monkeypatch.setattr(
-        helper_flows,
+        flow_catalog,
         "_fetch_helper_flow_types",
         AsyncMock(return_value=STUB_HELPER_FLOWS | {"my_custom_helper"}),
     )
@@ -891,7 +892,7 @@ async def test_all_types_reads_the_helper_flows_afresh(
     """A helper integration uninstalled since the cached read is not reported
     as missing from the component's listing."""
     monkeypatch.setattr(
-        helper_flows,
+        flow_catalog,
         "_fetch_helper_flow_types",
         AsyncMock(side_effect=[STUB_HELPER_FLOWS | {"gone_helper"}, STUB_HELPER_FLOWS]),
     )
@@ -914,7 +915,7 @@ async def test_all_types_with_an_unreadable_helper_flow_list_is_a_structured_err
     """The fresh helper-flow read that checks the component's coverage fails:
     a structured connection error, not a raw exception or a partial listing."""
     monkeypatch.setattr(
-        helper_flows,
+        flow_catalog,
         "_fetch_helper_flow_types",
         AsyncMock(side_effect=HomeAssistantConnectionError("flow_handlers down")),
     )
@@ -941,7 +942,7 @@ async def test_a_custom_helper_flow_left_out_by_a_failed_loader_read_names_it(
 ) -> None:
     """An installed component whose loader read failed is not told to update."""
     monkeypatch.setattr(
-        helper_flows,
+        flow_catalog,
         "_fetch_helper_flow_types",
         AsyncMock(return_value=STUB_HELPER_FLOWS | {"my_custom_helper"}),
     )

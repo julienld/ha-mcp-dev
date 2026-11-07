@@ -4,6 +4,7 @@ from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager, nullcontext
 from typing import Any, cast
 
+from ha_mcp.errors import HomeAssistantAuthError
 from ha_mcp.tool_api import Backend, BackendTools, CallContext, ToolFailure
 
 
@@ -173,21 +174,23 @@ class FlowSession(BackendTools):
         key = f"{entry_id}/{subentry_id}" if subentry_id else entry_id
         if key in self._captured_entries:
             return self._captured_entries[key]
-        current = await self.get_config_entry(entry_id)
+        try:
+            current = await self.get_config_entry(entry_id)
+        except (HomeAssistantAuthError, PermissionError, ToolFailure):
+            raise
+        except Exception as error:  # noqa: BLE001 - best-effort capture, before mutation
+            return self._capture_unavailable(key, error, "reading the config entry")
         helper_type = self.helper_type
         if helper_type is None:
             from ha_mcp.runtime.helper_flows import helper_flow_types
 
             try:
                 kinds = await helper_flow_types(self)
+            except (HomeAssistantAuthError, PermissionError, ToolFailure):
+                raise
             except Exception as error:  # noqa: BLE001 - capture classification is best effort
-                self.warnings.append(
-                    f"No pre-write backup was taken: {type(error).__name__} while identifying the helper flow"
-                )
-                return self._expected_revision() or (
-                    {"expected_modified_at": current["modified_at"]}
-                    if "modified_at" in current
-                    else {}
+                return self._capture_unavailable(
+                    key, error, "identifying the helper flow", current
                 )
             helper_type = (
                 current.get("domain")
@@ -233,6 +236,22 @@ class FlowSession(BackendTools):
                 else {}
             )
         )
+        self._captured_entries[key] = expected
+        return expected
+
+    def _capture_unavailable(
+        self,
+        key: str,
+        error: Exception,
+        reason: str,
+        current: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        self.warnings.append(
+            f"No pre-write backup was taken: {type(error).__name__} while {reason}"
+        )
+        expected = self._expected_revision()
+        if not expected and current is not None and "modified_at" in current:
+            expected = {"expected_modified_at": current["modified_at"]}
         self._captured_entries[key] = expected
         return expected
 

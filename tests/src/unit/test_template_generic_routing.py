@@ -9,7 +9,9 @@ from unittest.mock import AsyncMock
 import pytest
 
 from ha_mcp import backup_manager as bm
+from ha_mcp import config as config_owner
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
+from ha_mcp.runtime import helper_flows as flow_catalog
 from ha_mcp.tools import auto_backup, component_api, component_config_entries
 from ha_mcp.tools.tools_integrations import IntegrationTools
 
@@ -109,6 +111,7 @@ def entry_backup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNames
         component_api, "get_component_caps", AsyncMock(return_value=None)
     )
     monkeypatch.setattr(auto_backup, "get_global_settings", lambda: settings)
+    monkeypatch.setattr(config_owner, "get_global_settings", lambda: settings)
     return SimpleNamespace(
         entry=entry,
         entity=entity,
@@ -249,7 +252,7 @@ async def test_template_enable_disable_keeps_integration_backup(
     }
     # Only the own-entry guard reads the entry; the backup keeps the whole
     # integration fragment without resolving a helper domain.
-    entry_backup.client.get_config_entry.assert_awaited_once_with("template-entry")
+    entry_backup.client.get_config_entry.assert_any_await("template-entry")
 
 
 @pytest.mark.parametrize("operation", ["options", "delete"])
@@ -283,15 +286,23 @@ async def test_other_integration_mutations_keep_existing_backup(
 @pytest.mark.parametrize("operation", ["options", "delete"])
 @pytest.mark.parametrize("capture_state", ["disabled", "lookup_failed"])
 async def test_generic_template_mutation_preserves_best_effort_capture_policy(
-    entry_backup: SimpleNamespace, operation: str, capture_state: str
+    entry_backup: SimpleNamespace,
+    operation: str,
+    capture_state: str,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     if capture_state == "disabled":
         entry_backup.manager._settings.enable_auto_backup = False
     else:
-        entry_backup.client.get_config_entry.side_effect = [
-            bm.HomeAssistantError("entry lookup temporarily unavailable"),
-            deepcopy(entry_backup.entry),
-        ]
+        monkeypatch.setattr(
+            flow_catalog,
+            "_fetch_helper_flow_types",
+            AsyncMock(
+                side_effect=bm.HomeAssistantError(
+                    "backup classification temporarily unavailable"
+                )
+            ),
+        )
 
     if operation == "options":
         result = await entry_backup.tools.ha_set_integration(
@@ -304,11 +315,8 @@ async def test_generic_template_mutation_preserves_best_effort_capture_policy(
 
     assert result["success"] is True
     assert entry_backup.mutations == [{"snapshots": [], "locked": True}]
-    # The mutation itself reads the entry once (the options walker, or the
-    # delete's own-entry guard), independently of backup.
-    assert entry_backup.client.get_config_entry.await_count == (
-        1 + int(capture_state == "lookup_failed")
-    )
+    # Admission and CAS may reread the entry; mutation and capture stay single.
+    entry_backup.client.get_config_entry.assert_any_await("template-entry")
 
 
 @pytest.mark.parametrize("confirm", [False, True])
@@ -352,11 +360,11 @@ async def test_entity_only_removal_captures_only_the_resolved_helper(
     would list every config entry looking for the entity_id)."""
     entry_backup.entry["domain"] = "utility_meter"
     capture = auto_backup._capture_pre_write_snapshot
-    captured_by: list[str] = []
+    captured_targets: list[str] = []
 
-    async def record(func: Any, *args: Any, **kwargs: Any) -> Any:
-        captured_by.append(func.__name__)
-        return await capture(func, *args, **kwargs)
+    async def record(func: Any, args: Any, kwargs: Any, **options: Any) -> Any:
+        captured_targets.append(kwargs["target"])
+        return await capture(func, args, kwargs, **options)
 
     monkeypatch.setattr(auto_backup, "_capture_pre_write_snapshot", record)
 
@@ -378,4 +386,4 @@ async def test_entity_only_removal_captures_only_the_resolved_helper(
     assert result["success"] is True
     snapshots = entry_backup.mutations[0]["snapshots"]
     assert [s["domain"] for s in snapshots] == ["helper_utility_meter"]
-    assert "ha_remove_helpers_integrations" not in captured_by
+    assert captured_targets == ["template-entry"]

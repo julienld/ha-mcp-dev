@@ -1,89 +1,104 @@
-"""The registry-backup E2E oracle must observe restoration, not a success ACK."""
+"""The current entity-restore E2E story must verify effects, not an ACK."""
 
 import copy
 
 import pytest
 
-from ..e2e.utilities import entity_registry_backup
-from ..e2e.workflows.auto_backup import test_capture_and_restore as scenarios
+from ..e2e.workflows.auto_backup import test_capture_and_restore as backup_helpers
+from ..e2e.workflows.auto_backup import test_entity_capture_restore as scenarios
 
 
 class RegistryBackupClient:
-    def __init__(self, hidden_by=None, *, capture=True, apply_restore=True):
-        self.entry = {
-            "entity_id": "light.bed_light",
-            "hidden_by": hidden_by,
-            "hidden": hidden_by is not None,
-            "name": "Original light",
-            "labels": ["retained"],
-        }
-        self.before = copy.deepcopy(self.entry)
+    def __init__(self, *, capture=True, apply_restore=True):
+        self.entry = None
+        self.exposed = True
         self.capture = capture
         self.apply_restore = apply_restore
-        self.writes = []
+        self.registry_id = "owned-registry-identity"
         self.restores = []
         self.backups = {
-            "prior.json": {
-                "domain": "entity_registry",
-                "entity_id": "another-registration",
-                "config": {"entity_id": "light.other", "hidden_by": None},
-            }
+            "prior.yaml": {"domain": "entity", "entity_id": "light.unowned"}
         }
+        self.baseline = copy.deepcopy(self.backups)
+        self.images = {}
         self.sequence = 0
 
     def snapshot(self):
         self.sequence += 1
-        name = f"capture-{self.sequence}.json"
-        self.backups[name] = {
-            "domain": "entity",
-            "entity_id": self.entry["entity_id"],
-            "config": {"id": "durable-registry-id", **copy.deepcopy(self.entry)},
-        }
+        name = f"capture-{self.sequence}.yaml"
+        self.backups[name] = {"domain": "entity", "entity_id": self.entry["entity_id"]}
+        self.images[name] = (copy.deepcopy(self.entry), self.exposed)
         return name
 
+    async def send_websocket_message(self, message):
+        assert message["type"] == "config/entity_registry/get"
+        assert message["entity_id"] == self.entry["entity_id"]
+        return {"success": True, "result": {"id": self.registry_id}}
+
     async def call_tool(self, tool, arguments):
-        if tool == "ha_get_state":  # The former test looked at state, not registry.
-            return {"success": True, "data": {"state": "on"}}
+        if tool == "ha_config_set_helper":
+            self.entry = {
+                "entity_id": f"input_boolean.{arguments['name']}",
+                "hidden": False,
+                "hidden_by": None,
+            }
+            return {"success": True}
         if tool == "ha_get_entity":
+            if self.entry is None or arguments["entity_id"] != self.entry["entity_id"]:
+                return {
+                    "success": False,
+                    "error": {
+                        "code": "ENTITY_NOT_FOUND",
+                        "message": "Entity not found",
+                    },
+                }
             return {"success": True, "entity_entry": copy.deepcopy(self.entry)}
+        if tool == "ha_get_entity_exposure":
+            assert arguments["entity_id"] == self.entry["entity_id"]
+            return {"success": True, "exposed_to": {"conversation": self.exposed}}
         if tool == "ha_set_entity":
-            self.writes.append(arguments["hidden"])
+            assert arguments["entity_id"] == self.entry["entity_id"]
             if self.capture:
                 self.snapshot()
             self.entry.update(
+                entity_id=arguments["new_entity_id"],
                 hidden=arguments["hidden"],
-                hidden_by="user" if arguments["hidden"] else None,
+                hidden_by="user",
             )
+            self.exposed = arguments["expose_to"]["conversation"]
+            return {"success": True}
+        if tool == "ha_remove_helpers_integrations":
+            if (
+                self.entry is not None
+                and arguments["target"] == self.entry["entity_id"]
+            ):
+                self.entry = None
             return {"success": True}
         assert tool == "ha_manage_backup"
+        return self._backup_tool(arguments)
+
+    def _backup_tool(self, arguments):
         action = arguments["action"]
         if action == "list":
             return {
                 "success": True,
                 "data": {
                     "backups": [
-                        {
-                            "name": name,
-                            "domain": data["domain"],
-                            "entity_id": data["entity_id"],
-                        }
-                        for name, data in self.backups.items()
-                        if data["domain"] == arguments.get("domain", data["domain"])
-                        and data["entity_id"]
-                        == arguments.get("entity_id", data["entity_id"])
+                        {"name": name, **record}
+                        for name, record in self.backups.items()
+                        if record["domain"] == arguments["domain"]
+                        and record["entity_id"] == arguments["entity_id"]
                     ]
                 },
             }
         name = arguments["backup_name"]
-        if action == "view":
-            return {"success": True, "data": copy.deepcopy(self.backups[name])}
         if action == "restore":
             self.restores.append(name)
             safety = self.snapshot()
             if self.apply_restore:
-                saved = self.backups[name]["config"]
-                self.entry.update({key: saved[key] for key in self.entry})
-            return {"success": True, "data": {"safety_backup": safety}}
+                entry, exposed = self.images[name]
+                self.entry, self.exposed = copy.deepcopy(entry), exposed
+            return {"success": True, "data": {"safety_backup": safety, "result": {}}}
         assert action == "delete"
         del self.backups[name]
         return {"success": True}
@@ -91,53 +106,51 @@ class RegistryBackupClient:
 
 @pytest.fixture(autouse=True)
 def bound_poll_window(monkeypatch):
-    original = entity_registry_backup.wait_for_tool_result
+    original = scenarios.wait_for_tool_result
 
     async def wait(*args, **kwargs):
         return await original(
             *args, **{**kwargs, "timeout": 0.01, "poll_interval": 0.001}
         )
 
-    monkeypatch.setattr(entity_registry_backup, "wait_for_tool_result", wait)
+    monkeypatch.setattr(scenarios, "wait_for_tool_result", wait)
+    monkeypatch.setattr(backup_helpers, "wait_for_tool_result", wait)
 
 
 async def scenario(client, monkeypatch):
     try:
         await (
-            scenarios.TestEntityRegistryCaptureRestore().test_entity_registry_full_loop(
-                client, monkeypatch
+            scenarios.TestEntityCaptureRestore().test_restore_renames_back_and_unhides(
+                client, client, monkeypatch
             )
         )
     except pytest.skip.Exception as error:
         pytest.fail(f"A registry capture defect was hidden as a skip: {error}")
 
 
-@pytest.mark.parametrize("hidden_by", [None, "user"])
-async def test_registry_backup_scenario_restores_prior_visibility_and_keeps_unowned_history(
-    monkeypatch, hidden_by
-):
-    client = RegistryBackupClient(hidden_by)
-    await scenario(client, monkeypatch)
-    assert client.entry == client.before
-    assert client.writes == [hidden_by is None]
-    assert len(client.restores) == 1
-    assert list(client.backups) == ["prior.json"]
-
-
-async def test_missing_registry_capture_fails_and_restores_the_initial_visibility(
+async def test_registry_backup_scenario_restores_then_cleans_only_its_objects(
     monkeypatch,
 ):
+    client = RegistryBackupClient()
+    await scenario(client, monkeypatch)
+    assert client.entry is None
+    assert len(client.restores) == 1
+    assert client.backups["prior.yaml"] == client.baseline["prior.yaml"]
+
+
+async def test_missing_registry_capture_fails_and_cleans_the_owned_entity(monkeypatch):
     client = RegistryBackupClient(capture=False)
     with pytest.raises(TimeoutError):
         await scenario(client, monkeypatch)
-    assert client.entry == client.before
-    assert client.writes == [True, False]
+    assert client.entry is None
+    assert not client.restores
+    assert client.backups == client.baseline
 
 
 async def test_successful_restore_ack_without_registry_effect_is_rejected(monkeypatch):
     client = RegistryBackupClient(apply_restore=False)
-    with pytest.raises(TimeoutError):
+    with pytest.raises(AssertionError, match="ha_get_entity"):
         await scenario(client, monkeypatch)
-    assert client.entry == client.before
+    assert client.entry is None
     assert len(client.restores) == 1, "An unconfirmed restore was replayed"
-    assert list(client.backups) == ["prior.json"]
+    assert client.backups["prior.yaml"] == client.baseline["prior.yaml"]
