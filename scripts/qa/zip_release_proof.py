@@ -672,6 +672,7 @@ class Proof:
                         part.replace("refs/tags/stable", "refs/tags/" + alias)
                         for part in command
                     ],
+                    check=options.pop("check"),
                     **options,
                 )
 
