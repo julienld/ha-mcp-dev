@@ -167,8 +167,34 @@ class NativeFlows:
         self, owned: OwnedFlow, flow_id: str, user_input: Any, context: CallContext
     ) -> dict[str, Any]:
         await self._admit_flow(context)
-        result = await self._configure(owned.kind, flow_id, user_input)
+        try:
+            result = await self._configure(owned.kind, flow_id, user_input)
+        except HomeAssistantAPIError as error:
+            if error.status_code == 404:
+                self._release_missing_flow(flow_id, owned)
+            raise
         return self._result(result, owned)
+
+    def _release_missing_flow(self, flow_id: str, owned: OwnedFlow) -> None:
+        try:
+            progress = self._manager(owned.kind).async_progress(
+                include_uninitialized=True
+            )
+        except Exception:
+            _LOGGER.exception(
+                "Could not confirm absence of owned configuration flow %s", flow_id
+            )
+            return
+        if not isinstance(progress, list) or any(
+            not isinstance(row, dict) or not isinstance(row.get("flow_id"), str)
+            for row in progress
+        ):
+            return
+        if self.owned.get(flow_id) is owned and all(
+            row["flow_id"] != flow_id for row in progress
+        ):
+            self.owned.pop(flow_id, None)
+            self._release_entry(owned)
 
     async def _configure(self, kind: str, flow_id: str, user_input: Any) -> Any:
         from homeassistant.data_entry_flow import InvalidData, UnknownFlow
@@ -378,8 +404,20 @@ class NativeFlows:
         now = time.monotonic()
         for flow_id, owned in list(self.owned.items()):
             if not owned.lock.locked() and now - owned.touched >= self.ttl:
-                self._abort(flow_id, owned)
+                try:
+                    self._abort(flow_id, owned)
+                except Exception:
+                    _LOGGER.exception(
+                        "Could not expire owned configuration flow %s", flow_id
+                    )
 
     async def stop(self) -> None:
+        first_error: Exception | None = None
         for flow_id, owned in list(self.owned.items()):
-            self._abort(flow_id, owned)
+            try:
+                self._abort(flow_id, owned)
+            except Exception as error:  # noqa: BLE001 - drain owners before propagating
+                if first_error is None:
+                    first_error = error
+        if first_error is not None:
+            raise first_error

@@ -1,5 +1,6 @@
 """Known raw commands retain Core bodies without creating a transport server."""
 
+import json
 import sys
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -11,6 +12,36 @@ from ha_mcp.tool_api import CallContext
 from .test_component_ws_phase2_async import _call_hass, _FakeCallServices
 from .test_native_engine_backend import EventBus, authorize
 from .test_native_engine_backend import native as native
+
+
+async def test_device_listing_keeps_child_devices_and_omits_unserialized_entries(
+    native, monkeypatch
+):
+    visible = {"id": "main", "future": {"retained": True}}
+    child = {"id": "child", "main_device": "main"}
+    registry = SimpleNamespace(
+        devices=[
+            SimpleNamespace(json_repr=json.dumps(visible)),
+            SimpleNamespace(json_repr=None),
+        ],
+        child_devices=[SimpleNamespace(json_repr=json.dumps(child))],
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "homeassistant.helpers.device_registry",
+        SimpleNamespace(async_get=lambda _hass: registry),
+    )
+    backend, _ = raw_backend(native, ["config/device_registry/list"])
+    engine = Engine(backend, build_initial_catalog(backend))
+
+    result = await engine.call(
+        "ha_call_service",
+        {"ws_command": "config/device_registry/list"},
+        CallContext("actor"),
+    )
+
+    assert not result.is_error, result.data
+    assert result.data["result"] == [visible, child]
 
 
 def raw_backend(native, commands=()):

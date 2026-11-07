@@ -53,6 +53,7 @@ def _registry_body(hass: Any, command: str, values: dict[str, Any]) -> Any:
         return [
             json.loads(entry.json_repr)
             for entry in chain(owner.devices, owner.child_devices)
+            if entry.json_repr is not None
         ]
     if command == "config/entity_registry/list":
         owner = _registry(hass, "entity_registry")

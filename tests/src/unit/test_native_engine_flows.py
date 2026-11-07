@@ -547,6 +547,82 @@ async def test_failed_flow_stop_keeps_ownership_for_retry(flows: Any) -> None:
     assert not backend.owned
 
 
+@pytest.mark.parametrize("cleanup", ["stop", "expiry"])
+async def test_one_failed_abort_does_not_skip_other_owned_flow_locks(
+    flows: Any, cleanup: str
+) -> None:
+    owner = manager()
+    owner.async_init.side_effect = [
+        {"flow_id": key, "type": "form"} for key in ("first", "second")
+    ]
+    backend = flows.NativeFlows(
+        SimpleNamespace(config_entries=SimpleNamespace(options=owner)),
+        AsyncMock(),
+        ttl=60,
+    )
+    actor = CallContext("user")
+    try:
+        for key in ("first", "second"):
+            await backend.execute(
+                "config.flow.start", {"kind": "options", "handler": key}, actor
+            )
+
+        def abort(key: str) -> None:
+            if key == "first":
+                raise RuntimeError("first cleanup failed")
+
+        owner.async_abort.side_effect = abort
+        if cleanup == "stop":
+            with pytest.raises(RuntimeError, match="first cleanup failed"):
+                await backend.stop()
+        else:
+            for flow in backend.owned.values():
+                flow.touched -= 61
+            backend._expire()
+        assert [call.args[0] for call in owner.async_abort.call_args_list] == [
+            "first",
+            "second",
+        ]
+        assert set(backend.owned) == {"first"}
+        assert registry_update_lock("config_entry", "first").locked()
+        assert not registry_update_lock("config_entry", "second").locked()
+    finally:
+        owner.async_abort.side_effect = None
+        await backend.stop()
+
+
+@pytest.mark.parametrize("presence", ["absent", "present", "unavailable"])
+async def test_unknown_flow_releases_entry_only_after_core_confirms_absence(
+    flows: Any, presence: str
+) -> None:
+    owner = manager()
+    owner.async_configure.side_effect = UnknownFlow()
+    owner.async_progress = Mock(
+        return_value=[] if presence == "absent" else [{"flow_id": "owned"}]
+    )
+    if presence == "unavailable":
+        owner.async_progress.side_effect = RuntimeError("progress unavailable")
+    backend = flows.NativeFlows(
+        SimpleNamespace(config_entries=SimpleNamespace(options=owner)), AsyncMock()
+    )
+    actor = CallContext("user")
+    try:
+        await backend.execute(
+            "config.flow.start", {"kind": "options", "handler": "entry"}, actor
+        )
+        with pytest.raises(HomeAssistantAPIError) as error:
+            await backend.execute(
+                "config.flow.configure", {"flow_id": "owned", "user_input": {}}, actor
+            )
+        assert error.value.status_code == 404
+        assert ("owned" in backend.owned) == (presence != "absent")
+        assert registry_update_lock("config_entry", "entry").locked() == (
+            presence != "absent"
+        )
+    finally:
+        await backend.stop()
+
+
 @pytest.mark.parametrize("step", ["init", "configure"])
 async def test_core_callback_failure_after_dispatch_is_unknown_without_replay(
     flows: Any, step: str
