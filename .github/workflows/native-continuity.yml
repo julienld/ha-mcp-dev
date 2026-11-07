@@ -72,6 +72,8 @@ jobs:
           cp -a harness/tests/src/e2e/continuity/. source/tests/src/e2e/continuity/
           cp harness/tests/src/e2e/workflows/core/test_statistics_units.py source/tests/src/e2e/workflows/core/
           cp harness/tests/src/e2e/_conftest_embedded.py source/tests/src/e2e/
+          cp harness/tests/src/e2e/_conftest_knobs.py source/tests/src/e2e/
+          cp harness/tests/src/e2e/_conftest_seed.py source/tests/src/e2e/
           cp harness/tests/src/e2e/_conftest_testcontainer.py source/tests/src/e2e/
           cp harness/tests/src/e2e/_conftest_native_runtime.py source/tests/src/e2e/
           cp harness/tests/qualification_artifacts.py source/tests/

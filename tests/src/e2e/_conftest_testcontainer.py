@@ -57,6 +57,7 @@ from ._conftest_seed import (
     _seed_non_yaml_package_file,
     _seed_yaml_package_scene,
     _setup_config_permissions,
+    pair_component_library,
 )
 
 logger = logging.getLogger(__name__)
@@ -245,11 +246,12 @@ def _prepare_testcontainer_config(
     # Pair its source with the checkout library, never the published manifest
     # pin. Only the embedded topology also receives a server config entry.
     if embedded or not no_tools_entry:
-        wheel = (
-            stage_native_runtime(repo_root, config_path)
-            if embedded and native_runtime_selected()
-            else _build_embedded_server_wheel(config_path)
-        )
+        if embedded and native_runtime_selected():
+            # Native staging already pairs the manifest, including its wheel hash.
+            wheel = stage_native_runtime(repo_root, config_path)
+        else:
+            wheel = _build_embedded_server_wheel(config_path)
+            pair_component_library(config_path, wheel.name)
         embedded_wheel_name = wheel.name
     if embedded:
         assert embedded_wheel_name is not None
@@ -528,6 +530,7 @@ def _wait_for_testcontainer_ready(
     SUN_WAIT: int,
     *,
     package_preinstalled: bool = False,
+    config_path: Path | None = None,
 ) -> str | None:
     """Run every testcontainer readiness gate; return the embedded webhook URL or None."""
     # Check if container is actually running
@@ -655,7 +658,11 @@ def _wait_for_testcontainer_ready(
                 f"{_EMBEDDED_DOMAIN} config-entry state and any repair issue."
             )
         if native_runtime_selected():
-            observed = attest_native_runtime(base_url, headers)
+            if config_path is None:
+                raise AssertionError(
+                    "Native readiness requires the staged config directory"
+                )
+            observed = attest_native_runtime(base_url, headers, config_path)
             capture_native_dependencies(container, "after_core_setup")
             logger.info("Native runtime attested: %s", observed)
     return embedded_webhook_url

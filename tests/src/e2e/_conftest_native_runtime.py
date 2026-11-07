@@ -194,7 +194,9 @@ def _save_native_evidence(receipt: dict[str, Any], prefix: str) -> None:
             temporary.unlink(missing_ok=True)
 
 
-def attest_native_runtime(base_url: str, headers: dict[str, str]) -> dict[str, Any]:
+def attest_native_runtime(
+    base_url: str, headers: dict[str, str], config: Path
+) -> dict[str, Any]:
     """A responsive webhook alone must never qualify the wrong runtime."""
     response = requests.get(
         base_url + "/api/native_qualification", headers=headers, timeout=30
@@ -218,6 +220,13 @@ def attest_native_runtime(base_url: str, headers: dict[str, str]) -> dict[str, A
         raise AssertionError(
             "Native runtime did not provide its paired artifact identity"
         )
+    proof = json.loads((config / "native-build.json").read_text(encoding="utf-8"))
+    for key in ("revision", "library_version"):
+        if observed[key] != proof[key]:
+            raise AssertionError(
+                f"Native runtime {key} {observed[key]!r} differs from "
+                f"the staged candidate {proof[key]!r}"
+            )
     validate_runtime_target(observed, os.environ)
     _save_native_attestation(observed)
     return observed

@@ -12,6 +12,74 @@ from unittest.mock import AsyncMock
 import pytest
 
 
+async def test_system_reload_observations_are_ready_on_the_core_loop(monkeypatch):
+    def callback(function):
+        function._hass_callback = True
+        return function
+
+    registry = SimpleNamespace(async_get_entity_id=lambda *_: "sensor.fixture")
+    for name, module in {
+        "homeassistant": ModuleType("homeassistant"),
+        "homeassistant.helpers": SimpleNamespace(
+            entity_registry=SimpleNamespace(async_get=lambda _: registry)
+        ),
+        "homeassistant.core": SimpleNamespace(HomeAssistant=object, callback=callback),
+        "homeassistant.components.config.view": SimpleNamespace(_write=object()),
+        "homeassistant.helpers.entity_registry": SimpleNamespace(
+            async_get=lambda _: registry
+        ),
+        "custom_components.ha_mcp_tools.native_operations.core_views": SimpleNamespace(
+            config_view=object()
+        ),
+    }.items():
+        monkeypatch.setitem(sys.modules, name, module)
+    path = (
+        Path(__file__).parents[2] / "native/fixtures/native_fixture/system_actions.py"
+    )
+    spec = importlib.util.spec_from_file_location(
+        "_system_actions_observation_test", path
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    monkeypatch.setattr(module, "stage_system_script", AsyncMock(return_value={}))
+    listeners = []
+    executor_jobs = []
+
+    def listen(event_type, handler):
+        listeners.append(handler)
+        return lambda: None
+
+    hass = SimpleNamespace(
+        services=SimpleNamespace(async_call=AsyncMock()),
+        config_entries=SimpleNamespace(
+            flow=SimpleNamespace(
+                async_init=AsyncMock(
+                    return_value={"result": SimpleNamespace(entry_id="entry")}
+                )
+            )
+        ),
+        async_block_till_done=AsyncMock(),
+        states=SimpleNamespace(get=lambda _: object()),
+        bus=SimpleNamespace(async_listen=listen),
+        data={"native_fixture": {}, "ha_mcp_tools": {"manager": object()}},
+    )
+    await module.seed_system_actions(hass)
+    for old, new in [(object(), None), (None, object())]:
+        event = SimpleNamespace(
+            data={"entity_id": "sensor.fixture", "old_state": old, "new_state": new}
+        )
+        for listener in listeners:
+            if getattr(listener, "_hass_callback", False):
+                listener(event)
+            else:
+                executor_jobs.append((listener, event))
+    assert hass.data["native_fixture"]["system_actions"]["records"] == [
+        {"removed": True, "added": False},
+        {"removed": False, "added": True},
+    ]
+    assert not executor_jobs
+
+
 @pytest.fixture(params=["voluptuous", "probatio"])
 def fixture_core(request: Any, monkeypatch: pytest.MonkeyPatch) -> Iterator[Any]:
     # Other component suites install incomplete validation facades at collection.

@@ -65,6 +65,8 @@ def record(source: Path, harness: Path, role: str, expected: str, output: Path) 
             name: hashlib.sha256((source / name).read_bytes()).hexdigest()
             for name in (
                 "tests/src/e2e/_conftest_embedded.py",
+                "tests/src/e2e/_conftest_knobs.py",
+                "tests/src/e2e/_conftest_seed.py",
                 "tests/src/e2e/_conftest_testcontainer.py",
                 "tests/src/e2e/_conftest_native_runtime.py",
                 "tests/qualification_artifacts.py",

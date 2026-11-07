@@ -211,7 +211,9 @@ def test_missing_human_owner_refuses_before_rewriting_the_entry(
     assert path.read_bytes() == before
 
 
-def test_a_responding_legacy_server_cannot_qualify_as_native(monkeypatch, tmp_path):
+def test_a_responding_legacy_server_cannot_qualify_as_native(
+    monkeypatch, tmp_path, candidate_config
+):
     directory = tmp_path / "receipts"
     monkeypatch.setenv("E2E_ATTESTATION_DIRECTORY", str(directory))
     response = SimpleNamespace(
@@ -227,7 +229,9 @@ def test_a_responding_legacy_server_cannot_qualify_as_native(monkeypatch, tmp_pa
         lambda *args, **kwargs: response,
     )
     with pytest.raises(AssertionError, match="did not attest"):
-        attest_native_runtime("http://fixture.test", {"Authorization": "fixture"})
+        attest_native_runtime(
+            "http://fixture.test", {"Authorization": "fixture"}, candidate_config
+        )
     assert not directory.exists()
 
 
@@ -249,9 +253,106 @@ def native_observation():
     }
 
 
+@pytest.mark.parametrize("field", ["revision", "library_version"])
+def test_a_different_candidate_cannot_save_a_native_ready_receipt(
+    monkeypatch, native_observation, tmp_path, field, candidate_config
+):
+    proof = {key: native_observation[key] for key in ("revision", "library_version")}
+    (tmp_path / "native-build.json").write_text(json.dumps(proof))
+    directory = tmp_path / "receipts"
+    monkeypatch.setenv("E2E_ATTESTATION_DIRECTORY", str(directory))
+    observed = {**native_observation, field: "different-candidate"}
+    monkeypatch.setattr(
+        "tests.src.e2e._conftest_native_runtime.requests.get",
+        lambda *args, **kwargs: SimpleNamespace(
+            raise_for_status=Mock(), json=lambda: observed
+        ),
+    )
+    with pytest.raises(AssertionError, match="staged candidate"):
+        attest_native_runtime("http://fixture.test", {}, candidate_config)
+    assert not directory.exists()
+
+
+@pytest.mark.parametrize(
+    "embedded,no_tools,native",
+    [
+        (False, False, False),
+        (True, False, False),
+        (True, True, False),
+        (True, True, True),
+    ],
+)
+def test_container_preparation_pairs_the_component_with_its_checkout_wheel(
+    monkeypatch, tmp_path, embedded, no_tools, native
+):
+    monkeypatch.delenv("GITHUB_TOKEN", raising=False)
+    monkeypatch.setattr(
+        container_harness.tempfile, "mkdtemp", lambda **_: str(tmp_path)
+    )
+    monkeypatch.setattr(container_harness.shutil, "copytree", lambda *_, **__: None)
+    for name in (
+        "_ensure_hacs_frontend",
+        "_seed_legacy_yaml_backups",
+        "_seed_non_yaml_package_file",
+        "_seed_yaml_package_scene",
+        "_refresh_recorder_timestamps",
+        "_setup_config_permissions",
+        "_install_embedded_server",
+    ):
+        monkeypatch.setattr(container_harness, name, lambda *_, **__: None)
+    monkeypatch.setattr(container_harness, "_copy_local_blueprint_to_www", lambda _: {})
+    monkeypatch.setattr(
+        container_harness, "_is_no_tools_entry_selected", lambda: no_tools
+    )
+    monkeypatch.setattr(container_harness, "native_runtime_selected", lambda: native)
+
+    def install(config, source, domain, title, **kwargs):
+        if domain == "ha_mcp_tools":
+            manifest = config / "custom_components/ha_mcp_tools/manifest.json"
+            manifest.parent.mkdir(parents=True)
+            manifest.write_text(
+                json.dumps({"requirements": ["ha-mcp==9.1.1", "other-lib"]})
+            )
+        return False
+
+    def build(config):
+        wheel = config / "ha_mcp-9.1.1-py3-none-any.whl"
+        wheel.write_bytes(b"checkout-wheel")
+        return wheel
+
+    monkeypatch.setattr(container_harness, "_install_custom_component", install)
+    monkeypatch.setattr(container_harness, "_build_embedded_server_wheel", build)
+
+    def stage(_, config):
+        wheel = build(config)
+        manifest = config / "custom_components/ha_mcp_tools/manifest.json"
+        manifest.write_text(
+            json.dumps(
+                {
+                    "requirements": [
+                        f"ha-mcp @ file:///config/{wheel.name}#sha256=fixture-digest",
+                        "other-lib",
+                    ]
+                }
+            )
+        )
+        return wheel
+
+    monkeypatch.setattr(container_harness, "stage_native_runtime", stage)
+    config, _, _, wheel = container_harness._prepare_testcontainer_config(embedded)
+    manifest = json.loads(
+        (config / "custom_components/ha_mcp_tools/manifest.json").read_text()
+    )
+    suffix = "#sha256=fixture-digest" if native else ""
+    assert manifest["requirements"] == [
+        f"ha-mcp @ file:///config/{wheel}{suffix}",
+        "other-lib",
+    ]
+
+
 @pytest.mark.parametrize("observed_core", [None, "2026.10.3"])
 def test_a_native_server_on_the_wrong_core_cannot_qualify_the_minimum(
-    monkeypatch, observed_core, native_observation, tmp_path
+    monkeypatch, observed_core, native_observation, tmp_path, candidate_config
 ):
     directory = tmp_path / "receipts"
     monkeypatch.setenv("E2E_ATTESTATION_DIRECTORY", str(directory))
@@ -264,12 +365,12 @@ def test_a_native_server_on_the_wrong_core_cannot_qualify_the_minimum(
         ),
     )
     with pytest.raises(AssertionError, match="Core version"):
-        attest_native_runtime("http://fixture.test", {})
+        attest_native_runtime("http://fixture.test", {}, candidate_config)
     assert not directory.exists()
 
 
 def test_an_x64_container_cannot_qualify_the_arm64_lane(
-    monkeypatch, native_observation, tmp_path
+    monkeypatch, native_observation, tmp_path, candidate_config
 ):
     directory = tmp_path / "receipts"
     monkeypatch.setenv("E2E_ATTESTATION_DIRECTORY", str(directory))
@@ -282,7 +383,7 @@ def test_an_x64_container_cannot_qualify_the_arm64_lane(
         ),
     )
     with pytest.raises(AssertionError, match="architecture"):
-        attest_native_runtime("http://fixture.test", {})
+        attest_native_runtime("http://fixture.test", {}, candidate_config)
     assert not directory.exists()
 
 
@@ -313,6 +414,7 @@ def test_attested_workers_preserve_actual_runtime_values_without_private_data(
     monkeypatch: pytest.MonkeyPatch,
     native_observation: dict[str, Any],
     receipt_world: Path,
+    candidate_config,
 ) -> None:
     monkeypatch.setenv("GITHUB_SHA", "public-source-revision")
     monkeypatch.setenv("GITHUB_RUN_ID", "public-run-id")
@@ -323,7 +425,8 @@ def test_attested_workers_preserve_actual_runtime_values_without_private_data(
         else:
             monkeypatch.setenv("PYTEST_XDIST_WORKER", worker)
         assert (
-            attest_native_runtime("http://private-endpoint", {}) is native_observation
+            attest_native_runtime("http://private-endpoint", {}, candidate_config)
+            is native_observation
         )
     receipts = list(receipt_world.glob("*.json"))
     assert len(receipts) == 3
@@ -352,19 +455,28 @@ def test_attested_workers_preserve_actual_runtime_values_without_private_data(
 
 
 def test_attestation_worker_cannot_escape_its_explicit_output_directory(
-    monkeypatch: pytest.MonkeyPatch, receipt_world: Path
+    monkeypatch: pytest.MonkeyPatch, receipt_world: Path, candidate_config
 ) -> None:
     monkeypatch.setenv("PYTEST_XDIST_WORKER", "../escape")
     with pytest.raises(ValueError, match="worker"):
-        attest_native_runtime("http://fixture.test", {})
+        attest_native_runtime("http://fixture.test", {}, candidate_config)
     assert not receipt_world.exists()
-    assert not list(receipt_world.parent.rglob("*.json"))
+    assert list(receipt_world.parent.rglob("*.json")) == [
+        candidate_config / "native-build.json"
+    ]
 
 
 def test_attestation_cannot_save_a_receipt_without_the_actual_core_python(
-    native_observation: dict[str, Any], receipt_world: Path
+    native_observation: dict[str, Any], receipt_world: Path, candidate_config
 ) -> None:
     native_observation.pop("python_version")
     with pytest.raises(AssertionError, match="python_version"):
-        attest_native_runtime("http://fixture.test", {})
+        attest_native_runtime("http://fixture.test", {}, candidate_config)
     assert not receipt_world.exists()
+
+
+@pytest.fixture
+def candidate_config(tmp_path, native_observation):
+    proof = {key: native_observation[key] for key in ("revision", "library_version")}
+    (tmp_path / "native-build.json").write_text(json.dumps(proof))
+    return tmp_path

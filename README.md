@@ -50,6 +50,7 @@ Existing server entries keep their selected runtime and connection settings when
 2. **Restart Home Assistant.**
 3. Go to **Settings → Devices & Services → Add Integration**, search for **HA-MCP — Manage Home Assistant with AI** and choose **HA-MCP Server**. Select an active administrator as its owner.
 4. Choose the access you need: enable MCP access through Home Assistant, the LLM API export for Assist, or both. These are explicit choices; a new entry enables neither automatically.
+   On Core 2026.8 and 2026.9, setup creates a [Legacy entry](docs/in-process-server.md#existing-legacy-entries) and asks for administrator credentials (an access token or dedicated-account login); Native owner selection requires Core 2026.10 or newer.
 5. For MCP, copy the connection URL from the entry's **Configure** screen and add it to your client. Home Assistant sign-in and the compatible secret-URL/legacy OAuth modes remain available.
 6. For Assist, select the exported HA-MCP API in your conversation agent's configuration and choose which tools it may use.
 

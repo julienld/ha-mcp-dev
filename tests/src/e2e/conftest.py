@@ -323,6 +323,7 @@ def ha_container_with_fresh_config(request, in_process_data_dir):  # noqa: PLR09
             CORE_STATE_TIMEOUT,
             SUN_WAIT,
             package_preinstalled=embedded_wheel_name is not None,
+            config_path=config_path,
         )
 
         # Store connection info for other fixtures

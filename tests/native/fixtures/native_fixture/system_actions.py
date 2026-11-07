@@ -3,7 +3,7 @@
 from typing import Any
 
 from homeassistant.components.config.view import _write
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
 
 from custom_components.ha_mcp_tools.native_operations.core_views import config_view
@@ -50,6 +50,7 @@ async def seed_system_actions(hass: HomeAssistant) -> dict[str, str]:
     assert entity_id is not None and hass.states.get(entity_id) is not None
     records: list[dict[str, bool]] = []
 
+    @callback
     def observe(event: Any) -> None:
         if event.data.get("entity_id") == entity_id:
             records.append(
