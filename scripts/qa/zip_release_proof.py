@@ -18,6 +18,7 @@ import sys
 import time
 import tomllib
 import urllib.parse
+import urllib.request
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -440,6 +441,35 @@ class Proof:
         if release:
             self.api(f"repos/{REPOSITORY}/releases/{release['id']}", method="DELETE")
 
+    def observe_public_download(self, first_tag: str) -> dict:
+        first_asset = self.asset(first_tag)
+        public_url = first_asset["browser_download_url"]
+        expected_prefix = (
+            f"https://github.com/{REPOSITORY}/releases/download/{first_tag}/"
+        )
+        if not public_url.startswith(expected_prefix):
+            raise ValueError("The public download URL left the owned QA release")
+        anonymous = self.output / "anonymous-download.zip"
+        with (
+            urllib.request.urlopen(public_url, timeout=60) as response,
+            anonymous.open("wb") as target,
+        ):
+            shutil.copyfileobj(response, target)
+        assert sha256(anonymous) == self.digest
+        for _ in range(12):
+            first_asset = self.asset(first_tag)
+            if first_asset["download_count"] > 0:
+                break
+            time.sleep(2)
+        self.event(
+            "download count observed",
+            asset_id=first_asset["id"],
+            download_count=first_asset["download_count"],
+            anonymous_download_verified=True,
+            positive_count_observed=first_asset["download_count"] > 0,
+        )
+        return first_asset
+
     def exercise_assets(self) -> None:
         archive = self.output / "built/ha_mcp_tools.zip"
         run(
@@ -481,12 +511,7 @@ class Proof:
             ]
         )
         assert sha256(self.output / "ha_mcp_tools.zip") == self.digest
-        first_asset = self.asset(first_tag)
-        self.event(
-            "download count observed",
-            asset_id=first_asset["id"],
-            download_count=first_asset["download_count"],
-        )
+        first_asset = self.observe_public_download(first_tag)
         self.mirror_release(first, first_tag)
         assert self.asset(first_tag)["id"] == first_asset["id"]
 
