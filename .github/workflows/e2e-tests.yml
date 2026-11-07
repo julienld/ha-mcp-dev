@@ -18,6 +18,11 @@ on:
         type: boolean
         required: false
         default: false
+      proof_variant:
+        description: "Fork-only live GitHub release proof before the existing HA lane"
+        type: choice
+        options: [none, assets, activation]
+        default: none
 
 # Limit GITHUB_TOKEN permissions to minimum required
 permissions:
@@ -395,7 +400,73 @@ jobs:
   # the server survives. A single ubuntu-latest lane runs both scenarios serially
   # (no -n), not the parallel suite. fetch-depth 0 is REQUIRED — the default
   # shallow checkout omits the ``stable`` tag the stable scenario checks out from.
+  zip-release-sandbox:
+    name: Live ZIP Release Sandbox
+    if: github.event_name == 'workflow_dispatch' && inputs.proof_variant != 'none' && github.repository == 'julienld/ha-mcp-dev' && startsWith(github.ref, 'refs/heads/qualify/zip-release-proof-')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      statuses: write
+    outputs:
+      subject_sha: ${{ steps.subject.outputs.sha }}
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      SUBJECT_SHA: ${{ inputs.proof_variant == 'assets' && '1a153e83d72496b8851ad22485bafe01d4beeda7' || '472f3a64253664dcf279e81a8db562d5e7c1178c' }}
+    steps:
+      - name: Register immutable subject
+        id: subject
+        run: |
+          echo "sha=$SUBJECT_SHA" >> "$GITHUB_OUTPUT"
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$SUBJECT_SHA" \
+            -f state=pending -f "context=ZIP release + HA / $PROOF_VARIANT" \
+            -f description='Live release and HA qualification started' \
+            -f "target_url=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+        env:
+          PROOF_VARIANT: ${{ inputs.proof_variant }}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ env.SUBJECT_SHA }}
+          path: subject
+          fetch-depth: 0
+          submodules: true
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          path: harness
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: "0.13.4"
+      - name: Check publication guards offline
+        run: uv run -s harness/scripts/qa/test_zip_release_proof.py
+      - name: Exercise real release and recovery paths
+        run: uv run -s harness/scripts/qa/zip_release_proof.py --variant "$PROOF_VARIANT" --subject subject --output "$RUNNER_TEMP/zip-proof"
+        env:
+          PROOF_VARIANT: ${{ inputs.proof_variant }}
+      - name: Clean owned QA tags and releases
+        if: always()
+        run: uv run -s harness/scripts/qa/zip_release_proof.py --variant "$PROOF_VARIANT" --subject subject --output "$RUNNER_TEMP/zip-proof" --cleanup
+        env:
+          PROOF_VARIANT: ${{ inputs.proof_variant }}
+      - name: Retain release proof and exact downloaded ZIP
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: zip-release-proof
+          retention-days: 14
+          path: |
+            ${{ runner.temp }}/zip-proof/report.json
+            ${{ runner.temp }}/zip-proof/state.json
+            ${{ runner.temp }}/zip-proof/failure.json
+            ${{ runner.temp }}/zip-proof/ha_mcp_tools.zip
+
   e2e-tests-update-path:
+    needs: [zip-release-sandbox]
+    if: always() && !cancelled() && (needs.zip-release-sandbox.result == 'success' || (needs.zip-release-sandbox.result == 'skipped' && (github.event_name != 'workflow_dispatch' || inputs.proof_variant == 'none')))
+    defaults:
+      run:
+        working-directory: subject
     name: E2E Tests (Update Path)
     runs-on: ubuntu-latest
     # 30m: each of the two scenarios (component@stable and component@working-tree)
@@ -408,12 +479,26 @@ jobs:
     steps:
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       with:
+        ref: ${{ needs.zip-release-sandbox.outputs.subject_sha || github.sha }}
+        path: subject
         persist-credentials: false
         submodules: true
         # fetch-depth 0: the update-path scenario checks the custom component
         # out at the released ``stable`` git tag, which the default shallow
         # checkout does not fetch.
         fetch-depth: 0
+
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      if: needs.zip-release-sandbox.result == 'success'
+      with:
+        path: harness
+        persist-credentials: false
+
+    - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+      if: needs.zip-release-sandbox.result == 'success'
+      with:
+        name: zip-release-proof
+        path: ${{ runner.temp }}/zip-proof
 
     - name: Verify stable tag is present
       run: |
@@ -444,6 +529,14 @@ jobs:
 
     - name: Install dependencies
       run: uv sync --all-extras --dev
+
+    - name: Verify integration artifact and mirror publishing
+      run: |
+        TESTS=(tests/src/unit/test_build_component_zip.py tests/src/unit/test_component_zip_release_workflows.py tests/src/unit/test_mirror_sync_workflow_shape.py)
+        for file in tests/src/unit/test_finalize_github_release.py tests/src/unit/test_release_notes_wiring_shape.py; do
+          if [ -f "$file" ]; then TESTS+=("$file"); fi
+        done
+        uv run pytest "${TESTS[@]}" --tb=short -q
 
     - name: Cache HA Docker image
       id: cache-ha-image
@@ -476,14 +569,6 @@ jobs:
         done
         echo "All registries failed" && exit 1
 
-    - name: Verify integration artifact and mirror publishing
-      run: |
-        uv run pytest tests/src/unit/test_build_component_zip.py \
-          tests/src/unit/test_component_zip_release_workflows.py \
-          tests/src/unit/test_mirror_sync_workflow_shape.py \
-          tests/src/unit/test_finalize_github_release.py \
-          tests/src/unit/test_release_notes_wiring_shape.py --tb=short -q
-
     - name: Run update-path e2e test
       # E2E_BACKEND deliberately UNSET (container backend): the test drives its
       # own dedicated container end to end and never touches the session
@@ -493,13 +578,54 @@ jobs:
       # of the whole fastmcp tree that nothing in this lane uses.
       run: |
         echo "🚀 Running the update-path e2e lane (released component + PyPI server → PR wheel)..."
+        EXTRA=()
+        if [ "$PROOF_MODE" = success ]; then EXTRA=(-p release_zip_plugin); fi
         cd tests
-        uv run pytest src/e2e/workflows/embedded/test_embedded_update_path.py \
+        uv run pytest "${EXTRA[@]}" src/e2e/workflows/embedded/test_embedded_update_path.py \
           -m update_path \
           --tb=short \
           -v
         echo "✅ Update-path e2e lane passed"
       env:
+        PROOF_MODE: ${{ needs.zip-release-sandbox.result }}
+        PYTHONPATH: ${{ needs.zip-release-sandbox.result == 'success' && format('{0}/harness/scripts/qa', github.workspace) || '' }}
+        ZIP_PROOF_SUBJECT: ${{ github.workspace }}/subject
+        ZIP_PROOF_ARCHIVE: ${{ runner.temp }}/zip-proof/ha_mcp_tools.zip
+        ZIP_PROOF_REPORT: ${{ runner.temp }}/zip-proof/report.json
+        ZIP_PROOF_RECEIPT: ${{ runner.temp }}/zip-proof/ha-install-receipt.json
         E2E_UPDATE_PATH: "1"
         HAMCP_ENV_FILE: "tests/.env.test"
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Retain real-asset installation receipt
+      if: always() && needs.zip-release-sandbox.result == 'success'
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+      with:
+        name: zip-ha-install-receipt
+        retention-days: 14
+        if-no-files-found: error
+        path: ${{ runner.temp }}/zip-proof/ha-install-receipt.json
+
+  zip-proof-report:
+    name: Report ZIP Qualification
+    needs: [zip-release-sandbox, e2e-tests-update-path]
+    if: always() && github.event_name == 'workflow_dispatch' && inputs.proof_variant != 'none' && github.repository == 'julienld/ha-mcp-dev' && startsWith(github.ref, 'refs/heads/qualify/zip-release-proof-')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      statuses: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+        with:
+          version: "0.13.4"
+      - name: Attach exact-head result to the fork PR
+        run: uv run -s scripts/qa/zip_release_proof.py --variant "$PROOF_VARIANT" --report
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PROOF_VARIANT: ${{ inputs.proof_variant }}
+          PROOF_RESULT: ${{ needs.zip-release-sandbox.result }}
+          HA_RESULT: ${{ needs.e2e-tests-update-path.result }}
