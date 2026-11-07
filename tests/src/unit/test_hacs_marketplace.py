@@ -6,6 +6,7 @@ the store's own data (categories, repository fields, refusals) intact.
 """
 
 import copy
+import json
 from contextlib import contextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -207,6 +208,7 @@ class TestMarketplaceCommands:
         assert "Settings > Marketplace" in text
         assert "action='accept_warning'" in text
         assert "confirm=True" in text
+        assert json.loads(text)["store_error"] == "warning_not_accepted"
         assert not _writes(world.ws)
 
     async def test_github_gate_is_not_mistaken_for_a_connection_failure(self, tools):

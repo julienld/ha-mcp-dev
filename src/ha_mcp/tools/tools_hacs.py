@@ -93,6 +93,22 @@ async def _assert_hacs_available(ws_client: HomeAssistantWebSocketClient) -> str
     return available[0]
 
 
+def _shared_hacs_action(function: Any) -> Any:
+    """Return classified failures to the shared facade before SDK formatting."""
+
+    @functools.wraps(function)
+    async def invoke(*args: Any, **kwargs: Any) -> Any:
+        try:
+            return await function(*args, **kwargs)
+        except ToolError as error:
+            payload = json.loads(str(error))
+            raise ToolFailure(
+                payload["error"]["code"], payload["error"]["message"], data=payload
+            ) from error
+
+    return invoke
+
+
 def _hacs_legacy_errors(function: Any) -> Any:
     """Retain historical action context at the legacy SDK boundary."""
 
@@ -168,6 +184,7 @@ class HacsTools:
     # The public tools above are thin dispatchers; each handler raises a
     # structured ToolError on failure, caught by the dispatcher's wrapper.
 
+    @_shared_hacs_action
     async def _hacs_search(
         self,
         query: str,
@@ -250,6 +267,7 @@ class HacsTools:
         )
         return {"success": True, **wrapped}
 
+    @_shared_hacs_action
     async def _hacs_info(
         self, repository_id: str, include_releases: bool = False
     ) -> dict[str, Any]:
@@ -291,6 +309,7 @@ class HacsTools:
         wrapped = await add_timezone_metadata(self._client, data)
         return {"success": True, **wrapped}
 
+    @_shared_hacs_action
     async def _hacs_download(
         self,
         repository_id: str | None,
@@ -393,6 +412,7 @@ class HacsTools:
         )
         return {"success": True, **wrapped}
 
+    @_shared_hacs_action
     async def _hacs_remove(self, repository_id: str | None) -> dict[str, Any]:
         # Same up-front guard as ``_hacs_download``: an empty identifier
         # must fail before any destructive WS call.
@@ -487,6 +507,7 @@ class HacsTools:
         )
         return {"success": True, **wrapped}
 
+    @_shared_hacs_action
     async def _hacs_update_information(
         self, repository_id: str | None
     ) -> dict[str, Any]:
@@ -561,6 +582,7 @@ class HacsTools:
         )
         return {"success": True, **wrapped}
 
+    @_shared_hacs_action
     async def _hacs_add_repository(
         self, repository: str, category: str
     ) -> dict[str, Any]:
@@ -647,6 +669,7 @@ class HacsTools:
         ),
     )(log_tool_usage(_hacs_legacy_errors(HacsFacade.ha_manage_hacs)))
 
+    @_shared_hacs_action
     async def _hacs_accept_warning(self, confirm: bool | None) -> dict[str, Any]:
         from .hacs_backend import accept_warning
 
@@ -656,13 +679,7 @@ class HacsTools:
             api = StoreApi("marketplace", await command(ws, "marketplace/info"))
         else:
             ws, api = owner, StoreApi("hacs")
-        try:
-            return await accept_warning(ws, api)
-        except ToolError as error:
-            payload = json.loads(str(error))
-            raise ToolFailure(
-                payload["error"]["code"], payload["error"]["message"], data=payload
-            ) from error
+        return await accept_warning(ws, api)
 
 
 def register_hacs_tools(mcp: Any, client: Any, **kwargs: Any) -> None:

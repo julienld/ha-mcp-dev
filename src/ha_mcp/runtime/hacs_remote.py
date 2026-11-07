@@ -25,6 +25,7 @@ from .hacs_values import (
     CATEGORY_MAP,
     MARKETPLACE_WARNING_GUIDANCE,
     _filter_and_score_repos,
+    marketplace_gate_failure,
     versionless_install_refused,
 )
 from .validation import validate_identifier_not_empty
@@ -334,16 +335,14 @@ class MarketplaceRemote:
         if action in {"download", "add_repository"} and not state.get(
             "warning_accepted"
         ):
-            raise ToolFailure(
-                "AUTH_FORBIDDEN",
+            raise marketplace_gate_failure(
+                "warning_not_accepted",
                 f"Marketplace warning_not_accepted: {MARKETPLACE_WARNING_GUIDANCE}",
-                status="not_started",
             )
         if action == "add_repository" and not state.get("github_connected"):
-            raise ToolFailure(
-                "AUTH_FORBIDDEN",
+            raise marketplace_gate_failure(
+                "github_not_connected",
                 "Marketplace github_not_connected: connect GitHub before adding a repository.",
-                status="not_started",
             )
         return StoreApi("marketplace", state)
 

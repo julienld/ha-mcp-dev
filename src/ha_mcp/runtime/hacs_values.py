@@ -3,6 +3,7 @@
 from typing import Any
 
 from ha_mcp.errors import ErrorCode, create_error_response
+from ha_mcp.tool_api import ToolFailure
 
 from .errors import raise_failure
 
@@ -12,6 +13,20 @@ MARKETPLACE_WARNING_GUIDANCE = (
     "if they do, call ha_manage_hacs(action='accept_warning', confirm=True) "
     "for this server's user, then retry. Acceptance under another account does not count."
 )
+
+
+def marketplace_gate_failure(code: str, message: str) -> ToolFailure:
+    return ToolFailure(
+        "AUTH_FORBIDDEN",
+        message,
+        status="not_started",
+        data={
+            "success": False,
+            "store_error": code,
+            "error": {"code": "AUTH_FORBIDDEN", "message": message},
+        },
+    )
+
 
 # HACS uses different category names internally vs what users expect
 # User-friendly name -> HACS internal name

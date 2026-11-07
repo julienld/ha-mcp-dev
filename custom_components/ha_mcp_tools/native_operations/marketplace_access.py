@@ -12,7 +12,10 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntryState
 
-from ha_mcp.runtime.hacs_values import MARKETPLACE_WARNING_GUIDANCE
+from ha_mcp.runtime.hacs_values import (
+    MARKETPLACE_WARNING_GUIDANCE,
+    marketplace_gate_failure,
+)
 from ha_mcp.tool_api import ToolFailure
 
 from .hacs_access import HacsAccess
@@ -86,16 +89,14 @@ class MarketplaceAccess(HacsAccess):
             not self.actor.user_id
             or not self.owner.warning_accepted(self.actor.user_id)
         ):
-            raise ToolFailure(
-                "AUTH_FORBIDDEN",
+            raise marketplace_gate_failure(
+                "warning_not_accepted",
                 f"Marketplace warning_not_accepted: {MARKETPLACE_WARNING_GUIDANCE}",
-                status="not_started",
             )
         if action == "add_repository" and not self.owner.github_connected:
-            raise ToolFailure(
-                "AUTH_FORBIDDEN",
+            raise marketplace_gate_failure(
+                "github_not_connected",
                 "Marketplace github_not_connected: connect GitHub in the Marketplace UI before adding custom repositories.",
-                status="not_started",
             )
         if repository is not None:
             self.category(repository.data.category)

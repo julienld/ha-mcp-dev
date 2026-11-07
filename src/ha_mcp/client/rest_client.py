@@ -1840,23 +1840,23 @@ class HomeAssistantClient:
     ) -> dict[str, Any]:
         """Send message via WebSocket and wait for response.
 
-        A Home Assistant error whose code is in ``expected_error_codes`` is an
-        answer the caller handles, so it is logged at debug, not error.
+        Expected Core error codes are logged at debug when the caller handles them.
 
         Uses a per-client WebSocket connection keyed to the client's own
         credentials (base_url + token). This ensures OAuth mode uses the
         real HA credentials from the token claims, not the global sentinel
         settings.
         """
+        from .service_errors import HomeAssistantCommandOutcomeUnknown
         from .websocket_client import get_websocket_client
 
         max_retries = 2
         retry_delay = 0.5  # seconds
-        # Whether an earlier attempt got past acquisition, so may have sent.
-        sent_before = False
 
         for attempt in range(max_retries):
             # Whether the failure happened before a usable connection existed.
+            # Failing to obtain one means no command was sent, regardless of
+            # the exception class the pool or connection setup raises.
             acquiring = True
             try:
                 # Use per-client WebSocket keyed to this client's credentials
@@ -1881,46 +1881,37 @@ class HomeAssistantClient:
                 return result
 
             except Exception as e:
+                if acquiring and isinstance(e, HomeAssistantAuthError):
+                    raise HomeAssistantAuthNotSent(str(e)) from e
                 error_str = str(e)
+                code = (
+                    e.code
+                    if isinstance(e, HomeAssistantCommandError)
+                    and isinstance(e.code, str)
+                    else None
+                )
                 is_403 = "403" in error_str and "Forbidden" in error_str
 
-                # Transient 403 (rate limiting / reverse proxy throttling): retry
-                # before deciding anything, since the next attempt may succeed.
-                if is_403 and attempt < max_retries - 1:
+                # Retry a refused connection only before dispatch. Proxy-looking
+                # error text after send_command cannot prove a write had no effect.
+                if acquiring and is_403 and attempt < max_retries - 1:
                     logger.warning(
                         f"WebSocket 403 error (attempt {attempt + 1}/{max_retries}), "
                         f"retrying after {retry_delay}s: {error_str}"
                     )
                     await asyncio.sleep(retry_delay)
-                    sent_before = sent_before or not acquiring
                     continue
 
-                # Phase first, type second. Failing before a client exists is
-                # transport evidence whatever was raised: an auth failure or the
-                # pool-lock guard's bare ``Exception`` is no no-answer class.
-                # Past acquisition only those classes count (``send_command``
-                # re-raises the original ``ConnectionClosed`` /
-                # ``ConnectionResetError`` to keep writes at-most-once); anything
-                # else is Home Assistant's own answer or a local bug.
                 if acquiring or isinstance(e, _NO_ANSWER_ERRORS):
-                    # One error channel for "no answer came back" (#1947): the
-                    # caller decides the policy. Callers that legitimately continue
-                    # on a missing answer catch this and say in ``warnings`` what
-                    # they skipped; callers whose output would read as a negative
-                    # finding let it propagate.
                     logger.error(
                         f"WebSocket transport failed ({message.get('type')}): {e}"
                     )
-                    if acquiring and not sent_before:
-                        # No attempt obtained a client, so nothing was sent.
+                    if acquiring:
                         raise HomeAssistantCommandNotSent(error_str) from e
-                    if isinstance(e, HomeAssistantConnectionError) and not (
-                        sent_before and isinstance(e, HomeAssistantCommandNotSent)
-                    ):
-                        # Re-raised unchanged so subtypes and the traceback
-                        # survive; not "never sent" once an attempt may have sent.
+                    if isinstance(e, HomeAssistantCommandNotSent):
                         raise
-                    raise HomeAssistantConnectionError(error_str) from e
+                    # A local type survives wrappers without trusting remote JSON.
+                    raise HomeAssistantCommandOutcomeUnknown(error_str) from e
 
                 # Deliberate asymmetry (#1966 review item 8): a 403 that
                 # exhausts its retries DURING acquisition is transport death -
@@ -1928,16 +1919,16 @@ class HomeAssistantClient:
                 # reverse-proxy suggestions below. The 403 text survives in the
                 # message, and returning a soft envelope there instead would
                 # put a blocked transport back on the degrade path this change
-                # exists to close. Past acquisition the socket is alive and HA
-                # (or a proxy) answered, so the tailored suggestions apply.
+                # exists to close. Other failures retain the suggestions below;
+                # their text alone does not prove a write was refused before acting.
                 if is_403:
                     logger.error(
-                        f"WebSocket 403 error after {max_retries} attempts: {error_str}"
+                        f"WebSocket request blocked (403 Forbidden): {error_str}"
                     )
                     return {
                         "success": False,
                         "error": f"WebSocket request blocked (403 Forbidden): {error_str}",
-                        "error_code": getattr(e, "code", None),
+                        "error_code": code,
                         "suggestions": [
                             "This may be caused by a reverse proxy or security filter",
                             "Try simplifying the request (e.g., shorter templates, fewer parameters)",
@@ -1949,18 +1940,16 @@ class HomeAssistantClient:
                 # Name the command in the log line: a bare "Command failed:
                 # Unknown command." is undiagnosable from a user's log
                 # (issue #1889 took a live reproduction to attribute).
-                code = getattr(e, "code", None)
                 logger.log(
                     logging.DEBUG if code in expected_error_codes else logging.ERROR,
                     f"WebSocket message failed ({message.get('type')}): {e}",
                 )
-                # Preserve HA's structured error code (e.g. ``not_found``) so callers
-                # can distinguish HA's authoritative verdict from a transient failure
-                # instead of only seeing the stringified message.
+                # Only a protocol rejection establishes HA's error code; a local
+                # exception's ``code`` attribute says nothing about the write outcome.
                 return {
                     "success": False,
                     "error": str(e),
-                    "error_code": getattr(e, "code", None),
+                    "error_code": code,
                 }
 
         # Unreachable: every attempt either returns, raises, or ``continue``s,

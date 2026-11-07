@@ -175,6 +175,7 @@ async def test_marketplace_consent_is_required_before_mutation(marketplace, acti
     result = await call(marketplace, action, **args)
     assert result.is_error and result.status == "not_started", result.data
     assert "first-run warning" in str(result.data).lower()
+    assert result.data["store_error"] == "warning_not_accepted"
     marketplace.repo.async_install_repository.assert_not_awaited()
     marketplace.owner.async_register_repository.assert_not_awaited()
 
