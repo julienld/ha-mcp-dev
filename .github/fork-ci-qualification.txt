@@ -2,8 +2,8 @@
 
 This preparation-only PR verifies the permanent personal fork's existing
 GitHub Actions and CodeRabbit integration. It changes no runtime code or tests.
-This file is intentionally under `.github/` so the upstream path classifier
-runs the complete validation lanes instead of skipping them as pure docs.
+The `.txt` extension intentionally exercises the upstream classifier's full
+validation path. Markdown files are classified as pure docs at every depth.
 
 The PR targets the fork's clean `master` mirror. Do not merge it into that
 mirror or promote it upstream. Close it after recording the actual checks
