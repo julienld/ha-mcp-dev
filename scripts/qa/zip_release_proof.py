@@ -30,7 +30,7 @@ REPOSITORY = "julienld/ha-mcp-dev"
 TRAILERS = "\n\nCodex-Session: 01a1ab9a-90da-7452-9bec-86e40464cba2\nT3-Thread: a79d9703-47c6-4084-a1d7-62b70915a8f2"
 SUBJECTS = {
     "assets": "1a153e83d72496b8851ad22485bafe01d4beeda7",
-    "activation": "472f3a64253664dcf279e81a8db562d5e7c1178c",
+    "activation": "592116f9edb1858152c83796f1f6b10b5d1ed901",
 }
 
 
@@ -608,6 +608,13 @@ class Proof:
         _, raced_object = self.annotated_ref("raced-object", second_commit)
         for tag in (first_tag, second_tag):
             self.create_release(tag, self.archive, draft=True, prerelease=False)
+        invalid_tag, _ = self.annotated_ref("finalized-invalid", first_commit)
+        self.create_release(
+            invalid_tag,
+            self.output / "replaced/ha_mcp_tools.zip",
+            draft=True,
+            prerelease=False,
+        )
         selected, race = first_tag, False
         actual_push = finalizer._push_stable_ref
 
@@ -698,6 +705,19 @@ class Proof:
                     delay=2,
                 )
 
+        selected = invalid_tag
+        try:
+            finalize()
+        except ValueError as error:
+            assert "ZIP" in str(error)
+        else:
+            raise AssertionError("An uploaded ZIP with wrong members was published")
+        assert self.release(selected)["draft"] is True
+        assert (
+            self.api(f"repos/{REPOSITORY}/git/ref/tags/{alias}")["object"]["sha"] == old
+        )
+        self.event("invalid uploaded ZIP rejected before writes", tag=selected)
+        selected = first_tag
         assert finalize()["stable_ref_updated"]
         assert (
             self.api(f"repos/{REPOSITORY}/git/ref/tags/{alias}")["object"]["sha"]
