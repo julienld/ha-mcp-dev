@@ -95,7 +95,7 @@ class AutomationReadTools(ConfigReadTools):
 
         The returned `automation_id` is the resolved entity_id (canonical
         form, e.g. `automation.morning_routine`) when the registry lookup
-        succeeds, falling back to the input `identifier` otherwise.
+        succeeds, falling back to the input `entity_id` otherwise.
 
         EXAMPLES:
         - Get automation: ha_config_get_automation("automation.morning_routine")

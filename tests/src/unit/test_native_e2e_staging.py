@@ -21,6 +21,64 @@ from tests.src.e2e._conftest_native_runtime import (
 @pytest.fixture(autouse=True)
 def isolated_attestation_output(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("E2E_ATTESTATION_DIRECTORY", raising=False)
+    monkeypatch.delenv("E2E_EXPECTED_CORE_VERSION", raising=False)
+    monkeypatch.delenv("E2E_EXPECTED_ARCH", raising=False)
+
+
+@pytest.mark.parametrize(
+    "target,error",
+    [
+        ({"E2E_EXPECTED_CORE_VERSION": "2026.11.0"}, "Core version mismatch"),
+        ({"E2E_EXPECTED_ARCH": "arm64"}, "architecture mismatch"),
+        (
+            {"E2E_EXPECTED_CORE_VERSION": "2026.10.0", "E2E_EXPECTED_ARCH": "amd64"},
+            None,
+        ),
+    ],
+)
+def test_haos_attestation_checks_the_requested_core_and_architecture(
+    monkeypatch, tmp_path, target, error
+):
+    from tests.src import haos_candidate
+
+    for name in ("E2E_EXPECTED_CORE_VERSION", "E2E_EXPECTED_ARCH"):
+        monkeypatch.delenv(name, raising=False)
+    for name, value in target.items():
+        monkeypatch.setenv(name, value)
+    observed = {
+        "manager": "NativeServerManager",
+        "runtime": "native",
+        "running": True,
+        "on_core_loop": True,
+        "legacy_listener": False,
+        "legacy_thread": False,
+        "admin_token_present": False,
+        "library_version": "fixture-version",
+        "revision": "a" * 40,
+        "core_version": "2026.10.0",
+        "architecture": "x86_64",
+    }
+    monkeypatch.setattr(
+        haos_candidate, "verify_candidate_artifacts", lambda _assets: observed
+    )
+    monkeypatch.setattr(
+        haos_candidate.requests,
+        "get",
+        lambda *args, **kwargs: SimpleNamespace(
+            raise_for_status=Mock(), json=lambda: observed
+        ),
+    )
+    destination = tmp_path / "diagnostics"
+    monkeypatch.setattr(haos_candidate, "Path", lambda _path: destination)
+    if error:
+        with pytest.raises(AssertionError, match=error):
+            haos_candidate.attest_native_runtime(
+                "http://fixture.test", "fixture", tmp_path
+            )
+        assert not destination.exists()
+    else:
+        haos_candidate.attest_native_runtime("http://fixture.test", "fixture", tmp_path)
+        assert json.loads((destination / "native-runtime.json").read_text()) == observed
 
 
 @pytest.fixture

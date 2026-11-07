@@ -247,7 +247,7 @@
   "native_backups": {
     "archives": "Core's published backup manager creates and deletes the configured local archives. Creation waits for Core completion and correlates a unique metadata nonce rather than a name or timestamp.",
     "restore": "The requested safety_backup flag is honored; when requested, safety capture covers the selected restoration parts. restore_database=null follows the target archive's actual contents. The target, manager, reader/writer, agent and protection remain pinned through optional safety capture and deferred Core handoff. The reply confirms scheduling only, with restore_completed=false.",
-    "edits": "Existing snapshot store, domain readers and native restore coordinator. Canonical storage keys survive renamed script entities. Integration snapshots restore only an existing entry's enabled state, never credentials or connection options.",
+    "edits": "Existing snapshot store, domain readers and native restore coordinator. Canonical storage keys survive renamed script entities. Integration snapshots restore an existing entry's enabled state and safely scrubbed options through the shared options-flow walker, with a fresh safety image required for option restoration. Credentials, entry.data and subentries are not captured. Historical images without options report a partial restore.",
     "guards": "Newest/manual/age/confirmation controls and human-only deletion settings remain enforced. An incomplete inventory refuses deletion. Full restore is refused under hidden-entity enforcement; edit content and actual target identities are checked.",
     "concurrency": "Preflight comparisons are optimistic; Core agents and external filesystem writers do not share an atomic lock with HA-MCP. No uncertain mutation is retried.",
     "qualification": "Container exercises genuine local archives and edit captures. Full installation restore and HAOS/Supervisor reader/writer are not live qualified."
@@ -312,11 +312,11 @@
     },
     {
       "surface": "ha_call_service.ws_command",
-      "native_compatibility": "Every non-null ws_command is unsupported before Home Assistant command dispatch, including commands with dedicated native tools. No semantic map is implemented. Native MCP/Assist discovery disclose the limitation; remote backend retains transport capability. A future bounded map requires a separate compatibility decision."
+      "native_compatibility": "Twelve known read commands map to running Core owners and their validators: registry reads, config/states/services, network URLs and Repairs issues. Unmapped commands, WS mutations and subscriptions refuse before dispatch. Discovery discloses this bounded support; the remote backend retains its transport capability. No localhost transport fallback is used."
     },
     {
       "surface": "ha_manage_custom_tool api_get/api_post/ws_send",
-      "native_compatibility": "callable saved-script ABI names return UNSUPPORTED_OPERATION before Home Assistant I/O; saved source is preserved; call_tool invokes the native Engine with current actor, tool policy and visibility. No REST/WebSocket emulation or semantic-map fallback is provided."
+      "native_compatibility": "GET supports config, states and services; POST supports templates, services and custom events; ws_send supports the same twelve bounded Core read commands. Each call preserves Engine admission and visibility gates. Unmapped endpoints refuse before dispatch and saved source is preserved. call_tool invokes the native Engine; no localhost transport fallback or replay is provided."
     },
     {
       "surface": "caller attribution",

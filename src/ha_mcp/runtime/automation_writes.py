@@ -254,9 +254,9 @@ class AutomationWriteTools(AutomationRuntimeTools):
         schedule / boolean -> ha_config_set_helper.
 
         MODES (pick one; each can also take `enabled`, which alone with
-        `identifier` turns the automation on or off without touching config):
+        `entity_id` turns the automation on or off without touching config):
         - python_transform: surgical edits to an existing automation. Requires
-          identifier and config_hash from ha_config_get_automation(). Operates on
+          entity_id and config_hash from ha_config_get_automation(). Operates on
           the fetched config, which uses HA's plural root keys
           'triggers'/'actions'/'conditions', e.g.
           python_transform="config['triggers'].append({'trigger': 'state', 'entity_id': 'binary_sensor.motion', 'to': 'on'})"
@@ -266,21 +266,21 @@ class AutomationWriteTools(AutomationRuntimeTools):
         - take_control_of_blueprint: convert a blueprint-backed automation into a
           standalone one. Takes no config of its own.
 
-        IDENTITY: omit identifier and config['id'] to create with a generated ID;
-        an unused raw ID creates that specific ID. Reusing an identifier targets
+        IDENTITY: omit entity_id and config['id'] to create with a generated ID;
+        an unused raw ID creates that specific ID. Reusing an entity_id targets
         the same automation even if the alias changes; to rename or replace it,
         read it first and pass its config_hash — a changed alias without that
         hash is rejected before writing. The returned `automation_id` is the
-        resolved entity_id, falling back to the input identifier or the
+        resolved entity_id, falling back to the input entity_id or the
         generated unique_id.
 
         EXAMPLES:
         - Create: ha_config_set_automation(config={"alias": "Morning Lights", "triggers": [{"trigger": "time", "at": "07:00:00"}], "actions": [{"action": "light.turn_on", "target": {"area_id": "bedroom"}}]})
         - From a blueprint: ha_config_set_automation(config={"alias": "Motion Light Kitchen", "use_blueprint": {"path": "homeassistant/motion_light.yaml", "input": {"motion_entity": "binary_sensor.kitchen_motion", "light_target": {"entity_id": "light.kitchen"}}}})
-        - Update: current = ha_config_get_automation(identifier="automation.x"); ha_config_set_automation(identifier="automation.x", config_hash=current["config_hash"], config={...})
-        - Disable: ha_config_set_automation(identifier="automation.x", enabled=False)
-        - Run now: ha_config_set_automation(identifier="automation.x", run_actions=True)
-        - Take control: ha_config_set_automation(identifier="automation.x", take_control_of_blueprint=True)
+        - Update: current = ha_config_get_automation(entity_id="automation.x"); ha_config_set_automation(entity_id="automation.x", config_hash=current["config_hash"], config={...})
+        - Disable: ha_config_set_automation(entity_id="automation.x", enabled=False)
+        - Run now: ha_config_set_automation(entity_id="automation.x", run_actions=True)
+        - Take control: ha_config_set_automation(entity_id="automation.x", take_control_of_blueprint=True)
 
         TAKE CONTROL is one-way: later blueprint edits stop reaching the
         automation; to change an input value, update 'use_blueprint.input'

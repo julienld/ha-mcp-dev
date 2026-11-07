@@ -296,19 +296,17 @@ that owner has a registered semantic operation. Calling raw handlers with a fake
 connection would re-create the WebSocket server in-process and bypass its
 intended boundary.
 
-The current native runtime rejects **every** non-null `ws_command`, including
-commands whose dedicated tools already have native owners. It returns a structured
-unsupported-capability error before Home Assistant command dispatch. No capability map is
-implemented. Native MCP and Assist discovery disclose this limitation while
-preserving the parameter schema. A future bounded map could call existing owners
-with their validators; it requires a separate compatibility decision and tests.
-The native runtime must never fall back to
-localhost WebSocket or REST after a write may have started. The remote backend
-can retain its existing arbitrary transport support. Keeping the public
-parameter while narrowing native capabilities is **partial compatibility** and
-must be visible in discovery and release notes.
+The native runtime maps twelve known read commands to the running Core owners
+and their validators: registry reads, config/states/services, network URLs and
+Repairs issues. Unmapped commands, mutations and subscriptions return a structured
+unsupported-capability error before dispatch. Native MCP and Assist discovery
+advertise this bounded support. The remote backend retains its transport support.
+Native never falls back to localhost WebSocket or REST, or replays a write after
+an effect may have started.
 
-The same applies to saved custom tools' `api_get`, `api_post`, `ws_send` ABI.
+Saved custom tools' `api_get`, `api_post` and `ws_send` use the same bounded
+compatibility contract, detailed [below](#bounded-raw-compatibility). GET supports
+config, states and services; POST supports templates, services and custom events.
 `call_tool(name, arguments)` is the portable common-engine route. Keep saved
 source and report the unsupported operation when an old script uses an
 unmapped raw endpoint; do not delete scripts or translate them heuristically.
@@ -565,6 +563,8 @@ selection, registered owner and tool capabilities after asynchronous instance
 resolution, immediately before the callback. Refusals before dispatch remain
 not-started; exceptions after a callback has begun remain unknown outcomes.
 
+### Bounded raw compatibility
+
 Native raw compatibility is bounded and explicit. `ha_call_service(ws_command=...)`
 and script `ws_send` map twelve known read commands to the running Core owners:
 area/floor/label/device/entity registry reads, config/states/services, network URLs
@@ -669,9 +669,11 @@ Deletion retains the newest/manual/age/confirmation gates and refuses an
 incomplete inventory. These are optimistic checks against other Core agents
 and external filesystem writers, rather than atomic archive transactions.
 
-Full restore requires a completed safety archive including the database. The
-target, manager, reader/writer, agent and protection stay pinned through safety
-capture and deferred Core handoff. Its reply confirms scheduling only, with
+Full restore honors `safety_backup`: when requested, it requires a completed
+safety archive covering the selected restoration parts, including the database
+only when database restoration is selected. With `safety_backup=false`, no safety
+archive is created and the response says so. The target, manager, reader/writer,
+agent and protection stay pinned through any safety capture and deferred Core handoff. Its reply confirms scheduling only, with
 `restore_completed=false`. Hidden-entity enforcement refuses full restore.
 Edit backups reuse the existing store and native domain restorers, checking
 actual content and target identities. Renamed scripts retain their storage key.

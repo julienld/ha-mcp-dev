@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -18,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from qualification_artifacts import (
     native_runtime_selected,
     stage_candidate_component,
+    validate_runtime_target,
     verify_candidate_artifacts,
 )
 
@@ -176,6 +178,7 @@ def attest_native_runtime(base_url: str, token: str, assets: Path) -> None:
     }
     if any(observed.get(key) != value for key, value in expected.items()):
         raise AssertionError(f"Native HAOS runtime attestation failed: {observed!r}")
+    validate_runtime_target(observed, os.environ)
     destination = Path("/tmp/haos-diagnostics")
     destination.mkdir(parents=True, exist_ok=True)
     (destination / "native-runtime.json").write_text(

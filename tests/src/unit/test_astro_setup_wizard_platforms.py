@@ -67,6 +67,14 @@ def test_native_component_setup_uses_owner_and_home_assistant_webhook(
     assert "/api/webhook/" in result.dom
     assert ":9584" not in result.dom
     assert "paste an &lt;strong&gt;Administrator access token" not in result.dom
+    if remote_path in {"cloudflared", "custom"}:
+        assert "Trust X-Forwarded-For" in result.dom
+        assert "Trusted proxies" in result.dom
+        assert (
+            "https://www.home-assistant.io/integrations/http/#reverse-proxies"
+            in result.dom
+        )
+        assert "HTTP 400" in result.dom
 
 
 def test_component_tunnel_can_restrict_the_origin_to_one_webhook(

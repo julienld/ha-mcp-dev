@@ -46,7 +46,7 @@ Existing server entries keep their selected runtime and connection settings when
 1. Install the **HA-MCP integration** (requires **Home Assistant 2026.8.0 or newer**; see [compatibility details](docs/in-process-server.md#requirements)). On **Home Assistant 2026.8–2026.10**, open HACS, search for **HA-MCP**, then **Download**.
    On **Home Assistant 2026.11 or newer**, open **Settings → Marketplace**, accept its first-run warning, and search for **HA-MCP**, then **Install**. HA-MCP is in the default catalog, so installing it and receiving its updates do not require connecting GitHub or adding a custom repository. The badge above also opens its catalog page.
    Already installed from the earlier `homeassistant-ai/ha-mcp-integration` repository? It keeps receiving the same releases. On the Marketplace, keep GitHub connected for its background checks on that custom repository.
-   Older installed releases may still appear as **HA-MCP — Manage Home Assistant with AI**; searching for **HA-MCP** matches both names.
+   Older installed releases may still appear as **HA-MCP Custom Component**; searching for **HA-MCP** matches both names.
 2. **Restart Home Assistant.**
 3. Go to **Settings → Devices & Services → Add Integration**, search for **HA-MCP — Manage Home Assistant with AI** and choose **HA-MCP Server**. Select an active administrator as its owner.
 4. Choose the access you need: enable MCP access through Home Assistant, the LLM API export for Assist, or both. These are explicit choices; a new entry enables neither automatically.

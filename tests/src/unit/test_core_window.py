@@ -245,11 +245,23 @@ def test_release_paths_check_actual_source_floors_before_publication(
     assert index < next(
         index for index, step in enumerate(steps) if step.get("name") == guarded_step
     )
-    assert "--check-floor" in guard["run"] and "--from-file" not in guard["run"]
+    assert "--check-floor" in guard["run"]
     assert "continue-on-error" not in guard
     if name == "sync-integration-mirror.yml":
+        assert (
+            next(
+                i
+                for i, step in enumerate(steps)
+                if step.get("name") == "Fetch and verify the publisher's paired assets"
+            )
+            < index
+        )
+        assert "--from-file" in guard["run"]
+        assert ".core_window" in guard["run"] and "native-build.json" in guard["run"]
         assert "--repository" in guard["run"]
         assert guard["env"]["RELEASE_SOURCE"] == "${{ steps.release.outputs.src }}"
+    else:
+        assert "--from-file" not in guard["run"]
     if name == "publish-dev.yml":
         for publisher in [
             "publish-pypi-dev",

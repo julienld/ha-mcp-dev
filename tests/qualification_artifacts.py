@@ -9,8 +9,29 @@ import shutil
 import subprocess
 import sys
 import zipfile
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
+
+
+def validate_runtime_target(
+    observed: dict[str, Any], environment: Mapping[str, str]
+) -> None:
+    """Reject a runtime that does not match the requested qualification lane."""
+    expected_core = environment.get("E2E_EXPECTED_CORE_VERSION")
+    if expected_core and observed.get("core_version") != expected_core:
+        raise AssertionError(
+            f"Core version mismatch: expected {expected_core}, observed {observed.get('core_version')}"
+        )
+    expected_arch = environment.get("E2E_EXPECTED_ARCH", "").lower()
+    architecture = str(observed.get("architecture", "")).lower()
+    aliases = {"x64": "x86_64", "amd64": "x86_64", "arm64": "aarch64"}
+    if expected_arch and aliases.get(expected_arch, expected_arch) != aliases.get(
+        architecture, architecture
+    ):
+        raise AssertionError(
+            f"Core architecture mismatch: expected {expected_arch}, observed {architecture}"
+        )
 
 
 def native_runtime_selected() -> bool:

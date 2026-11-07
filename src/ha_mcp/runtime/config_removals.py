@@ -125,7 +125,7 @@ class AutomationRemovalTools(AutomationReadTools, ConfigRemovalTools):
         The returned `automation_id` is the resolved entity_id (canonical
         form, e.g. `automation.morning_routine`) when the registry lookup
         succeeded before the delete, falling back to the input
-        `identifier` otherwise.
+        `entity_id` otherwise.
 
         EXAMPLES:
         - Delete automation: ha_config_remove_automation("automation.old_automation")

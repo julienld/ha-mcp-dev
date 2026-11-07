@@ -14,6 +14,7 @@ import pytest
 from ha_mcp.runtime import Engine
 from ha_mcp.runtime.radio_specs import SUPPORTED
 from ha_mcp.tool_api import CallContext
+from ha_mcp.utils.registry_update_lock import registry_update_lock
 
 from .test_component_ws_search import _REAL_VOL
 from .test_native_engine_backend import native as native
@@ -304,7 +305,9 @@ async def test_radio_failure_after_dispatch_is_unknown_without_replay(matter, er
     assert matter.client.commission_with_code.await_count == 1
 
 
-async def test_double_cancel_keeps_radio_mutex_until_owned_driver_call_drains(matter):
+async def test_double_cancel_keeps_radio_mutex_until_owned_driver_call_drains(
+    matter, monkeypatch
+):
     radios = matter.radios
     started, release = asyncio.Event(), asyncio.Event()
 
@@ -322,21 +325,28 @@ async def test_double_cancel_keeps_radio_mutex_until_owned_driver_call_drains(ma
 
     first = asyncio.create_task(write("first"))
     await started.wait()
+    mutex = registry_update_lock("radio", "matter")
+    acquire = mutex.acquire
+    waiting = asyncio.Event()
+
+    async def observed_acquire():
+        waiting.set()
+        return await acquire()
+
+    monkeypatch.setattr(mutex, "acquire", observed_acquire)
     first.cancel()
     await asyncio.sleep(0)
     first.cancel()
     second = asyncio.create_task(write("second"))
-    await asyncio.sleep(0)
-    await asyncio.sleep(0)
-    kept = (
-        not first.done()
-        and not second.done()
-        and matter.client.commission_with_code.await_count == 1
-    )
-    release.set()
-    with pytest.raises(asyncio.CancelledError):
-        _ = await first
-    result = await second
+    try:
+        await asyncio.wait_for(waiting.wait(), timeout=1)
+        kept = not first.done() and not second.done()
+        assert matter.client.commission_with_code.await_count == 1
+    finally:
+        release.set()
+        with pytest.raises(asyncio.CancelledError):
+            _ = await first
+        result = await second
     assert (
         kept
         and result["success"]

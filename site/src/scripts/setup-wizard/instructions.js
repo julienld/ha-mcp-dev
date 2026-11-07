@@ -14,6 +14,10 @@ export function buildInstructions(ctx, instructions) {
   pushGeminiNotes(ctx, instructions);
 }
 
+function componentProxyGuidance() {
+  return `<p class="text-slate-400 text-xs mt-2"><strong>Home Assistant proxy settings:</strong> before using a proxy that forwards client addresses, open <strong>Settings → System → Network → HTTP server</strong>, enable <strong>Trust X-Forwarded-For</strong> and add the immediate proxy's actual IP or container subnet to <strong>Trusted proxies</strong>. An untrusted forwarding proxy causes HTTP 400. Trust only your proxy, never all addresses. Use your configured Home Assistant HTTP port and TLS settings (default port 80 on current HAOS, 8123 on Container). These settings apply to both quick and named tunnels, including MCP-only ingress. Nabu Casa does not require them. See <a href="https://www.home-assistant.io/integrations/http/#reverse-proxies" target="_blank" rel="noopener noreferrer" class="text-blue-400 hover:underline">Home Assistant's reverse-proxy guide</a>.</p>`;
+}
+
 function pushGuideLink(ctx, instructions) {
   const { isLocal } = ctx;
   // Add link to full guide for Claude Desktop + Local
@@ -208,7 +212,8 @@ volumes:
           </div>`
             : `<div class="bg-slate-800/50 border border-slate-700/50 rounded-lg p-3 mt-3">
             <p class="text-slate-300 text-sm font-medium">Your connect URL (via tunnel / reverse proxy)</p>
-            <p class="text-slate-400 text-xs mt-1">Point the tunnel or reverse proxy below at Home Assistant's existing HTTP server (default <code class="bg-slate-800 px-1 rounded">8123</code>; use your actual port and TLS configuration). Keep the connect URL's <code>/api/webhook/&lt;webhook-id&gt;</code> path. Native opens no separate server port. Enable <strong>Remote access via webhook</strong> in the integration options; it also supplies local access through Home Assistant.</p>
+            <p class="text-slate-400 text-xs mt-1">Point the tunnel or reverse proxy below at Home Assistant's existing HTTP server (use your actual port and TLS configuration). Keep the connect URL's <code>/api/webhook/&lt;webhook-id&gt;</code> path. Native opens no separate server port. Enable <strong>Remote access via webhook</strong> in the integration options; it also supplies local access through Home Assistant.</p>
+            ${componentProxyGuidance()}
           </div>`)
         : `<div class="bg-slate-800/50 border border-slate-700/50 rounded-lg p-3 mt-3">
             <p class="text-slate-300 text-sm font-medium">Your connect URL (local)</p>
@@ -252,6 +257,7 @@ function pushRemotePath(ctx, instructions) {
     if (state.remotePath === 'cloudflared') {
       proxyInstr = `<div class="instruction-block">
           <h3 class="instruction-title">Cloudflare Tunnel</h3>
+          ${isComponent ? componentProxyGuidance() : ''}
           <p class="text-slate-400 text-xs mb-3">No port forwarding required, free tier available, works behind CGNAT. Optional: layer Cloudflare Access on top of the tunnel for SSO/policy-based authentication.</p>
           <p class="text-slate-300 mb-3">Install cloudflared:</p>
           <pre class="code-block"><code># macOS

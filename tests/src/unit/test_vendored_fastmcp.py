@@ -29,6 +29,12 @@ _VENDORED_DISTRIBUTIONS = {"fastmcp", "fastmcp-slim", "mcp", "mcp-types", "rich"
 # Declared by fastmcp-slim's server extra but never imported by the vendored
 # code; ha-mcp must not pin the shared copy (#2135/#2146).
 _NOT_DECLARED = {"websockets"}
+_SHARED_RICH_USERS = {
+    "src/ha_mcp/_rich_compat.py",
+    "tests/src/unit/test_rich_compat.py",
+    "tests/src/unit/test_vendored_fastmcp.py",
+    "tests/addon/test_addon_startup.py",
+}
 # These test surfaces explicitly exercise Core's unchanged shared SDK.
 # The component itself uses the private SDK; the peer runs outside the HA process.
 _SHARED_SDK_USERS = {
@@ -149,8 +155,6 @@ def test_no_first_party_module_imports_the_shared_packages():
     offenders = [
         f"{path.relative_to(_REPO_ROOT)}: {names}"
         for path in _first_party_files()
-        # Rich's explicit Core compatibility shim and its tests inspect the
-        # shared module. Only the private MCP/vendor consumers must avoid it.
         if (
             names := [
                 name
@@ -158,10 +162,21 @@ def test_no_first_party_module_imports_the_shared_packages():
                     path.read_text("utf-8")
                 )
                 if name.split(".")[0] != "rich"
+                or path.relative_to(_REPO_ROOT).as_posix() not in _SHARED_RICH_USERS
             ]
         )
     ]
     assert not offenders, f"import ha_mcp._vendor.<pkg> instead: {offenders}"
+
+
+def test_shared_rich_import_in_native_source_is_rejected(tmp_path, monkeypatch):
+    path = tmp_path / "src/ha_mcp/native_reachable.py"
+    path.parent.mkdir(parents=True)
+    path.write_text("import rich\n", encoding="utf-8")
+    monkeypatch.setitem(globals(), "_REPO_ROOT", tmp_path)
+    monkeypatch.setitem(globals(), "_first_party_files", lambda: [path])
+    with pytest.raises(AssertionError, match="rich"):
+        test_no_first_party_module_imports_the_shared_packages()
 
 
 _ISOLATION_PROBE = """

@@ -47,3 +47,19 @@ def test_profile_workflow_preserves_inputs_without_publish_authority() -> None:
     upload = next(step for step in steps if "upload-artifact" in step.get("uses", ""))
     assert upload["with"]["path"] == "dist/native-distribution/"
     assert upload["with"]["if-no-files-found"] == "error"
+
+
+def test_pull_request_performance_worker_receives_no_frontend_metadata_token() -> None:
+    root = Path(__file__).resolve().parents[3]
+    workflow = yaml.safe_load(
+        (root / ".github/workflows/performance-tests.yml").read_text(encoding="utf-8")
+    )
+    step = next(
+        row
+        for row in workflow["jobs"]["performance-tests"]["steps"]
+        if row.get("id") == "perf_tests"
+    )
+    assert (
+        step["env"]["HACS_FRONTEND_GITHUB_TOKEN"]
+        == "${{ github.event_name != 'pull_request' && github.token || '' }}"
+    )

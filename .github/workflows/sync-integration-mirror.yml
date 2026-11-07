@@ -246,12 +246,6 @@ jobs:
           # renovate: datasource=github-releases depName=astral-sh/uv
           version: "0.13.4"
 
-      - name: Require the release snapshot Core floor before mirror publication
-        if: env.CHANNEL != 'none'
-        env:
-          RELEASE_SOURCE: ${{ steps.release.outputs.src }}
-        run: uv run --locked -s scripts/core_window.py --repository "$RELEASE_SOURCE" --check-floor --output "$RUNNER_TEMP/mirror-core-window.json"
-
       - name: Fetch and verify the publisher's paired assets
         if: env.CHANNEL != 'none'
         env:
@@ -267,6 +261,15 @@ jobs:
           uv run --locked -s scripts/native_release_delivery.py verify \
             --repository "$GITHUB_REPOSITORY" --tag "$UPSTREAM_TAG" \
             --revision "$(git -C "$RELEASE_SOURCE" rev-parse HEAD)" --assets "$RUNNER_TEMP/native-release"
+
+      - name: Require the release snapshot Core floor before mirror publication
+        if: env.CHANNEL != 'none'
+        env:
+          RELEASE_SOURCE: ${{ steps.release.outputs.src }}
+        run: |
+          jq -e '.core_window' "$RUNNER_TEMP/native-release/native-build.json" > "$RUNNER_TEMP/mirror-core-window.json"
+          uv run --locked -s scripts/core_window.py --repository "$RELEASE_SOURCE" \
+            --from-file "$RUNNER_TEMP/mirror-core-window.json" --check-floor
 
       - name: Set up mirror push key
         env:
