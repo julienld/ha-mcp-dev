@@ -117,9 +117,12 @@ __all__ = [
     "REDACTED_SET",
     "RedactSecretsMiddleware",
     "_clear_known_secret_values",
+    "carries_sentinel",
     "collect_addon_secret_values",
+    "harvest_secret_strings",
     "is_password_flow_field",
     "is_sentinel",
+    "placeholder_option_keys",
     "redact_addon_options",
     "redact_flow_schema",
     "redact_options_by_flow_schema",
@@ -127,6 +130,7 @@ __all__ = [
     "register_known_secret_values",
     "sentinel_for",
     "sentinel_option_keys",
+    "sentinel_replacement",
 ]
 
 

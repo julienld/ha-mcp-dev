@@ -39,8 +39,6 @@ from ha_mcp.runtime.flows.submission import (
 )
 from ha_mcp.tool_api import ToolFailure as ToolError
 
-_RETRYABLE_GATEWAY_STATUS = frozenset({502, 503, 504})
-
 logger = logging.getLogger(__name__)
 
 # Flow step types an MCP client cannot drive: external steps need a browser

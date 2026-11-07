@@ -6,3 +6,5 @@ from ha_mcp.runtime import integration_state as _shared
 set_log_level = legacy_helper_flow(_shared.set_log_level)
 set_entry_enabled = legacy_helper_flow(_shared.set_entry_enabled)
 _PERSISTENCE_NOTES = _shared._PERSISTENCE_NOTES
+
+__all__ = ["_PERSISTENCE_NOTES", "set_entry_enabled", "set_log_level"]

@@ -9,3 +9,12 @@ _list_commands = legacy_helper_flow(_shared._list_commands)
 send_ws_command = legacy_helper_flow(_shared.send_ws_command)
 logger = _shared.logger
 _LIST_SUGGESTION = _shared._LIST_SUGGESTION
+
+__all__ = [
+    "_LIST_SUGGESTION",
+    "_list_commands",
+    "attach_ws_commands",
+    "logger",
+    "reject_ws_command_conflicts",
+    "send_ws_command",
+]

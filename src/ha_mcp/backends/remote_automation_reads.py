@@ -17,16 +17,6 @@ from ha_mcp.tools.util_helpers import list_visible_registry_ids
 
 logger = logging.getLogger(__name__)
 
-_REFERENCES_NEED_COMPONENT = (
-    "references need the ha_mcp_tools component's automation_config bridge, "
-    "which is not available"
-)
-
-_REFERENCES_NOT_LOADED = (
-    "references unavailable: Home Assistant has not loaded this automation "
-    "(disabled, or it failed to load)"
-)
-
 
 class _Target(NamedTuple):
     """An automation resolved for a read or a write."""

@@ -8,9 +8,6 @@ from ha_mcp.tool_api import BackendTools
 from .errors import raise_classified
 from .flows.introspect import abort_probe_flow
 from .flows.session import FlowSession
-from .integration_components import (
-    _split_component_entry_row as _split_component_entry_row,
-)
 from .integration_schema import options_from_form_flow
 
 logger = logging.getLogger(__name__)

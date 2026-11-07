@@ -139,3 +139,11 @@ class _LegacyIntegrationRestore:
         self, config: dict[str, Any], current_options: dict[str, Any]
     ) -> None:
         await _restore_options(self.client, self.entry_id, config, current_options)
+
+
+__all__ = [
+    "_enabled_then_failed",
+    "_options_not_restored",
+    "fetch_integration",
+    "restore_integration",
+]

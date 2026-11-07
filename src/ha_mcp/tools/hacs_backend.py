@@ -276,3 +276,13 @@ async def fetch_releases(
     if warnings:
         out["warnings"] = warnings
     return out
+
+
+__all__ = [
+    "CATEGORY_HELP",
+    "StoreApi",
+    "accept_warning",
+    "detect_store_api",
+    "fetch_releases",
+    "raise_store_error",
+]

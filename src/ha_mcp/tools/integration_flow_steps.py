@@ -22,3 +22,25 @@ _options_target = legacy_helper_flow(_shared._options_target)
 run_integration_step = legacy_helper_flow(_shared.run_integration_step)
 logger = _shared.logger
 _opened_flows = _shared._opened_flows
+
+__all__ = [
+    "FlowTarget",
+    "_finished_response",
+    "_form_payload",
+    "_menu_payload",
+    "_opened_flows",
+    "_options_target",
+    "_raise_flow_not_open",
+    "_refuse",
+    "_require_flow_id",
+    "_require_opened",
+    "_start_setup_flow",
+    "abort_step_flow",
+    "drive_flow",
+    "logger",
+    "open_step_answer",
+    "read_step",
+    "run_integration_step",
+    "settle",
+    "submit_step",
+]

@@ -29,3 +29,28 @@ _check_identity_anchors = legacy_helper_flow(_shared._check_identity_anchors)
 logger = _shared.logger
 _KNOWN_AUXILIARY_ENTRY_DOMAINS = _shared._KNOWN_AUXILIARY_ENTRY_DOMAINS
 _DEVICE_CONNECTION_ID_TYPES = _shared._DEVICE_CONNECTION_ID_TYPES
+
+__all__ = [
+    "EntryUniqueId",
+    "ReconfigureIdentity",
+    "RelatedEntries",
+    "_DEVICE_CONNECTION_ID_TYPES",
+    "_KNOWN_AUXILIARY_ENTRY_DOMAINS",
+    "_check_identity_anchors",
+    "_classify_related_entries",
+    "_collect_reconfigure_identity",
+    "_device_hardware_ids",
+    "_device_registry_rows",
+    "_entry_entity_rows",
+    "_has_reconfigure_identity_anchor",
+    "_is_hardware_identifier",
+    "_normalise_identity_value",
+    "_raise_identity_mismatch",
+    "_registry_rows",
+    "_validated_config_entry_rows",
+    "_verification_state",
+    "check_reconfigure_identity",
+    "cross_domain_warnings",
+    "fetch_config_entry_unique_id",
+    "logger",
+]
