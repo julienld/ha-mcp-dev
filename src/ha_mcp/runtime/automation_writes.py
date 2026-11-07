@@ -174,14 +174,14 @@ class AutomationWriteTools(AutomationRuntimeTools):
             dict[str, Any] | None,
             JSON_STRING_COERCION,
             Field(
-                description="Complete automation configuration. Purpose-specific triggers/conditions (HA 2026.7+ default: 'trigger': '<domain>.<name>' with 'target'/'options') are valid config. Mutually exclusive with python_transform.",
+                description="Complete automation configuration, written as given. Purpose-specific triggers/conditions (HA 2026.7+ default: 'trigger': '<domain>.<name>' with 'target'/'options') are valid config. Mutually exclusive with python_transform.",
                 default=None,
             ),
         ] = None,
-        identifier: Annotated[
+        entity_id: Annotated[
             str | None,
             Field(
-                description="Target automation entity_id or HA config 'id' (unique_id). Omit for creation with a generated ID. Values such as 'new' are literal IDs, not placeholders.",
+                description="The automation's entity_id (automation.x) or its config id; omit to create. An unused config id creates the automation under that id; values such as 'new' are literal ids, not placeholders.",
                 default=None,
             ),
         ] = None,
@@ -201,7 +201,7 @@ class AutomationWriteTools(AutomationRuntimeTools):
         take_control_of_blueprint: Annotated[
             bool,
             Field(
-                description="Convert a blueprint-backed automation into an editable standalone one -- the UI's \"Take control\". Renders the blueprint with its current inputs and saves the result over the same automation, which keeps its entity_id, alias and description and then has its own triggers/conditions/actions and no 'use_blueprint'. Requires identifier; mutually exclusive with config and python_transform.",
+                description="Convert a blueprint-backed automation into an editable standalone one -- the UI's \"Take control\". Renders the blueprint with its current inputs and saves the result over the same automation, which keeps its entity_id, alias and description and then has its own triggers/conditions/actions and no 'use_blueprint'. Requires entity_id; mutually exclusive with config and python_transform.",
                 default=False,
             ),
         ] = False,
@@ -229,18 +229,12 @@ class AutomationWriteTools(AutomationRuntimeTools):
         run_actions: Annotated[
             bool,
             Field(
-                description="Run the automation's actions now, skipping its triggers and conditions (automation.trigger, the UI's Run actions). Applied after `enabled` and after any config write. Can be used standalone with identifier and no config.",
+                description="Run the automation's actions now, skipping its triggers and conditions (automation.trigger, the UI's Run actions). Applied after `enabled` and after any config write. Can be used standalone with entity_id and no config.",
                 default=False,
             ),
         ] = False,
         MandatoryBPS: Annotated[bool, Field(default=True)] = True,
         BestPracticeKey: BestPracticeKeyParam = None,
-        entity_id: Annotated[
-            str | None,
-            Field(
-                description="Automation entity_id or config id; compatible alias of identifier."
-            ),
-        ] = None,
     ) -> dict[str, Any]:
         """Create or update a Home Assistant automation.
 
@@ -297,9 +291,7 @@ class AutomationWriteTools(AutomationRuntimeTools):
         `took_control_of_blueprint`. To preview the rendering without writing
         anything, use ha_manage_blueprints(action="substitute", path=..., input=...).
         """
-        identifier = compatible_automation_identifier(
-            identifier, entity_id, required=False
-        )
+        identifier = compatible_automation_identifier(None, entity_id, required=False)
         bp_warnings: BestPracticeCheckResult = BestPracticeCheckResult()
         try:
             _validate_automation_identifier(identifier)

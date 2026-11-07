@@ -29,6 +29,10 @@ from .runtime.redaction import (
     sentinel_option_keys,
     with_serialized_variants,
 )
+from .runtime.redaction import carries_sentinel as carries_sentinel
+from .runtime.redaction import harvest_secret_strings as harvest_secret_strings
+from .runtime.redaction import placeholder_option_keys as placeholder_option_keys
+from .runtime.redaction import sentinel_replacement as sentinel_replacement
 
 
 def redaction_enabled() -> bool:
@@ -124,3 +128,10 @@ __all__ = [
     "sentinel_for",
     "sentinel_option_keys",
 ]
+
+
+def scrub_known_secrets(text: str) -> str:
+    """``text`` with every known secret value replaced, while the flag is on."""
+    if not redaction_enabled():
+        return text
+    return scrub_text(text, with_serialized_variants(known_secret_values()))

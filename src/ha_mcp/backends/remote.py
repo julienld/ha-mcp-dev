@@ -14,6 +14,7 @@ class RemoteBackend:
 
     def __init__(self, client: Any) -> None:
         self.client = client
+        self.cache_owner = client
         self._flows: Any = None
         self._reload_watches: Any = None
         self._entry_watches: Any = None
@@ -36,11 +37,13 @@ class RemoteBackend:
             "config.subentries.list",
             "config.flow.settings",
             "helpers.flow.types",
+            "helpers.flow.core_types",
             "config.reload.watch",
             "config.reload.wait",
             "config.reload.close",
             "config.flow.start",
             "config.flow.configure",
+            "config.flow.read",
             "config.flow.abort",
         }:
             return await self._flow_operation(operation, arguments, context)
@@ -125,6 +128,7 @@ class RemoteBackend:
         if operation in {
             "config.flow.start",
             "config.flow.configure",
+            "config.flow.read",
             "config.flow.abort",
         }:
             if self._flows is None:

@@ -34,6 +34,74 @@ class UnknownStep(Exception):
     pass
 
 
+async def test_options_restore_keeps_a_native_unknown_initialization_outcome() -> None:
+    from ha_mcp.runtime.flows.entry import OptionsFlowError, update_config_entry_options
+
+    client = SimpleNamespace(
+        get_config_entry=AsyncMock(
+            return_value={"domain": "demo", "supports_options": True}
+        ),
+        start_options_flow=AsyncMock(
+            side_effect=ToolFailure(
+                "OUTCOME_UNKNOWN", "Core may have acted", status="outcome_unknown"
+            )
+        ),
+    )
+    with pytest.raises(OptionsFlowError) as error:
+        await update_config_entry_options(
+            client,
+            "entry",
+            {"interval": 30},
+            expected_domain="demo",
+            keep_current_values=False,
+            fixed_options={"interval": 10},
+        )
+    assert error.value.apply_status == "unknown"
+    client.start_options_flow.assert_awaited_once_with("entry")
+
+
+async def test_explicit_flow_read_reenters_owned_core_step_once(flows: Any) -> None:
+    owner = manager()
+    backend = flows.NativeFlows(
+        SimpleNamespace(config_entries=SimpleNamespace(options=owner)), AsyncMock()
+    )
+    actor = CallContext("actor", client_id="caller")
+    try:
+        await backend.execute(
+            "config.flow.start", {"kind": "options", "handler": "entry"}, actor
+        )
+        result = await backend.execute("config.flow.read", {"flow_id": "owned"}, actor)
+        owner.async_configure.assert_awaited_once_with("owned", None)
+        assert result["type"] == "create_entry" and "private" not in result
+        assert not backend.owned
+    finally:
+        await backend.stop()
+
+
+async def test_explicit_flow_read_cannot_borrow_another_callers_flow(
+    flows: Any,
+) -> None:
+    owner = manager()
+    backend = flows.NativeFlows(
+        SimpleNamespace(config_entries=SimpleNamespace(options=owner)), AsyncMock()
+    )
+    try:
+        await backend.execute(
+            "config.flow.start",
+            {"kind": "options", "handler": "entry"},
+            CallContext("actor", client_id="first"),
+        )
+        with pytest.raises(ToolFailure, match="does not own"):
+            await backend.execute(
+                "config.flow.read",
+                {"flow_id": "owned"},
+                CallContext("actor", client_id="second"),
+            )
+        owner.async_configure.assert_not_awaited()
+    finally:
+        await backend.stop()
+
+
 async def test_reconfigure_start_compares_revision_before_core_init(flows: Any) -> None:
     owner = manager()
     entry = SimpleNamespace(modified_at=SimpleNamespace(timestamp=lambda: 2.0))

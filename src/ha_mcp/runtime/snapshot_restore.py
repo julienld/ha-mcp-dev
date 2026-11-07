@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Literal, NoReturn, Protocol
 
-from .snapshot_files import SnapshotFilesMixin, _is_flow_helper_domain
+from .snapshot_files import SnapshotFilesMixin, _restore_is_flow_driven
 from .snapshot_payloads import BackupRestoreError
 
 ApplyStatus = Literal["not_applied", "unknown", "applied"]
@@ -55,9 +55,7 @@ async def restore_snapshot_data(
     step = "safety_preflight"
     try:
         needs_safety = await operations.needs_safety()
-        flow_driven = (
-            _is_flow_helper_domain(domain) or domain == "helper_config_subentry"
-        )
+        flow_driven = _restore_is_flow_driven(domain)
         if needs_safety and (flow_driven or take_safety_backup):
             step = "safety_backup"
             safety_path = await operations.capture_safety(outcome)

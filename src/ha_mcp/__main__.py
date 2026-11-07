@@ -1,6 +1,29 @@
 """Home Assistant MCP Server."""
 
+import asyncio
+import copy
+import hashlib
+import ipaddress
+import logging
+import os
+import secrets
+import signal
+import stat
 import sys
+import threading
+from collections.abc import Coroutine
+from typing import TYPE_CHECKING, Any, NoReturn
+
+import truststore
+
+from ha_mcp.browser_landing import (
+    register_browser_landing as _register_landing_route,
+)
+from ha_mcp.browser_landing import (
+    register_healthz as _register_healthz_route,
+)
+from ha_mcp.cli_presentation import _get_show_banner
+from ha_mcp.log_filters import install_sdk_log_filters
 
 if sys.version_info < (3, 13):  # noqa: UP036 — uvx can bypass requires-python and run on 3.12
     # Write directly to stderr (not print) so this import-time version gate
@@ -15,32 +38,9 @@ if sys.version_info < (3, 13):  # noqa: UP036 — uvx can bypass requires-python
     )
     sys.exit(1)
 
-import truststore
 
 truststore.inject_into_ssl()
 
-import asyncio  # noqa: E402
-import copy  # noqa: E402
-import hashlib  # noqa: E402
-import ipaddress  # noqa: E402
-import logging  # noqa: E402
-import os  # noqa: E402
-import secrets  # noqa: E402
-import signal  # noqa: E402
-import stat  # noqa: E402
-import sys  # noqa: E402
-import threading  # noqa: E402
-from collections.abc import Coroutine  # noqa: E402
-from typing import TYPE_CHECKING, Any, NoReturn  # noqa: E402
-
-from ha_mcp.browser_landing import (  # noqa: E402
-    register_browser_landing as _register_landing_route,
-)
-from ha_mcp.browser_landing import (  # noqa: E402
-    register_healthz as _register_healthz_route,
-)
-from ha_mcp.cli_presentation import _get_show_banner  # noqa: E402
-from ha_mcp.log_filters import install_sdk_log_filters  # noqa: E402
 
 if TYPE_CHECKING:
     from ha_mcp._vendor.fastmcp import FastMCP
@@ -66,8 +66,8 @@ class OAuthProxyClient:
         self._oauth_clients: dict[str, HomeAssistantClient] = {}
         self._lock = threading.Lock()
 
-    def _get_oauth_client(self) -> "HomeAssistantClient":
-        """Get the OAuth client for the current request context."""
+    def current_client(self) -> "HomeAssistantClient":
+        """The requesting user's client; per-user caches key on it, not the proxy."""
         from ha_mcp._vendor.fastmcp.server.dependencies import get_access_token
         from ha_mcp.client.rest_client import (
             HomeAssistantAuthError,
@@ -117,7 +117,7 @@ class OAuthProxyClient:
 
     def __getattr__(self, name: str) -> Any:
         """Forward all attribute access to the OAuth client."""
-        client = self._get_oauth_client()
+        client = self.current_client()
         return getattr(client, name)
 
 

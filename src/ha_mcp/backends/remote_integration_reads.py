@@ -18,10 +18,18 @@ async def execute_inspection_operation(
     client: Any, operation: str, arguments: dict[str, Any]
 ) -> Any:
     if operation == "integrations.entries":
-        from ha_mcp.tools.tools_integrations import _fetch_entries_via_component
+        from ha_mcp.tools.component_config_entries import fetch_config_entries
 
-        rows = await _fetch_entries_via_component(client, **arguments)
-        return {"entries": rows} if rows is not None else None
+        result = await fetch_config_entries(client, **arguments)
+        return (
+            {
+                "entries": result.rows,
+                "secret_scrub_degraded": result.secret_scrub_degraded,
+                "type_filtered": result.type_filtered,
+            }
+            if result is not None
+            else None
+        )
     if operation == "integrations.log_levels":
         return await client.send_websocket_message({"type": "logger/log_info"})
     if operation == "integrations.knx_project":

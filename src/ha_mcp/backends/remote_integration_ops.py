@@ -1,5 +1,6 @@
 """Finite integration-management ports on the existing remote client."""
 
+import json
 from typing import Any
 
 from ha_mcp.tool_api import ToolFailure, UnsupportedOperation
@@ -18,8 +19,9 @@ INTEGRATION_OPERATIONS = frozenset(
         "integrations.identity.entities",
         "integrations.identity.devices",
         "integrations.identity.unique_id",
-        "integrations.identity.domain_unique_ids",
         "config.entries.list",
+        "integrations.commands",
+        "integrations.command.execute",
     }
 )
 
@@ -42,19 +44,19 @@ async def execute_integration_operation(
 
         value = await fetch_config_entry_unique_id(client, arguments["entry_id"])
         return value._asdict()
-    if operation == "integrations.identity.domain_unique_ids":
-        from ha_mcp.tools.component_config_entries import fetch_domain_unique_ids
-
-        return await fetch_domain_unique_ids(client, arguments["domain"])
-    if operation == "config.entries.list":
-        return await client.list_config_entries()
+    if operation in {
+        "config.entries.list",
+        "integrations.commands",
+        "integrations.command.execute",
+    }:
+        return await _command_operation(client, operation, arguments)
     if operation == "integrations.log_level.set":
         return await client.send_websocket_message(
             {
                 "type": "logger/integration_log_level",
                 "integration": arguments["domain"],
                 "level": arguments["level"],
-                "persistence": "once",
+                "persistence": arguments.get("persistence", "once"),
             }
         )
     if operation == "integrations.enabled.set":
@@ -72,4 +74,42 @@ async def execute_integration_operation(
                 "disabled_by": None if arguments["enabled"] else "user",
             }
         )
+    raise UnsupportedOperation(operation)
+
+
+async def _command_operation(
+    client: Any, operation: str, arguments: dict[str, Any]
+) -> Any:
+    from ha_mcp._vendor.fastmcp.exceptions import ToolError
+
+    try:
+        return await _execute_command(client, operation, arguments)
+    except ToolError as error:
+        payload = json.loads(str(error))
+        failure = payload["error"]
+        raise ToolFailure(failure["code"], failure["message"], data=payload) from error
+
+
+async def _execute_command(
+    client: Any, operation: str, arguments: dict[str, Any]
+) -> Any:
+    if operation == "config.entries.list":
+        if not arguments:
+            return await client.list_config_entries()
+        return await client._request(
+            "GET", "/config/config_entries/entry", params=arguments or None
+        )
+    if operation == "integrations.commands":
+        from ha_mcp.tools.core_contract import integration_commands
+
+        return await integration_commands(client, arguments["domain"])
+    if operation == "integrations.command.execute":
+        from ha_mcp.tools.backup_access import guard_snapshot_route
+
+        message = arguments["message"]
+        guard_snapshot_route(
+            ws_command=message["type"],
+            ws_params={k: v for k, v in message.items() if k != "type"},
+        )
+        return await client.send_websocket_message(arguments["message"])
     raise UnsupportedOperation(operation)

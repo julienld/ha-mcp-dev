@@ -133,11 +133,16 @@ class NativeFlows:
                     status="not_started",
                 )
             owned.touched = time.monotonic()
-            if operation != "config.flow.configure":
+            if operation not in {"config.flow.configure", "config.flow.read"}:
                 raise UnsupportedOperation(operation)
             return await await_owned_io(
                 self._configure_owned(
-                    owned, flow_id, arguments.get("user_input"), context
+                    owned,
+                    flow_id,
+                    None
+                    if operation == "config.flow.read"
+                    else arguments.get("user_input"),
+                    context,
                 )
             )
 

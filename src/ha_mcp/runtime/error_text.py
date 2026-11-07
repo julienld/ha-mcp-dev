@@ -2,6 +2,8 @@
 
 import json
 
+from ha_mcp.tool_api import ToolFailure
+
 
 def extract_tool_error_message(te: BaseException | str) -> str:
     """Extract a human-readable error message from a ToolError or its logged text.
@@ -30,7 +32,7 @@ def extract_structured_error_reason(exc: BaseException) -> str | None:
     more), so both keys are honored.
     """
     try:
-        payload = json.loads(str(exc))
+        payload = exc.data if isinstance(exc, ToolFailure) else json.loads(str(exc))
     except (TypeError, ValueError):
         return None
     if not isinstance(payload, dict):

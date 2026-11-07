@@ -334,7 +334,7 @@ def _server_helper_flows(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     from unittest.mock import AsyncMock
 
-    from ha_mcp.tools import helper_flows
+    from ha_mcp.runtime import helper_flows
 
     flows = sys.modules["homeassistant.generated.config_flows"].FLOWS["helper"]
     monkeypatch.setattr(
@@ -342,7 +342,14 @@ def _server_helper_flows(monkeypatch: pytest.MonkeyPatch) -> None:
         "_fetch_helper_flow_types",
         AsyncMock(return_value=frozenset(flows)),
     )
+    monkeypatch.setattr(
+        helper_flows,
+        "_fetch_core_helper_domains",
+        AsyncMock(return_value=frozenset(flows)),
+        raising=False,
+    )
     helper_flows._CACHE.clear()
+    getattr(helper_flows, "_CORE_CACHE", {}).clear()
 
 
 @pytest.fixture
@@ -415,3 +422,28 @@ def mock_client():
         client._admin_route_refused = False
         client._admin_route_lock = asyncio.Lock()
         return client
+
+
+@pytest.fixture(autouse=True)
+def opened_flows(
+    monkeypatch: pytest.MonkeyPatch,
+) -> dict[str, tuple[str, str | None]]:
+    """Start every test with no integration flow opened by this server.
+
+    A test that continues a flow by ``flow_id`` seeds it here, as
+    ``drive_flow`` would have when it opened the flow.
+    """
+    from ha_mcp.runtime import integration_flow_steps
+
+    flows: dict[str, tuple[str, str | None]] = {}
+    monkeypatch.setattr(integration_flow_steps, "_opened_flows", flows)
+    return flows
+
+
+@pytest.fixture
+def redact_on(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Turn the redact_secrets toggle on for one test."""
+    monkeypatch.setattr(
+        "ha_mcp.redaction.get_global_settings",
+        lambda: SimpleNamespace(redact_secrets=True, redact_app_option_keys=""),
+    )

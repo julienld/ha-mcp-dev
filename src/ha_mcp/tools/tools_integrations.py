@@ -182,9 +182,7 @@ class IntegrationTools(
         )
     )
 
-    _get_entry_detail_response = legacy_errors(
-        legacy_flow(IntegrationReadTools._get_entry_detail_response)
-    )
+    _get_entry_detail_response = IntegrationReadTools._get_entry_detail_response
 
     _ignored_diagnostics_detail_params = staticmethod(
         legacy_flow(IntegrationReadTools._ignored_diagnostics_detail_params)
@@ -194,47 +192,17 @@ class IntegrationTools(
         legacy_flow(IntegrationReadTools._ignored_subentry_detail_params)
     )
 
-    _get_single_entry = legacy_errors(
-        legacy_flow(IntegrationReadTools._get_single_entry)
-    )
+    _get_single_entry = IntegrationReadTools._get_single_entry
 
-    _probe_legacy_entry_options = legacy_errors(
-        legacy_flow(IntegrationReadTools._probe_legacy_entry_options)
-    )
-
-    _single_entry_from_component = legacy_errors(
-        legacy_flow(IntegrationReadTools._single_entry_from_component), classify=False
-    )
+    _single_entry_from_component = IntegrationReadTools._single_entry_from_component
 
     _attach_knx_project = legacy_errors(
         legacy_flow(IntegrationReadTools._attach_knx_project)
     )
 
-    _fetch_config_subentries = legacy_errors(
-        legacy_flow(IntegrationReadTools._fetch_config_subentries)
-    )
+    _list_entries = IntegrationReadTools._list_entries
 
-    _fetch_config_subentry_schema = legacy_errors(
-        legacy_flow(IntegrationReadTools._fetch_config_subentry_schema)
-    )
-
-    _options_from_form_flow = staticmethod(
-        legacy_flow(IntegrationReadTools._options_from_form_flow)
-    )
-
-    _redact_component_options = legacy_errors(
-        legacy_flow(IntegrationReadTools._redact_component_options)
-    )
-
-    _fetch_options_schema = legacy_errors(
-        legacy_flow(IntegrationReadTools._fetch_options_schema)
-    )
-
-    _list_entries = legacy_errors(legacy_flow(IntegrationReadTools._list_entries))
-
-    _list_entries_from_component = legacy_errors(
-        legacy_flow(IntegrationReadTools._list_entries_from_component)
-    )
+    _list_entries_from_component = IntegrationReadTools._list_entries_from_component
 
     _finalize_entry_list = legacy_flow(IntegrationReadTools._finalize_entry_list)
 

@@ -1,16 +1,35 @@
-"""Compatibility exports for the shared config-entry reload observation rules."""
+"""Legacy imports for the shared reload observer."""
 
-from ha_mcp.runtime import entry_reload as _shared
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
+from typing import Any
 
-_TRANSIENT_RECONFIGURE_STATES = _shared._TRANSIENT_RECONFIGURE_STATES
-_is_transient_reconfigure_state = _shared._is_transient_reconfigure_state
-_entry_fragments = _shared._entry_fragments
-_observe_reload_settled = _shared._observe_reload_settled
+from ha_mcp.backends.remote import RemoteBackend
+from ha_mcp.runtime.entry_reload import (
+    _TRANSIENT_RECONFIGURE_STATES as _TRANSIENT_RECONFIGURE_STATES,
+)
+from ha_mcp.runtime.entry_reload import (
+    _entry_fragments as _entry_fragments,
+)
+from ha_mcp.runtime.entry_reload import (
+    _is_transient_reconfigure_state as _is_transient_reconfigure_state,
+)
+from ha_mcp.runtime.entry_reload import (
+    _observe_reload_settled as _observe_reload_settled,
+)
+from ha_mcp.runtime.flows.session import FlowSession
+from ha_mcp.runtime.reconfigure_watch import watch_entry_reload as _watch_entry_reload
+from ha_mcp.tool_api import CallContext
 
 
-__all__ = [
-    "_TRANSIENT_RECONFIGURE_STATES",
-    "_entry_fragments",
-    "_is_transient_reconfigure_state",
-    "_observe_reload_settled",
-]
+@asynccontextmanager
+async def watch_entry_reload(
+    client: Any, entry_id: str
+) -> AsyncIterator[Callable[[], Awaitable[dict[str, Any] | None]]]:
+    session = (
+        client
+        if isinstance(client, FlowSession)
+        else FlowSession(RemoteBackend(client), CallContext(None))
+    )
+    async with _watch_entry_reload(session, entry_id) as settled:
+        yield settled

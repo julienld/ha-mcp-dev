@@ -117,6 +117,58 @@ async def test_complete_native_options_restore_forces_safety_and_checks_readback
     assert not manager.backend._flows.owned
 
 
+async def test_integration_snapshot_runs_the_same_owned_core_options_walker(
+    runtime, native, flows, monkeypatch
+):
+    from custom_components.ha_mcp_tools.native_operations.integration_restore import (
+        NativeIntegrationRestore,
+    )
+
+    manager, snapshots, store, _path, core, current, before, expected = prepare(
+        runtime, native, monkeypatch
+    )
+    entry = manager.hass.config_entries.async_get_entry("entry")
+    entry.disabled_by = None
+    entry.as_json_fragment["disabled_by"] = None
+
+    async def read(_hass, **_query):
+        return {
+            "entries": [
+                {
+                    **entry.as_json_fragment,
+                    "options": copy.deepcopy(current["options"]),
+                    "subentries": [],
+                }
+            ]
+        }
+
+    monkeypatch.setattr(
+        "custom_components.ha_mcp_tools.core_config_entries.config_entries", read
+    )
+    monkeypatch.setattr(
+        NativeIntegrationRestore,
+        "set_disabled",
+        AsyncMock(return_value={"success": True}),
+    )
+    path = store.capture(
+        "integration",
+        "entry",
+        {**entry.as_json_fragment, "options": expected["options"]},
+        "fixture",
+    )
+    result = await restore(manager, snapshots, path)
+    assert not result.is_error, result.data
+    assert current["options"] == expected["options"]
+    assert (
+        store.read_snapshot(result.data["safety_backup"])["config"]["options"]
+        == before["options"]
+    )
+    core.async_configure.assert_awaited_once_with(
+        "restore", {"name": "Restored", "state": "1"}
+    )
+    assert not manager.backend._flows.owned
+
+
 async def test_backup_read_only_change_blocks_next_flow_step_and_cleans_owned_flow(
     runtime, native, flows, monkeypatch
 ):

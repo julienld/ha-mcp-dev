@@ -1,4 +1,7 @@
-"""Integration dispatch and option-schema contracts."""
+"""
+Unit tests for module-level helpers in tools_integrations and
+IntegrationTools.ha_remove_helpers_integrations dispatch.
+"""
 
 import json
 from typing import Any, ClassVar
@@ -11,13 +14,12 @@ from ha_mcp.client.rest_client import (
     HomeAssistantAPIError,
     HomeAssistantConnectionError,
 )
+from ha_mcp.tools.integration_schema import fetch_options_schema
 from ha_mcp.tools.tools_integrations import (
     IntegrationTools,
     fetch_entry_options_with_status,
     options_from_form_flow,
 )
-
-from ._helper_removal_reads import stored_removal_images  # noqa: F401 - shared fixture
 
 # Core's <type>/list answers without the target, so stored_helper_target
 # leaves it to the registry lookup a test pins.
@@ -36,6 +38,15 @@ class TestRemoveHelpersIntegrations:
         """The client doubles answer at once; the retry backoff only adds time."""
         monkeypatch.setattr(
             "ha_mcp.tools.tools_integrations._REGISTRY_RETRY_BASE_DELAY", 0
+        )
+
+        async def stored_before_delete(_client, arguments):
+            return {"success": True, "item": {"id": arguments["item_id"]}}
+
+        # These tests own registry routing and delete replies. Supply the
+        # current storage image used by the separate snapshot/CAS boundary.
+        monkeypatch.setattr(
+            "ha_mcp.backends.remote_helper_ops._legacy_read", stored_before_delete
         )
 
     @pytest.fixture
@@ -905,7 +916,6 @@ class TestGetIntegrationDiagnostics:
                 entry_id="entry_abc", include_diagnostics=True
             )
         assert result["diagnostics"] == diag_payload
-        assert mock_fetch.await_args.args[0].backend.client is client
         mock_fetch.assert_awaited_once_with(
             mock_fetch.await_args.args[0],
             "entry_abc",
@@ -938,7 +948,6 @@ class TestGetIntegrationDiagnostics:
                 include_diagnostics=True,
                 device_id="dev_xyz",
             )
-        assert mock_fetch.await_args.args[0].backend.client is client
         mock_fetch.assert_awaited_once_with(
             mock_fetch.await_args.args[0],
             "entry_abc",
@@ -1044,7 +1053,6 @@ class TestGetIntegrationDiagnostics:
                 diagnostics_fields='["home_assistant", "issues"]',
                 diagnostics_truncate_at_bytes=15000,
             )
-        assert mock_fetch.await_args.args[0].backend.client is client
         mock_fetch.assert_awaited_once_with(
             mock_fetch.await_args.args[0],
             "entry_abc",
@@ -1080,7 +1088,6 @@ class TestGetIntegrationDiagnostics:
                 diagnostics_data_offset=5,
                 diagnostics_data_limit=10,
             )
-        assert mock_fetch.await_args.args[0].backend.client is client
         mock_fetch.assert_awaited_once_with(
             mock_fetch.await_args.args[0],
             "entry_abc",
@@ -1344,23 +1351,6 @@ class TestOptionsFromFormFlow:
         }
         assert options_from_form_flow(flow) == {}
 
-    def test_static_alias_on_class_calls_module_helper(self) -> None:
-        # Backwards-compatibility: callers still using the @staticmethod
-        # alias must get the same answer as the module-level helper.
-        flow = {
-            "data_schema": [
-                {
-                    "name": "state",
-                    "description": {"suggested_value": "{{ 1 + 1 }}"},
-                }
-            ]
-        }
-        assert (
-            IntegrationTools._options_from_form_flow(flow)
-            == options_from_form_flow(flow)
-            == {"state": "{{ 1 + 1 }}"}
-        )
-
     def test_malformed_data_schema_not_list_returns_empty(self) -> None:
         # HA should never return a non-list data_schema, but a malformed
         # response must degrade to {} rather than iterating a string
@@ -1470,120 +1460,8 @@ class TestFetchEntryOptionsWithStatus:
 
 @pytest.mark.asyncio
 class TestOptionsProbeFailureWarnings:
-    """``ha_get_integration`` surfaces options-probe failures as ``warnings``
-    instead of passing ``{}`` off as the entry's real options (issue #1575
-    follow-through: the second reported symptom was an indistinguishable
-    ``options: {}`` on a probe hiccup)."""
-
-    @staticmethod
-    def _entry(entry_id: str) -> dict[str, Any]:
-        return {
-            "entry_id": entry_id,
-            "domain": "group",
-            "title": entry_id,
-            "state": "loaded",
-            "source": "user",
-            "supports_options": True,
-        }
-
-    @staticmethod
-    def _form_flow(flow_id: str) -> dict[str, Any]:
-        return {
-            "flow_id": flow_id,
-            "type": "form",
-            "data_schema": [
-                {"name": "hide_members", "description": {"suggested_value": True}}
-            ],
-        }
-
-    async def test_single_entry_probe_failure_attaches_warning(self) -> None:
-        client = MagicMock()
-        client.get_config_entry = AsyncMock(return_value=self._entry("entry_bad"))
-        client.start_options_flow = AsyncMock(side_effect=RuntimeError("probe down"))
-        client.abort_options_flow = AsyncMock()
-        tools = IntegrationTools(client)
-
-        with patch(
-            "ha_mcp.runtime.integration_entries.get_logger_levels",
-            new=AsyncMock(return_value={}),
-        ):
-            resp = await tools._get_single_entry(
-                "entry_bad",
-                None,
-                include_subentries=False,
-                include_subentry_schema=False,
-                subentry_type=None,
-                subentry_id=None,
-                show_advanced_options=False,
-            )
-        assert resp["entry"]["options"] == {}
-        assert resp.get("warnings"), f"expected a probe-failure warning: {resp}"
-        assert "entry_bad" in resp["warnings"][0]
-
-    async def test_single_entry_probe_success_has_no_warnings(self) -> None:
-        client = MagicMock()
-        client.get_config_entry = AsyncMock(return_value=self._entry("entry_good"))
-        client.start_options_flow = AsyncMock(return_value=self._form_flow("f1"))
-        client.abort_options_flow = AsyncMock()
-        tools = IntegrationTools(client)
-
-        with patch(
-            "ha_mcp.runtime.integration_entries.get_logger_levels",
-            new=AsyncMock(return_value={}),
-        ):
-            resp = await tools._get_single_entry(
-                "entry_good",
-                None,
-                include_subentries=False,
-                include_subentry_schema=False,
-                subentry_type=None,
-                subentry_id=None,
-                show_advanced_options=False,
-            )
-        assert resp["entry"]["options"] == {"hide_members": True}
-        assert "warnings" not in resp
-
-    async def test_list_aggregates_probe_failures_into_one_warning(self) -> None:
-        client = MagicMock()
-        client.list_config_entries = AsyncMock(
-            return_value=[self._entry("entry_good"), self._entry("entry_bad")]
-        )
-
-        async def start_flow(entry_id: str) -> dict[str, Any]:
-            if entry_id == "entry_bad":
-                raise RuntimeError("probe down")
-            return self._form_flow("f1")
-
-        client.start_options_flow = AsyncMock(side_effect=start_flow)
-        client.abort_options_flow = AsyncMock()
-        tools = IntegrationTools(client)
-
-        with patch(
-            "ha_mcp.runtime.integration_list.get_logger_levels",
-            new=AsyncMock(return_value={}),
-        ):
-            resp = await tools._list_entries(None, None, True, None, 50, 0)
-
-        by_id = {e["entry_id"]: e for e in resp["entries"]}
-        assert by_id["entry_good"]["options"] == {"hide_members": True}
-        assert by_id["entry_bad"]["options"] == {}
-        assert resp.get("warnings"), f"expected an aggregated warning: {resp}"
-        assert "entry_bad" in resp["warnings"][0]
-        assert "entry_good" not in resp["warnings"][0]
-
-    async def test_list_with_no_failures_has_no_warnings(self) -> None:
-        client = MagicMock()
-        client.list_config_entries = AsyncMock(return_value=[self._entry("entry_good")])
-        client.start_options_flow = AsyncMock(return_value=self._form_flow("f1"))
-        client.abort_options_flow = AsyncMock()
-        tools = IntegrationTools(client)
-
-        with patch(
-            "ha_mcp.runtime.integration_list.get_logger_levels",
-            new=AsyncMock(return_value={}),
-        ):
-            resp = await tools._list_entries(None, None, True, None, 50, 0)
-        assert "warnings" not in resp
+    """A failed options-schema read is a ``warnings`` entry, not a silent
+    ``options: {}`` (issue #1575)."""
 
     async def test_schema_probe_failure_attaches_warning(self) -> None:
         client = MagicMock()
@@ -1592,186 +1470,7 @@ class TestOptionsProbeFailureWarnings:
         tools = IntegrationTools(client)
 
         resp: dict[str, Any] = {"entry": {"options": {}}}
-        await tools._fetch_options_schema("entry_s", resp)
+        await fetch_options_schema(tools._client, "entry_s", resp)
         assert "options_schema" not in resp
         assert resp.get("warnings"), f"expected a schema-probe warning: {resp}"
         assert "entry_s" in resp["warnings"][0]
-
-
-def _sample_knxproject() -> dict[str, Any]:
-    """A realistic ``knx/get_knx_project`` result payload.
-
-    Keys mirror ``xknxproject.models.KNXProject``; group-address entries mirror
-    ``GroupAddress`` (address, name, dpt, description, ...). DPTs are varied:
-    switch (1.001), dimming step (3.007), scaling (5.001), 2-byte float /
-    temperature (9.001), and one address with no DPT assigned.
-    """
-    return {
-        "info": {
-            "name": "Demo Project",
-            "last_modified": "2026-01-15T10:00:00",
-            "tool_version": "6.1.0",
-            "xknxproject_version": "3.8.1",
-        },
-        "group_addresses": {
-            "1/0/1": {
-                "name": "Living Room Light Switch",
-                "address": "1/0/1",
-                "dpt": {"main": 1, "sub": 1},
-                "description": "On/Off",
-            },
-            "1/0/2": {
-                "name": "Living Room Light Dim Step",
-                "address": "1/0/2",
-                "dpt": {"main": 3, "sub": 7},
-                "description": "Relative dimming",
-            },
-            "1/0/3": {
-                "name": "Living Room Light Brightness",
-                "address": "1/0/3",
-                "dpt": {"main": 5, "sub": 1},
-                "description": "Brightness %",
-            },
-            "2/1/0": {
-                "name": "Living Room Temperature",
-                "address": "2/1/0",
-                "dpt": {"main": 9, "sub": 1},
-                "description": "Actual temperature",
-            },
-            "3/3/3": {
-                "name": "Unassigned DPT Address",
-                "address": "3/3/3",
-                "dpt": None,
-                "description": "",
-            },
-        },
-        "group_ranges": {
-            "1/-/-": {
-                "name": "Lighting",
-                "address_start": 2048,
-                "address_end": 4095,
-                "group_addresses": [],
-                "group_ranges": {},
-            }
-        },
-        "devices": {},
-    }
-
-
-class TestIncludeKnxProject:
-    """Wire-up tests for ha_get_integration's include_knx_project branch."""
-
-    @pytest.mark.asyncio
-    async def test_attaches_parsed_project_for_knx_entry(self) -> None:
-        client = MagicMock()
-        client.send_websocket_message = AsyncMock(
-            return_value={"success": True, "result": _sample_knxproject()}
-        )
-        tools = IntegrationTools(client)
-        single = {
-            "success": True,
-            "entry_id": "knx1",
-            "entry": {"domain": "knx", "title": "KNX"},
-        }
-        with patch.object(
-            IntegrationTools, "_get_single_entry", new=AsyncMock(return_value=single)
-        ):
-            result = await tools.ha_get_integration(
-                entry_id="knx1", include_knx_project=True
-            )
-
-        project = result["knx_project"]
-        assert project["count"] == 5
-        assert set(project["group_addresses"]) == {
-            "1/0/1",
-            "1/0/2",
-            "1/0/3",
-            "2/1/0",
-            "3/3/3",
-        }
-        # DPTs preserved verbatim, including the null-DPT entry.
-        assert project["group_addresses"]["2/1/0"]["dpt"] == {"main": 9, "sub": 1}
-        assert project["group_addresses"]["3/3/3"]["dpt"] is None
-        assert project["group_ranges"]["1/-/-"]["name"] == "Lighting"
-        assert project["info"]["name"] == "Demo Project"
-        assert "warnings" not in result
-        client.send_websocket_message.assert_awaited_once_with(
-            {"type": "knx/get_knx_project"}
-        )
-
-    @pytest.mark.asyncio
-    async def test_no_project_uploaded_attaches_empty_with_note(self) -> None:
-        client = MagicMock()
-        client.send_websocket_message = AsyncMock(
-            return_value={"success": True, "result": None}
-        )
-        tools = IntegrationTools(client)
-        single = {"success": True, "entry_id": "knx1", "entry": {"domain": "knx"}}
-        with patch.object(
-            IntegrationTools, "_get_single_entry", new=AsyncMock(return_value=single)
-        ):
-            result = await tools.ha_get_integration(
-                entry_id="knx1", include_knx_project=True
-            )
-
-        project = result["knx_project"]
-        assert project["count"] == 0
-        assert project["group_addresses"] == {}
-        assert "note" in project
-
-    @pytest.mark.asyncio
-    async def test_ws_failure_surfaces_warning_not_raise(self) -> None:
-        client = MagicMock()
-        client.send_websocket_message = AsyncMock(
-            return_value={
-                "success": False,
-                "error": "Command failed: KNX integration not loaded.",
-            }
-        )
-        tools = IntegrationTools(client)
-        single = {"success": True, "entry_id": "knx1", "entry": {"domain": "knx"}}
-        with patch.object(
-            IntegrationTools, "_get_single_entry", new=AsyncMock(return_value=single)
-        ):
-            result = await tools.ha_get_integration(
-                entry_id="knx1", include_knx_project=True
-            )
-
-        # Primary entry read still succeeds; the project failure is a warning.
-        assert result["success"] is True
-        assert "knx_project" not in result
-        assert result.get("warnings")
-        assert "KNX project" in result["warnings"][0]
-
-    @pytest.mark.asyncio
-    async def test_non_knx_entry_skips_with_warning(self) -> None:
-        client = MagicMock()
-        client.send_websocket_message = AsyncMock()
-        tools = IntegrationTools(client)
-        single = {"success": True, "entry_id": "hue1", "entry": {"domain": "hue"}}
-        with patch.object(
-            IntegrationTools, "_get_single_entry", new=AsyncMock(return_value=single)
-        ):
-            result = await tools.ha_get_integration(
-                entry_id="hue1", include_knx_project=True
-            )
-
-        assert "knx_project" not in result
-        assert result.get("warnings")
-        assert "not a KNX integration" in result["warnings"][0]
-        # No project fetch attempted for a non-KNX entry.
-        client.send_websocket_message.assert_not_awaited()
-
-    @pytest.mark.asyncio
-    async def test_list_mode_ignores_flag_with_warning(self) -> None:
-        client = MagicMock()
-        tools = IntegrationTools(client)
-        with patch.object(
-            IntegrationTools,
-            "_list_entries",
-            new=AsyncMock(return_value={"success": True, "entries": []}),
-        ):
-            result = await tools.ha_get_integration(include_knx_project=True)
-
-        assert result.get("warnings")
-        assert any("include_knx_project" in w for w in result["warnings"])

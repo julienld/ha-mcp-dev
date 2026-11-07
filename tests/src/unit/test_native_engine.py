@@ -49,6 +49,53 @@ class Backend:
 ACTOR = CallContext("user")
 
 
+def test_native_discovery_uses_the_current_upstream_automation_parameter() -> None:
+    catalog = {tool.name: tool for tool in build_initial_catalog(Backend())}
+    for name in (
+        "ha_config_get_automation",
+        "ha_config_set_automation",
+        "ha_config_remove_automation",
+    ):
+        properties = catalog[name].input_schema["properties"]
+        assert "entity_id" in properties and "identifier" not in properties
+
+
+async def test_native_retired_parameter_is_served_with_refresh_guidance() -> None:
+    class AutomationBackend(Backend):
+        async def execute(self, operation, arguments, context):
+            self.calls.append((operation, arguments))
+            assert operation == "config.automation.read"
+            return {
+                "found": True,
+                "config": {"alias": "Example", "triggers": []},
+                "entity_id": "automation.example",
+            }
+
+    backend = AutomationBackend()
+    engine = Engine(backend, build_initial_catalog(backend))
+    result = await engine.call(
+        "ha_config_get_automation", {"identifier": "automation.example"}, ACTOR
+    )
+    assert not result.is_error and len(backend.calls) == 1
+    assert backend.calls[0][1]["identifier"] == "automation.example"
+    assert any("Refresh tools" in warning for warning in result.data["warnings"])
+
+
+async def test_native_unknown_parameter_names_the_stale_list_without_echoing_its_value() -> (
+    None
+):
+    engine = Engine(Backend(), build_initial_catalog(Backend()))
+    with pytest.raises(ToolFailure) as error:
+        await engine.call(
+            "ha_get_state",
+            {"entity_id": "light.a", "obsolete_option": "secret-value"},
+            ACTOR,
+        )
+    assert "Refresh tools" in str(error.value.data)
+    assert "obsolete_option" in str(error.value.data)
+    assert "secret-value" not in str(error.value.data)
+
+
 async def test_admin_owned_action_can_ignore_catalogue_visibility_but_not_policy() -> (
     None
 ):
@@ -513,8 +560,10 @@ async def test_retired_names_are_adapted_before_canonical_policy_and_dispatch() 
     engine = Engine(Backend(), [tool])
     listed = await engine.call("ha_get_blueprint", {}, ACTOR)
     fetched = await engine.call("ha_get_blueprint", {"path": "test.yaml"}, ACTOR)
-    assert listed.data == {"action": "list"}
-    assert fetched.data == {"action": "get", "path": "test.yaml"}
+    assert listed.data["action"] == "list"
+    assert "ha_get_blueprint" in listed.data["warnings"][0]
+    assert fetched.data["action"] == "get" and fetched.data["path"] == "test.yaml"
+    assert "Refresh tools" in fetched.data["warnings"][0]
     engine.enabled_tools = set()
     with pytest.raises(ToolFailure, match="not enabled"):
         await engine.call(

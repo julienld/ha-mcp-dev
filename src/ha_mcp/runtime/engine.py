@@ -10,7 +10,12 @@ from dataclasses import replace
 from typing import Any
 from uuid import uuid4
 
-from ha_mcp.renamed_tools import adapt_retired_arguments, current_tool_name
+from ha_mcp.renamed_tools import (
+    adapt_retired_arguments,
+    current_tool_name,
+    retired_parameters_used,
+    stale_list_warning,
+)
 from ha_mcp.tool_api import (
     Backend,
     CallContext,
@@ -97,8 +102,16 @@ class Engine:
         await self.backend.authorize(context)
         if not isinstance(arguments, dict):
             raise ToolFailure("INVALID_ARGUMENTS", "Tool arguments must be an object.")
+        called = name
         arguments = adapt_retired_arguments(name, arguments) or {}
         name = current_tool_name(name)
+        renames = [(called, name)] if called != name else []
+        parameters = retired_parameters_used(name, arguments)
+        if parameters:
+            arguments = {
+                parameters.get(key, key): value for key, value in arguments.items()
+            }
+            renames.extend(parameters.items())
         definition = self.tools.get(name)
         if definition is None:
             raise ToolFailure("UNKNOWN_TOOL", f"Unknown tool {name!r}.")
@@ -111,13 +124,25 @@ class Engine:
             if definition.writes is not None
             else not definition.read_only
         )
-        return await self.call_owned(
+        result = await self.call_owned(
             name,
             lambda: definition.handler(validated, context),
             context,
             writes=writes,
             arguments=validated,
         )
+        if renames and isinstance(result.data, dict):
+            result = replace(
+                result,
+                data={
+                    **result.data,
+                    "warnings": [
+                        *(result.data.get("warnings") or []),
+                        stale_list_warning(renames),
+                    ],
+                },
+            )
+        return result
 
     async def call_owned(
         self,

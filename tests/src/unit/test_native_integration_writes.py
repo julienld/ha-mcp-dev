@@ -16,7 +16,7 @@ from ha_mcp.runtime.integration_writes import (
     IntegrationWriteTools,
     integration_changes_state,
 )
-from ha_mcp.tool_api import CallContext
+from ha_mcp.tool_api import CallContext, ToolFailure
 
 from .test_component_ws_search import FakeEntityReg, FakeRegEntry, make_view, wsapi
 from .test_native_engine_backend import native as native
@@ -95,28 +95,44 @@ def _integration(native: Any, monkeypatch: pytest.MonkeyPatch, backup: Any) -> t
 
 
 @pytest.mark.parametrize("read_only", [False, True])
-async def test_native_reconfigure_preflight_is_read_only_and_has_real_identity(
-    native: Any, flows: Any, monkeypatch: pytest.MonkeyPatch, read_only: bool
-) -> None:
+async def test_native_reconfigure_opens_an_owned_step_and_refuses_readonly(
+    native, flows, monkeypatch, read_only
+):
     backup = AsyncMock(return_value={})
     engine, _, manager, callbacks, _ = _integration(native, monkeypatch, backup)
-    result = await engine.call(
-        "ha_set_integration",
-        {"entry_id": "entry", "reconfigure": True, "config": {"host": "192.0.2.10"}},
-        CallContext("actor", read_only=read_only),
-    )
-    assert not result.is_error, result.data
-    assert result.data["status"] == "preview"
-    assert result.data["identity"]["unique_id"] == "stable-identity"
-    assert result.data["identity"]["entity_ids"] == ["sensor.example"]
-    assert result.data["confirm_token"].startswith("sha256:")
-    manager.async_init.assert_not_awaited()
-    backup.assert_not_awaited()
-    assert not callbacks
+    manager.async_init.return_value = {
+        "flow_id": "change",
+        "type": "form",
+        "step_id": "reconfigure",
+        "data_schema": [{"name": "host", "required": True}],
+    }
+    try:
+        arguments = {"entry_id": "entry", "reconfigure": True}
+        if read_only:
+            with pytest.raises(ToolFailure, match="Writes are disabled"):
+                await engine.call(
+                    "ha_set_integration",
+                    arguments,
+                    CallContext("actor", read_only=True),
+                )
+            manager.async_init.assert_not_awaited()
+            backup.assert_not_awaited()
+        else:
+            result = await engine.call(
+                "ha_set_integration", arguments, CallContext("actor")
+            )
+            assert not result.is_error, result.data
+            assert result.data["flow_id"] == "change"
+            assert "confirm_token" not in result.data
+            manager.async_configure.assert_not_awaited()
+            backup.assert_awaited_once()
+        assert not callbacks
+    finally:
+        await engine.backend.stop()
 
 
 @pytest.mark.parametrize("during_backup", ["unchanged", "revision", "revoked"])
-async def test_native_confirmed_reconfigure_captures_once_and_observes_its_reload(
+async def test_native_reconfigure_step_captures_once_and_observes_its_reload(
     native: Any, flows: Any, monkeypatch: pytest.MonkeyPatch, during_backup: str
 ) -> None:
     captures = []
@@ -136,8 +152,6 @@ async def test_native_confirmed_reconfigure_captures_once_and_observes_its_reloa
         "reconfigure": True,
         "config": {"host": "192.0.2.10"},
     }
-    preview = await engine.call("ha_set_integration", arguments, CallContext("actor"))
-    assert not preview.is_error, preview.data
     manager.async_init.return_value = {
         "flow_id": "change",
         "type": "form",
@@ -162,7 +176,7 @@ async def test_native_confirmed_reconfigure_captures_once_and_observes_its_reloa
     manager.async_configure.side_effect = apply
     result = await engine.call(
         "ha_set_integration",
-        {**arguments, "confirm_token": preview.data["confirm_token"]},
+        arguments,
         CallContext("actor"),
     )
     assert len(captures) == 1
@@ -177,7 +191,7 @@ async def test_native_confirmed_reconfigure_captures_once_and_observes_its_reloa
     else:
         assert not result.is_error, result.data
         assert result.data["status"] == "applied_and_verified"
-        assert result.data["verification"]["operational_state_source"] == "observed"
+        assert result.data["entry_state"] == "loaded"
         manager.async_init.assert_awaited_once_with(
             "demo", context={"source": "reconfigure", "entry_id": "entry"}
         )
@@ -220,3 +234,37 @@ async def test_native_integration_create_and_options_share_existing_walkers(
     assert backup.await_count == (mode == "options")
     if mode == "options":
         assert "Backup warning" in result.data["warnings"]
+
+
+async def test_upstream_knx_command_routes_to_the_existing_native_read_owner(
+    native, flows, monkeypatch
+):
+    engine, entry, _manager, _callbacks, _user = _integration(
+        native, monkeypatch, AsyncMock(return_value={})
+    )
+    entry.domain = "knx"
+    entry.as_json_fragment["domain"] = "knx"
+    schema_calls = []
+    engine.backend.hass.data = {
+        "websocket_api": {
+            "knx/get_knx_project": (
+                None,
+                lambda message: schema_calls.append(message) or message,
+            )
+        }
+    }
+    read = AsyncMock(
+        return_value={"success": True, "result": {"group_addresses": ["1/2/3"]}}
+    )
+    monkeypatch.setitem(
+        native.DOMAIN_DIRECT_OPERATIONS, "integrations.knx_project", (read, False)
+    )
+    result = await engine.call(
+        "ha_set_integration",
+        {"entry_id": "entry", "ws_command": "knx/get_knx_project"},
+        CallContext("actor"),
+    )
+    assert not result.is_error, result.data
+    assert result.data["result"] == {"group_addresses": ["1/2/3"]}
+    read.assert_awaited_once_with(engine.backend.hass, {})
+    assert len(schema_calls) == 1

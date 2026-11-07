@@ -3,6 +3,7 @@
 import asyncio
 import copy
 import inspect
+import logging
 from importlib import import_module
 from typing import Any
 
@@ -22,6 +23,9 @@ from ha_mcp.utils.registry_update_lock import registry_update_lock
 from .hacs_access import HacsAccess, check_self_files, repository_image
 from .hacs_reads import HacsReads
 from .hacs_updates import call_install_service, install_service, pin_install_service
+from .registry_access import admit_registry_write
+
+logger = logging.getLogger(__name__)
 
 _METHODS = {
     "download": "async_download_repository",
@@ -34,6 +38,56 @@ class NativeHacs(HacsReads):
     def __init__(self, manager: Any, actor: Any) -> None:
         self.manager = manager
         self.actor = actor
+
+    async def _hacs_accept_warning(self, confirm: bool | None) -> dict[str, Any]:
+        access = await self.access(writes=True)
+        if access.domain != "marketplace":
+            raise ToolFailure(
+                "VALIDATION_INVALID_PARAMETER",
+                "HACS has no first-run warning to accept; only Marketplace asks for one.",
+                status="not_started",
+            )
+        user_id = self.actor.user_id
+        if not user_id:
+            raise ToolFailure(
+                "AUTH_REQUIRED",
+                "An attributable administrator is required.",
+                status="not_started",
+            )
+        accepted = {"success": True, "warning_accepted": True}
+        async with registry_update_lock("marketplace_warning", user_id):
+            await admit_registry_write(self.actor, self.manager.backend.authorize)
+            access.pin(writes=True)
+            if access.owner.warning_accepted(user_id):
+                return {
+                    **accepted,
+                    "message": "Already accepted for this server's user.",
+                }
+            accept = getattr(access.owner, "async_accept_warning", None)
+            if not callable(accept) or inspect.iscoroutinefunction(accept):
+                raise ToolFailure(
+                    "UNSUPPORTED_OPERATION",
+                    "The loaded Marketplace warning owner contract is unavailable.",
+                    status="not_started",
+                )
+            try:
+                accept(user_id)
+                await self.manager.backend.authorize(self.actor)
+                if access.get_owner(
+                    access.hass
+                ) is not access.owner or not access.owner.warning_accepted(user_id):
+                    raise RuntimeError("Warning acceptance could not be verified")
+            except Exception as error:
+                logger.exception("Marketplace warning acceptance failed after dispatch")
+                raise ToolFailure(
+                    "OUTCOME_UNKNOWN",
+                    "Warning acceptance may have acted. Read back Marketplace info before retrying.",
+                    status="outcome_unknown",
+                ) from error
+        return {
+            **accepted,
+            "message": "Accepted the Marketplace's first-run warning for the user this server connects as; installs and updates now pass its gate.",
+        }
 
     async def _hacs_download(
         self,

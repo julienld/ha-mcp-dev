@@ -73,18 +73,12 @@ class AutomationReadTools(ConfigReadTools):
 
     async def ha_config_get_automation(
         self,
-        identifier: Annotated[
-            str | None,
-            Field(
-                description="Automation entity_id or config id; identifier remains accepted."
-            ),
-        ] = None,
         entity_id: Annotated[
-            str | None,
+            str,
             Field(
-                description="Automation entity_id or config id; compatible alias of identifier."
+                description="The automation's entity_id (e.g. 'automation.morning_routine') or its config id"
             ),
-        ] = None,
+        ],
         config_format: Annotated[
             Literal["compatible", "stored"],
             Field(
@@ -109,9 +103,7 @@ class AutomationReadTools(ConfigReadTools):
 
         For comprehensive automation documentation, use ha_get_skill_guide.
         """
-        identifier = compatible_automation_identifier(
-            identifier, entity_id, required=True
-        )
+        identifier = compatible_automation_identifier(None, entity_id, required=True)
         assert identifier is not None
         try:
             validate_identifier_not_empty(
@@ -159,6 +151,8 @@ class AutomationReadTools(ConfigReadTools):
             "validation": data.get("validation"),
             "references": data.get("references"),
         }
+        if "related" in data:
+            result["related"] = data["related"]
         if data.get("warnings"):
             result["warnings"] = data["warnings"]
         return result

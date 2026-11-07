@@ -638,3 +638,11 @@ class SnapshotFilesMixin:
             self._protected_snapshot_names[name] -= 1
             if not self._protected_snapshot_names[name]:
                 del self._protected_snapshot_names[name]
+
+
+def _restore_is_flow_driven(domain: str) -> bool:
+    """Domains whose Core flow can partially apply a restore."""
+    return _is_flow_helper_domain(domain) or domain in {
+        "helper_config_subentry",
+        "integration",
+    }

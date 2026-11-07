@@ -4,7 +4,7 @@ from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager, nullcontext
 from typing import Any, cast
 
-from ha_mcp.tool_api import Backend, BackendTools, CallContext
+from ha_mcp.tool_api import Backend, BackendTools, CallContext, ToolFailure
 
 
 class FlowSession(BackendTools):
@@ -28,6 +28,12 @@ class FlowSession(BackendTools):
         self.source_tool = source_tool
         self.entry_guard = entry_guard
         self.warnings: list[str] = []
+        self._captured_entries: dict[str, dict[str, Any]] = {}
+
+    @property
+    def cache_owner(self) -> Any:
+        """Stable owner for schema caches across invocation-local sessions."""
+        return getattr(self.backend, "cache_owner", self.backend)
 
     def write_scope(self, entry_id: str) -> AbstractAsyncContextManager[Any]:
         """An outer backup-store guard; Core flow ownership stays with the backend."""
@@ -41,6 +47,7 @@ class FlowSession(BackendTools):
     async def start_reconfigure_flow(
         self, domain: str, entry_id: str, *, expected_modified_at: float | None = None
     ) -> dict[str, Any]:
+        expected = await self._backup(entry_id)
         return await self._mapping(
             "config.flow.start",
             {
@@ -50,7 +57,7 @@ class FlowSession(BackendTools):
                 **(
                     {"expected_modified_at": expected_modified_at}
                     if expected_modified_at is not None
-                    else self._expected_revision()
+                    else expected
                 ),
             },
             self.context,
@@ -101,6 +108,35 @@ class FlowSession(BackendTools):
     submit_options_flow_step = submit_config_flow_step
     submit_config_subentry_flow_step = submit_config_flow_step
 
+    async def read_flow(self, kind: str, flow_id: str) -> dict[str, Any]:
+        """Re-enter only this caller's owned Core flow, without user input."""
+        return await self._mapping(
+            "config.flow.read", {"kind": kind, "flow_id": flow_id}, self.context
+        )
+
+    async def read_flow_translations(
+        self, domain: str, category: str
+    ) -> dict[str, Any]:
+        return await self._mapping(
+            "helpers.translations",
+            {"handler": domain, "category": category},
+            self.context,
+        )
+
+    async def integration_commands(self, domain: str) -> dict[str, Any]:
+        return await self._mapping(
+            "integrations.commands", {"domain": domain}, self.context
+        )
+
+    async def send_integration_command(
+        self, entry_id: str, message: dict[str, Any]
+    ) -> dict[str, Any]:
+        return await self._mapping(
+            "integrations.command.execute",
+            {"entry_id": entry_id, "message": message},
+            self.context,
+        )
+
     async def abort_config_flow(self, flow_id: str) -> dict[str, Any]:
         return await self._mapping(
             "config.flow.abort", {"flow_id": flow_id}, self.context
@@ -112,6 +148,12 @@ class FlowSession(BackendTools):
     async def get_config_entry(self, entry_id: str) -> dict[str, Any]:
         return await self._mapping(
             "config.entries.read", {"entry_id": entry_id}, self.context
+        )
+
+    async def list_config_entries(self, **query: Any) -> list[dict[str, Any]]:
+        return cast(
+            list[dict[str, Any]],
+            await self.backend.execute("config.entries.list", query, self.context),
         )
 
     async def list_config_subentries(self, entry_id: str) -> dict[str, Any]:
@@ -128,15 +170,16 @@ class FlowSession(BackendTools):
     ) -> dict[str, Any]:
         if not self.capture_backup:
             return self._expected_revision()
+        key = f"{entry_id}/{subentry_id}" if subentry_id else entry_id
+        if key in self._captured_entries:
+            return self._captured_entries[key]
         current = await self.get_config_entry(entry_id)
         helper_type = self.helper_type
         if helper_type is None:
+            from ha_mcp.runtime.helper_flows import helper_flow_types
+
             try:
-                kinds = await self.backend.execute(
-                    "helpers.flow.types",
-                    {"helper_type": current.get("domain", "")},
-                    self.context,
-                )
+                kinds = await helper_flow_types(self)
             except Exception as error:  # noqa: BLE001 - capture classification is best effort
                 self.warnings.append(
                     f"No pre-write backup was taken: {type(error).__name__} while identifying the helper flow"
@@ -148,7 +191,7 @@ class FlowSession(BackendTools):
                 )
             helper_type = (
                 current.get("domain")
-                if current.get("domain") in kinds["types"]
+                if current.get("domain") in kinds
                 else "integration"
             )
         kind = (
@@ -158,7 +201,7 @@ class FlowSession(BackendTools):
             if helper_type == "integration"
             else "flow"
         )
-        result = await self.backend.execute(
+        result = await self._mapping(
             "helpers.backup.capture",
             {
                 "kind": kind,
@@ -181,13 +224,17 @@ class FlowSession(BackendTools):
             self.context,
         )
         self.warnings.extend(result.get("warnings", []))
-        if self.expected_modified_at is not None:
-            return self._expected_revision()
-        return (
-            {"expected_modified_at": current["modified_at"]}
-            if "modified_at" in current
-            else {}
+        expected = (
+            self._expected_revision()
+            if self.expected_modified_at is not None
+            else (
+                {"expected_modified_at": current["modified_at"]}
+                if "modified_at" in current
+                else {}
+            )
         )
+        self._captured_entries[key] = expected
+        return expected
 
     def _expected_revision(self) -> dict[str, Any]:
         return (
@@ -199,6 +246,12 @@ class FlowSession(BackendTools):
     async def _mapping(
         self, operation: str, arguments: dict[str, Any], context: CallContext
     ) -> dict[str, Any]:
-        return cast(
-            dict[str, Any], await self.backend.execute(operation, arguments, context)
-        )
+        try:
+            return cast(
+                dict[str, Any],
+                await self.backend.execute(operation, arguments, context),
+            )
+        except PermissionError as error:
+            raise ToolFailure(
+                "AUTH_REQUIRED", "Flow admission was revoked.", status="not_started"
+            ) from error

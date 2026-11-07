@@ -124,3 +124,17 @@ def _require_scrub(result: dict[str, Any]) -> None:
         raise _FlowHelperReadError(
             "Secret scrub is degraded; capture is unsafe", "secret_scrub_degraded"
         )
+
+
+async def integration_snapshot(hass: Any, entry_id: str) -> dict[str, Any] | None:
+    from ha_mcp.runtime.integration_snapshot import integration_snapshot_value
+
+    from ..core_config_entries import config_entries
+
+    result = await config_entries(hass, entry_id=entry_id)
+    if not result["entries"]:
+        return None
+    return integration_snapshot_value(
+        result["entries"][0],
+        secret_scrub_degraded=result.get("secret_scrub_degraded", False),
+    )

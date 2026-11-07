@@ -18,6 +18,7 @@ from ha_mcp.utils.registry_update_lock import registry_update_lock
 from .errors import raise_failure, websocket_error_message
 from .flows.entry import refuse_component_entry
 from .flows.session import FlowSession
+from .helper_flows import helper_flow_types
 from .helper_removal_storage import StorageRemovalTools
 from .helper_targets import get_entry_id_for_flow_helper, raise_flow_helper_lookup_error
 
@@ -49,11 +50,7 @@ class EntryRemovalTools(StorageRemovalTools):
         self, entry_id: str, current: dict[str, Any]
     ) -> dict[str, Any]:
         try:
-            kinds = await self.backend.execute(
-                "helpers.flow.types",
-                {"helper_type": current.get("domain", "")},
-                self.context,
-            )
+            kinds = await helper_flow_types(FlowSession(self.backend, self.context))
         except Exception as error:  # noqa: BLE001 - backup discovery remains best effort
             result = await self._capture_and_remove_entry(entry_id, None, current)
             result.setdefault("warnings", []).append(
@@ -61,9 +58,7 @@ class EntryRemovalTools(StorageRemovalTools):
             )
             return result
         helper_type = (
-            current.get("domain")
-            if current.get("domain") in kinds["types"]
-            else "integration"
+            current.get("domain") if current.get("domain") in kinds else "integration"
         )
         return await self._capture_and_remove_entry(entry_id, str(helper_type), current)
 

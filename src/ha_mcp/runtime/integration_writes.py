@@ -1,4 +1,4 @@
-"""Shared integration create/options/reconfigure/runtime mode routing."""
+"""Shared upstream integration step API over finite backend operations."""
 
 import logging
 from collections.abc import AsyncIterator
@@ -12,28 +12,20 @@ from ha_mcp.tool_api import BackendTools, ToolFailure
 from ha_mcp.tools.coercion import JSON_STRING_COERCION
 
 from .errors import raise_classified, raise_failure
-from .flows.entry import (
-    create_config_entry,
-    refuse_component_entry,
-    update_config_entry_options,
-)
 from .flows.session import FlowSession
 from .flows.settings import backend_flow_settings
-from .integration_reconfigure import (
-    ReconfigureRunner,
-    reject_reconfigure_only_parameters,
-)
+from .integration_flow_steps import run_integration_step
+from .integration_schema import describe_flow_form
 from .integration_state import set_entry_enabled, set_log_level
+from .integration_ws_commands import reject_ws_command_conflicts, send_ws_command
 from .validation import validate_identifier_not_empty
 
 logger = logging.getLogger(__name__)
 
 
 def integration_changes_state(arguments: dict[str, Any]) -> bool:
-    """Only the unconfirmed reconfigure preflight is guaranteed not to start a flow."""
-    return not (
-        arguments.get("reconfigure") is True and arguments.get("confirm_token") is None
-    )
+    """Starting or reading a flow can execute its integration's own code."""
+    return True
 
 
 def _reject_set_integration_mode_conflicts(
@@ -41,8 +33,10 @@ def _reject_set_integration_mode_conflicts(
     domain: str | None,
     enabled: bool | None,
     config: dict[str, Any] | None,
+    *,
+    flow_args: list[str],
 ) -> None:
-    """Reject ha_set_integration argument combinations that name two modes."""
+    """Reject ha_set_integration argument combinations that name two modes or none."""
     if domain is not None and entry_id is not None:
         raise_failure(
             create_error_response(
@@ -52,13 +46,71 @@ def _reject_set_integration_mode_conflicts(
                 context={"entry_id": entry_id, "domain": domain},
             )
         )
-    if enabled is not None and (domain is not None or config is not None):
+    if enabled is not None and (domain is not None or config is not None or flow_args):
         raise_failure(
             create_error_response(
                 ErrorCode.VALIDATION_INVALID_PARAMETER,
-                "'enabled' is mutually exclusive with 'domain' and "
-                "'config' — enable/disable is a separate call",
+                "'enabled' is mutually exclusive with 'domain', 'config' and "
+                "the flow parameters — enable/disable is a separate call",
                 context={"entry_id": entry_id, "domain": domain},
+            )
+        )
+    if domain is None and entry_id is None:
+        raise_failure(
+            create_error_response(
+                ErrorCode.VALIDATION_INVALID_PARAMETER,
+                "Nothing to do — provide 'domain' to add an "
+                "integration, or 'entry_id' (its options flow, or with "
+                "'enabled' to enable/disable it)",
+                suggestions=[
+                    "Use ha_get_integration() to find valid config entry IDs",
+                ],
+            )
+        )
+
+
+def _reject_log_persistence_without_level(
+    log_persistence: str | None, log_level: str | None
+) -> None:
+    if log_persistence is not None and log_level is None:
+        raise_failure(
+            create_error_response(
+                ErrorCode.VALIDATION_INVALID_PARAMETER,
+                "log_persistence applies only together with log_level",
+                suggestions=[
+                    "Example: ha_set_integration(domain='zha', "
+                    "log_level='DEBUG', log_persistence='permanent')"
+                ],
+            )
+        )
+
+
+def _reject_reconfigure_conflicts(
+    reconfigure: bool, guards: dict[str, Any], domain: str | None, enabled: bool | None
+) -> None:
+    """Only reconfigure takes the identity guards, and it takes no domain or enabled."""
+    if reconfigure and (domain is not None or enabled is not None):
+        raise_failure(
+            create_error_response(
+                ErrorCode.VALIDATION_INVALID_PARAMETER,
+                "Reconfigure mode requires entry_id; do not "
+                "combine it with domain or enabled",
+                context={"domain": domain, "enabled": enabled},
+            )
+        )
+    rejected = sorted(name for name, value in guards.items() if value is not None)
+    if rejected and not reconfigure:
+        raise_failure(
+            create_error_response(
+                ErrorCode.VALIDATION_INVALID_PARAMETER,
+                "These parameters require reconfigure=True and were rejected: "
+                + ", ".join(rejected),
+                suggestions=[
+                    "Pass reconfigure=True to use the identity safeguards of the "
+                    "official reconfigure flow."
+                ],
+                # Not "ignored": the call was rejected and nothing ran.
+                context={"rejected_parameters": rejected},
             )
         )
 
@@ -80,6 +132,18 @@ class IntegrationWriteTools(BackendTools):
         )
         async with backend_flow_settings(self.backend, self.context):
             yield session
+
+    @staticmethod
+    def _set_integration_error_context(
+        entry_id: str | None, domain: str | None
+    ) -> dict[str, Any]:
+        """Build the error-context dict for ha_set_integration failures."""
+        error_context: dict[str, Any] = {}
+        if entry_id is not None:
+            error_context["entry_id"] = entry_id
+        if domain is not None:
+            error_context["domain"] = domain
+        return error_context
 
     async def ha_set_integration(
         self,
@@ -114,22 +178,14 @@ class IntegrationWriteTools(BackendTools):
             JSON_STRING_COERCION,
             Field(
                 description=(
-                    "Flow form data. "
-                    "Updating an existing entry — options or reconfigure — is "
-                    "a patch: a field you omit keeps its current value, and a "
-                    "field set to null is cleared where the integration's "
-                    "schema allows that field to be empty. "
-                    "Multi-step flows consume keys per step. A field two "
-                    "steps declare gets your one value both times; pass "
-                    "step_values={'<step_id>': {'<field>': <value>}} to give "
-                    "a step its own value, or to leave the field out of that "
-                    "step; a LIST of those objects supplies one per encounter "
-                    "when the flow presents a step more than once. Menu steps take "
-                    "'next_step_id' — a string, or a list of successive "
-                    "selections for flows that present more than one menu "
-                    "(e.g. a menu revisited after each branch, ending in a "
-                    "finish option). The step's data_schema is returned on "
-                    "validation errors so field names can be corrected."
+                    "The values for the form the flow is at: one form per "
+                    "call. Without flow_id it answers the new flow's first "
+                    "form (after menu_choice, when the flow opens with a "
+                    "menu). A key the form does not declare is refused before "
+                    "anything is sent. On an existing entry (options, "
+                    "reconfigure) a field you omit keeps its current value, "
+                    "and a field set to null is cleared where the "
+                    "integration's schema allows that field to be empty."
                 ),
                 default=None,
             ),
@@ -141,8 +197,12 @@ class IntegrationWriteTools(BackendTools):
                 description=(
                     "Use the existing config entry's official reconfigure flow "
                     "(its connection settings) instead of its options flow. "
-                    "Without confirm_token this is a read-only preflight that "
-                    "returns one."
+                    "Every call except an abort checks the entry's identity "
+                    "first. Without flow_id and config this opens the flow and "
+                    "returns its first step; nothing is submitted. Continue "
+                    "with the flow_id this entry's call returned: Home "
+                    "Assistant does not say which entry a reconfigure flow "
+                    "edits."
                 ),
             ),
         ] = False,
@@ -152,7 +212,7 @@ class IntegrationWriteTools(BackendTools):
                 default=None,
                 description=(
                     "Requires reconfigure=True. Device registry ID the entry "
-                    "must still own, before and after the change."
+                    "must still own."
                 ),
             ),
         ] = None,
@@ -190,17 +250,6 @@ class IntegrationWriteTools(BackendTools):
                 ),
             ),
         ] = None,
-        confirm_token: Annotated[
-            str | None,
-            Field(
-                default=None,
-                description=(
-                    "Requires reconfigure=True. Any token still matching "
-                    "the entry's current state and the same requested config "
-                    "is accepted, so a token stays valid while nothing moves."
-                ),
-            ),
-        ] = None,
         log_level: Annotated[
             Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL", "DEFAULT"] | None,
             Field(
@@ -209,34 +258,153 @@ class IntegrationWriteTools(BackendTools):
                     "Set the integration's log level, like the integration "
                     "page's Enable/Disable debug logging: pass the integration "
                     "with 'domain' (no config flow runs) or 'entry_id', and "
-                    "nothing else. Lasts through the next Home Assistant "
-                    "restart. DEFAULT clears the override: the integration then "
-                    "logs at the inherited default level, and a level set for it "
-                    "in configuration.yaml returns only after a restart."
+                    "no other mode's parameters (log_persistence may accompany "
+                    "it). Lasts through the next Home Assistant "
+                    "restart unless log_persistence says otherwise. DEFAULT "
+                    "clears the override: the integration then logs at the "
+                    "inherited default level, and a level set for it in "
+                    "configuration.yaml returns only after a restart."
+                ),
+            ),
+        ] = None,
+        log_persistence: Annotated[
+            str | None,
+            Field(
+                default=None,
+                description=(
+                    "Only with log_level: how long Home Assistant keeps the "
+                    "level. 'once' (default) through the next restart, "
+                    "'permanent' after every restart until changed, 'none' "
+                    "until the next restart. Home Assistant validates the value."
+                ),
+            ),
+        ] = None,
+        menu_choice: Annotated[
+            str | None,
+            Field(
+                default=None,
+                description=(
+                    "The option to pick at a menu step: with flow_id the "
+                    "menu the flow is at, without it the menu a new flow "
+                    "opens with. Refused when the step is not a menu or does "
+                    "not offer the option."
+                ),
+            ),
+        ] = None,
+        subentry_type: Annotated[
+            str | None,
+            Field(
+                default=None,
+                description=(
+                    "With entry_id: the integration-defined subentry type "
+                    "whose form to describe as subentry_schema; the flow is "
+                    "aborted afterwards, unless a menu_choice finished it "
+                    "(flow_type create_entry: saved)."
+                ),
+            ),
+        ] = None,
+        subentry_id: Annotated[
+            str | None,
+            Field(
+                default=None,
+                description=(
+                    "With entry_id and subentry_type: the existing subentry "
+                    "whose reconfigure form to describe."
+                ),
+            ),
+        ] = None,
+        flow_id: Annotated[
+            str | None,
+            Field(
+                default=None,
+                description=(
+                    "Continue an open flow: the flow_id a previous call "
+                    "returned, with the same domain or entry_id (and "
+                    "reconfigure=True for a reconfigure flow), until ha-mcp "
+                    "restarts. With config or "
+                    "menu_choice it answers the step; alone it returns the "
+                    "step again."
+                ),
+            ),
+        ] = None,
+        abort: Annotated[
+            bool,
+            Field(
+                default=False,
+                description=(
+                    "With flow_id: end the open flow without saving. A flow "
+                    "Home Assistant no longer has, or one ha-mcp did not open "
+                    "(or opened before it restarted), is an error."
+                ),
+            ),
+        ] = False,
+        ws_command: Annotated[
+            str | None,
+            Field(
+                default=None,
+                description=(
+                    "With entry_id: one of the integration's own '<domain>/' "
+                    "WebSocket commands to send, as its panel in the HA UI "
+                    "does (e.g. 'knx/get_knx_project'). Its result is "
+                    "returned under result. Streaming commands are refused."
+                ),
+            ),
+        ] = None,
+        ws_data: Annotated[
+            dict[str, Any] | None,
+            JSON_STRING_COERCION,
+            Field(
+                default=None,
+                description=(
+                    "The ws_command's arguments, without 'type' and 'id'. "
+                    "Home Assistant checks them against the command's "
+                    "registered schema and returns its error when they do "
+                    "not match."
                 ),
             ),
         ] = None,
     ) -> dict[str, Any]:
-        """Manage an integration (config entry): enable/disable, add, update options, or reconfigure.
+        """Manage an integration (config entry): enable/disable, add, update options, reconfigure, or send its own commands.
 
         Modes (pick one):
         - Enable/disable: entry_id + enabled.
-        - Add integration: domain (+ config) — drives the domain's config
-          flow, including menus and multi-step forms.
-        - Update options: entry_id + config — drives the entry's options
-          flow (what the "Configure" button does in the HA UI).
-        - Reconfigure: entry_id + reconfigure=True + config — connection
-          settings such as host, port, credentials. Repeat with the token the
-          preflight returns as confirm_token to apply.
+        - Add integration: domain (+ menu_choice, + config) — runs the
+          domain's config flow one step per call, as the HA UI does.
+        - Update options: entry_id (+ menu_choice, + config) — the entry's
+          options flow (what the "Configure" button does in the HA UI), one
+          step per call.
+        - Reconfigure: entry_id + reconfigure=True — connection settings
+          such as host, port, credentials, one step per call. Each call
+          except an abort first checks the entry's identity; the first call
+          without config returns the flow's first step.
         - Log level: log_level + domain (or entry_id) — sets how much the
           integration logs; read it back with ha_get_integration's log_level.
+        - Integration command: entry_id + ws_command (+ ws_data) — what the
+          integration's panel sends (KNX project, entities, telegrams).
+          Home Assistant marks none of these commands as read-only, so a read
+          such as knx/get_knx_project goes through this tool too.
+
+        Flows, one step per call: a call answers the step the flow is at and
+        returns Home Assistant's next answer. A form comes back with its
+        fields (type, default, current value, Home Assistant's help text) and
+        flow_id; a menu with menu_options. Answer with flow_id and config (a
+        form) or menu_choice (a menu); flow_id alone returns the step again,
+        and flow_id with abort=True ends the flow. Without flow_id a new flow
+        starts: its first form gets config, and without config the call
+        returns that first step. A form Home Assistant rejects is an error
+        with errors and error_text (Core's text), and the flow stays open to
+        correct it. A flow stays open until Home Assistant finishes
+        it or you abort it; while a setup flow is open, Home Assistant
+        refuses another one for the same device as already_in_progress.
 
         WHEN NOT TO USE:
         - Helpers (template, group, utility_meter, ...): use
           ha_config_set_helper. `otp` is the user's to set up in the HA UI: its
           secret is a credential enrolled in an authenticator app; do not create it.
         - Config subentries: use
-          ha_config_set_helper(helper_type='config_subentry').
+          ha_config_set_helper(helper_type='config_subentry'); subentry_type
+          here describes their form; a menu_choice that finishes the flow
+          saves the subentry.
         - Removing an entry: use ha_remove_helpers_integrations.
         - ha-mcp's own ha_mcp_tools entries are refused: manage them in the HA
           UI, or (server settings, developer mode on) ha_dev_manage_settings /
@@ -244,36 +412,102 @@ class IntegrationWriteTools(BackendTools):
 
         Use ha_get_integration() to find entry IDs, and
         ha_get_integration(entry_id=..., include_schema=True) to inspect the
-        options fields before an update. Its supports_reconfigure field tells
-        you whether an entry qualifies for reconfigure=True.
+        options fields. Its supports_reconfigure field tells you whether an
+        entry qualifies for reconfigure=True, and
+        ha_get_integration(entry_id=..., include_ws_commands=True) lists the
+        commands ws_command accepts with their schemas.
 
         Caveats: adding an integration runs its config flow exactly as the HA
         UI would (may pair devices, scan the network, create entities). Flows
-        requiring a browser step (OAuth) or an asynchronous provider step
-        error out at that step instead of completing. Reconfigure edits the
-        settings a live integration connects with: a wrong host or credential
-        takes it offline, and there is no automatic rollback — the returned
-        rollback metadata describes repeating the official flow by hand with
-        the previous values, which this tool cannot read back. The preflight
-        does not validate config keys against the integration's form; wrong
-        field names surface on the confirm call.
+        requiring a browser step (OAuth) are refused at that step and
+        aborted. A progress step (Home Assistant working in the background)
+        is waited out for up to 120 s; after that the error carries flow_id
+        to ask again. When Home Assistant does not answer a submit or a
+        progress poll (or, on reconfigure, answers with any 5xx), the error
+        carries status applied_but_unverified: the entry may exist or the
+        change may be saved, so check it before retrying. An aborted flow
+        returns Core's own text next to the key (reason_text). Reconfigure
+        edits the settings a live integration connects with: a wrong host or
+        credential takes it offline, and there is no automatic rollback. A
+        finished reconfigure waits for the reload Home Assistant runs and
+        reports the entry's state as entry_state: status applied_and_verified
+        once it is loaded, applied_but_unverified otherwise.
 
         EXAMPLES:
-        - Add: ha_set_integration(domain="workday", config={"name": "Workday"})
+        - Add: ha_set_integration(domain="local_calendar", config={"calendar_name": "Chores"})
+        - Add in two steps: ha_set_integration(domain="knx", config={"connection_type": "routing"}) returns the routing form and flow_id, then ha_set_integration(domain="knx", flow_id="...", config={})
+        - Answer a menu: ha_set_integration(domain="...", flow_id="...", menu_choice="<one of menu_options>")
+        - See the setup form first: ha_set_integration(domain="workday")
         - Update options: ha_set_integration(entry_id="abc123", config={"scan_interval": 30})
-        - Reconfigure preflight: ha_set_integration(entry_id="abc123", reconfigure=True, config={"host": "10.0.0.5"}), then repeat adding confirm_token="sha256:..."
+        - Reconfigure: ha_set_integration(entry_id="abc123", reconfigure=True), then ha_set_integration(entry_id="abc123", reconfigure=True, flow_id="...", config={"host": "10.0.0.5"})
+        - Cancel a flow: ha_set_integration(domain="knx", flow_id="...", abort=True)
         - Debug logging: ha_set_integration(domain="zha", log_level="DEBUG"), then log_level="DEFAULT" to stop
+        - KNX project: ha_set_integration(entry_id="abc123", ws_command="knx/get_knx_project")
         """
         async with self._integration_session() as session:
+            # Only reconfigure takes these; every other mode refuses them.
+            reconfigure_guards: dict[str, Any] = {
+                "expected_device_id": expected_device_id,
+                "expected_unique_id": expected_unique_id,
+                "expected_mac": expected_mac,
+                "expected_entity_ids": expected_entity_ids,
+            }
             try:
-                if log_level is not None:
-                    reject_reconfigure_only_parameters(
-                        confirm_token=confirm_token,
-                        expected_device_id=expected_device_id,
-                        expected_unique_id=expected_unique_id,
-                        expected_mac=expected_mac,
-                        expected_entity_ids=expected_entity_ids,
+                _reject_log_persistence_without_level(log_persistence, log_level)
+                _reject_reconfigure_conflicts(
+                    reconfigure, reconfigure_guards, domain, enabled
+                )
+                if (
+                    entry_id is not None
+                    and not abort
+                    and log_level is None
+                    and ws_command is None
+                ):
+                    entry_id = validate_identifier_not_empty(entry_id, "entry_id")
+                    await session._backup(entry_id)
+                flow_args = {
+                    "flow_id": flow_id,
+                    "menu_choice": menu_choice,
+                    "abort": abort or None,
+                }
+                if ws_command is not None or ws_data is not None:
+                    reject_ws_command_conflicts(
+                        entry_id,
+                        ws_command,
+                        domain=domain,
+                        enabled=enabled,
+                        config=config,
+                        log_level=log_level,
+                        subentry_type=subentry_type,
+                        subentry_id=subentry_id,
+                        reconfigure=reconfigure or None,
+                        **flow_args,
                     )
+                    return await send_ws_command(
+                        session,
+                        validate_identifier_not_empty(entry_id, "entry_id"),
+                        validate_identifier_not_empty(ws_command, "ws_command"),
+                        ws_data,
+                    )
+                if subentry_type is not None or subentry_id is not None:
+                    modes = {
+                        "enabled": enabled is not None,
+                        "config": config is not None,
+                        "reconfigure": reconfigure,
+                        "log_level": log_level is not None,
+                        "flow_id": flow_id is not None,
+                        "abort": abort,
+                    }
+                    return await describe_flow_form(
+                        session,
+                        domain=domain,
+                        entry_id=entry_id,
+                        subentry_type=subentry_type,
+                        subentry_id=subentry_id,
+                        menu_choice=menu_choice,
+                        other_modes=[name for name, given in modes.items() if given],
+                    )
+                if log_level is not None:
                     return await set_log_level(
                         session,
                         entry_id,
@@ -281,37 +515,37 @@ class IntegrationWriteTools(BackendTools):
                         log_level,
                         other_modes=config is not None
                         or enabled is not None
-                        or reconfigure,
+                        or reconfigure
+                        or any(v is not None for v in flow_args.values()),
+                        persistence=log_persistence,
                     )
 
                 if reconfigure:
-                    session.helper_type = "integration"
-                    return await ReconfigureRunner(session).handle_mode(
+                    return await run_integration_step(
+                        session,
+                        domain=None,
                         entry_id=entry_id,
-                        domain=domain,
-                        enabled=enabled,
+                        flow_id=flow_id,
                         config=config,
-                        expected_device_id=expected_device_id,
-                        expected_unique_id=expected_unique_id,
-                        expected_mac=expected_mac,
-                        expected_entity_ids=expected_entity_ids,
-                        confirm_token=confirm_token,
+                        menu_choice=menu_choice,
+                        abort=abort,
+                        expected_identity={
+                            "device_id": expected_device_id,
+                            "unique_id": expected_unique_id,
+                            "mac": expected_mac,
+                            "entity_ids": list(expected_entity_ids or []),
+                        },
                     )
 
-                reject_reconfigure_only_parameters(
-                    confirm_token=confirm_token,
-                    expected_device_id=expected_device_id,
-                    expected_unique_id=expected_unique_id,
-                    expected_mac=expected_mac,
-                    expected_entity_ids=expected_entity_ids,
-                )
-
                 _reject_set_integration_mode_conflicts(
-                    entry_id, domain, enabled, config
+                    entry_id,
+                    domain,
+                    enabled,
+                    config,
+                    flow_args=[name for name, value in flow_args.items() if value],
                 )
 
                 if domain is not None:
-                    # Add mode: drive the domain's config flow.
                     validate_identifier_not_empty(
                         domain,
                         "domain",
@@ -320,20 +554,14 @@ class IntegrationWriteTools(BackendTools):
                             "'local_calendar'",
                         ],
                     )
-                    refuse_component_entry(domain, action="add an entry for")
-                    return await create_config_entry(session, domain, config or {})
-
-                if entry_id is None:
-                    raise_failure(
-                        create_error_response(
-                            ErrorCode.VALIDATION_INVALID_PARAMETER,
-                            "Nothing to do — provide 'domain' to add an "
-                            "integration, or 'entry_id' with 'enabled' "
-                            "(enable/disable) or 'config' (update options)",
-                            suggestions=[
-                                "Use ha_get_integration() to find valid config entry IDs",
-                            ],
-                        )
+                    return await run_integration_step(
+                        session,
+                        domain=domain.strip().lower(),
+                        entry_id=None,
+                        flow_id=flow_id,
+                        config=config,
+                        menu_choice=menu_choice,
+                        abort=abort,
                     )
 
                 # Empty/whitespace entry_id would surface as a misleading HA
@@ -347,28 +575,18 @@ class IntegrationWriteTools(BackendTools):
                 )
 
                 if enabled is not None:
-                    session.helper_type = "integration"
                     return await set_entry_enabled(session, entry_id, enabled)
 
-                if config is not None:
-                    # Options mode: drive the entry's options flow.
-                    async with session.write_scope(entry_id):
-                        result = await update_config_entry_options(
-                            session, entry_id, config
-                        )
-                    if session.warnings:
-                        result.setdefault("warnings", []).extend(session.warnings)
-                    return result
-
-                raise_failure(
-                    create_error_response(
-                        ErrorCode.VALIDATION_INVALID_PARAMETER,
-                        "Nothing to do — pass 'enabled' to enable/disable the "
-                        "entry, or 'config' to update its options",
-                        context={"entry_id": entry_id},
-                    )
+                # Options mode: one step of the entry's options flow.
+                return await run_integration_step(
+                    session,
+                    domain=None,
+                    entry_id=entry_id,
+                    flow_id=flow_id,
+                    config=config,
+                    menu_choice=menu_choice,
+                    abort=abort,
                 )
-                return None  # unreachable: raise_tool_error raises
 
             except ToolFailure:
                 raise
@@ -389,15 +607,3 @@ class IntegrationWriteTools(BackendTools):
                     ],
                 )
                 return None  # unreachable: exception_to_structured_error raises
-
-    @staticmethod
-    def _set_integration_error_context(
-        entry_id: str | None, domain: str | None
-    ) -> dict[str, Any]:
-        """Build the error-context dict for ha_set_integration failures."""
-        error_context: dict[str, Any] = {}
-        if entry_id is not None:
-            error_context["entry_id"] = entry_id
-        if domain is not None:
-            error_context["domain"] = domain
-        return error_context

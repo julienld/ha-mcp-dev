@@ -5,9 +5,15 @@
   "integration": {
     "domain": "ha_mcp_tools",
     "entry_type_key": "entry_type",
-    "entry_types": ["tools", "server"],
+    "entry_types": [
+      "tools",
+      "server"
+    ],
     "missing_entry_type": "tools",
-    "unique_ids": {"tools": "ha_mcp_tools", "server": "ha_mcp_tools-server"},
+    "unique_ids": {
+      "tools": "ha_mcp_tools",
+      "server": "ha_mcp_tools-server"
+    },
     "preserve_entry_ids": true,
     "shared_commands_both_entries": true,
     "privileged_services_tools_entry_only": true
@@ -15,7 +21,11 @@
   "llm": {
     "full_api_id": "ha_mcp_tools-{entry_id}",
     "toolsearch_api_id": "ha_mcp_tools-{entry_id}-toolsearch",
-    "exposure_values": ["full", "tool_search", "both"],
+    "exposure_values": [
+      "full",
+      "tool_search",
+      "both"
+    ],
     "own_api_import": "refuse to prevent recursion",
     "anonymous_admin": false
   },
@@ -29,13 +39,31 @@
     "token": "/api/ha_mcp_tools/oauth/token",
     "revoke": "/api/ha_mcp_tools/oauth/revoke",
     "register": "/api/ha_mcp_tools/oauth/register",
-    "legacy_root_aliases": ["/authorize", "/token"],
+    "legacy_root_aliases": [
+      "/authorize",
+      "/token"
+    ],
     "fixed_metadata_publishing_webhook_id": false,
     "preserve_cloudhook_registration": true
   },
   "authentication": {
-    "modes": ["none", "ha_auth", "legacy"],
-    "preserve_persisted_data_keys": ["webhook_id", "secret_path", "oauth_client_id", "oauth_client_secret", "oauth_signing_key", "dcr_signing_key", "server_user_id", "refresh_token_id", "admin_token", "issued_token_id"],
+    "modes": [
+      "none",
+      "ha_auth",
+      "legacy"
+    ],
+    "preserve_persisted_data_keys": [
+      "webhook_id",
+      "secret_path",
+      "oauth_client_id",
+      "oauth_client_secret",
+      "oauth_signing_key",
+      "dcr_signing_key",
+      "server_user_id",
+      "refresh_token_id",
+      "admin_token",
+      "issued_token_id"
+    ],
     "preserve_redirect_allowlist_option": "oauth_redirect_allowlist",
     "core_refresh_envelope_prefix": "hamcp-rt-",
     "none": "webhook URL is the sole credential; OAuth compatibility bearers are cosmetic",
@@ -69,29 +97,51 @@
   },
   "shared_annotation_overrides": {
     "ha_remove_todo_item": {
-      "annotations": {"idempotentHint": false},
+      "annotations": {
+        "idempotentHint": false
+      },
       "reason": "Both runtimes retain the existing remove_completed predicate. An identical retry can delete items completed after the first request, so discovery must not advertise safe replay. Inputs, outputs and deletion behavior are unchanged; the historical baseline stays immutable."
     }
   },
   "native_annotation_overrides": {
     "ha_config_get_dashboard": {
-      "annotations": {"readOnlyHint": false, "destructiveHint": true, "idempotentHint": false},
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false
+      },
       "reason": "Describing a custom card or listing card types can initialize the actual Core resource owner and migrate resources on first inspection. include_screenshot requires write admission because the renderer may persist its user's profile. Native argument policy permits ordinary config/list/search reads and subsequent inspection of loaded resources in read-only mode. The original openWorldHint=true and the standalone annotations remain unchanged."
     },
     "ha_get_dashboard_screenshot": {
-      "annotations": {"readOnlyHint": false, "destructiveHint": true, "idempotentHint": false},
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false
+      },
       "reason": "The renderer may persist its user's profile even without explicit theme arguments. Every native render requires write admission, with a final check before each HTTP request; native execution never retries a failed capture and stops queued viewports after uncertainty. Standalone annotations remain unchanged."
     },
     "ha_config_list_dashboard_resources": {
-      "annotations": {"readOnlyHint": false, "destructiveHint": true, "idempotentHint": false},
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false
+      },
       "reason": "The first Core resource-storage read can migrate and persist dashboard/resource data. Native list discovery discloses that effect and requires write admission while the collection is not loaded; subsequent loaded reads and YAML mode remain read-only. The standalone catalog retains its original annotations."
     },
     "ha_get_integration": {
-      "annotations": {"readOnlyHint": false, "destructiveHint": true, "idempotentHint": false},
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false
+      },
       "reason": "Options/subentry schema inspection and password-field redaction initialize actual Core flows, which can mutate immediately. Native argument policy permits persisted metadata/options reads without flows when redaction is disabled. Native parameter descriptions disclose these effects instead of claiming subentry introspection cannot create anything; legacy signatures and metadata remain unchanged."
     },
     "ha_config_list_helpers": {
-      "annotations": {"readOnlyHint": false, "destructiveHint": true, "idempotentHint": false},
+      "annotations": {
+        "readOnlyHint": false,
+        "destructiveHint": true,
+        "idempotentHint": false
+      },
       "reason": "Describing a flow-backed helper can call Core async_init, which may immediately create a config entry. Native discovery must disclose that effect; argument-specific policy still permits storage listing/description in read-only mode. The standalone catalog remains unchanged."
     }
   },
@@ -159,7 +209,13 @@
   },
   "native_groups": {
     "owner": "original Core Group, installed service validators and EntityComponent",
-    "snapshot_fields": ["object_id", "name", "entities", "icon", "all"],
+    "snapshot_fields": [
+      "object_id",
+      "name",
+      "entities",
+      "icon",
+      "all"
+    ],
     "older_snapshot_mode": "preserve the current mode, or Core default during recreation, with an explicit warning",
     "nullable_icon": "restore null through the original Core setter",
     "persistence": "runtime only; YAML and startup configuration remain authoritative after reload or restart",
@@ -205,20 +261,108 @@
     "public_contract": "Original public arguments, coercion and safety annotations are retained; native source-update and diagnostic limits are disclosed."
   },
   "conditional_surfaces": [
-    {"name": "ha_get_skill_guide", "owner": "src/ha_mcp/server.py", "kind": "always registered server tool; unavailable is an explicit error"},
-    {"name": "ha_search_tools", "owner": "src/ha_mcp/transforms/categorized_search.py", "kind": "tool-search metatool"},
-    {"name": "ha_call_read_tool", "owner": "src/ha_mcp/transforms/categorized_search.py", "kind": "tool-search read proxy"},
-    {"name": "ha_call_write_tool", "owner": "src/ha_mcp/transforms/categorized_search.py", "kind": "tool-search write proxy"},
-    {"name": "ha_call_delete_tool", "owner": "src/ha_mcp/transforms/categorized_search.py", "kind": "tool-search delete proxy"},
-    {"name": "skill://...", "owner": "src/ha_mcp/server.py", "kind": "bundled SkillsDirectoryProvider resources and supporting files"},
-    {"name": "FastMCP code-mode transforms", "owner": "src/ha_mcp/transforms/categorized_search.py", "kind": "conditional discovery/execution transform"}
+    {
+      "name": "ha_get_skill_guide",
+      "owner": "src/ha_mcp/server.py",
+      "kind": "always registered server tool; unavailable is an explicit error"
+    },
+    {
+      "name": "ha_search_tools",
+      "owner": "src/ha_mcp/transforms/categorized_search.py",
+      "kind": "tool-search metatool"
+    },
+    {
+      "name": "ha_call_read_tool",
+      "owner": "src/ha_mcp/transforms/categorized_search.py",
+      "kind": "tool-search read proxy"
+    },
+    {
+      "name": "ha_call_write_tool",
+      "owner": "src/ha_mcp/transforms/categorized_search.py",
+      "kind": "tool-search write proxy"
+    },
+    {
+      "name": "ha_call_delete_tool",
+      "owner": "src/ha_mcp/transforms/categorized_search.py",
+      "kind": "tool-search delete proxy"
+    },
+    {
+      "name": "skill://...",
+      "owner": "src/ha_mcp/server.py",
+      "kind": "bundled SkillsDirectoryProvider resources and supporting files"
+    },
+    {
+      "name": "FastMCP code-mode transforms",
+      "owner": "src/ha_mcp/transforms/categorized_search.py",
+      "kind": "conditional discovery/execution transform"
+    }
   ],
   "explicit_exceptions": [
-    {"surface": "automatic restore of a missing calendar UID", "native_compatibility": "Core exposes bounded occurrences, not authoritative UID absence. Restore updates a located occurrence; an unlocated UID returns calendar_identity_unavailable and saved manual creation arguments. No recreation follows an empty query or a failed provider update."},
-    {"surface": "direct server_port/secret_path URL", "native_compatibility": "requires client URL migration when HA listens on another port; cannot retain exact URL with HA as the sole HTTP listener"},
-    {"surface": "enable_webhook=False", "native_compatibility": "must not silently enable public webhook; preserve legacy runtime or migrate to an explicitly local/authenticated HA route"},
-    {"surface": "ha_call_service.ws_command", "native_compatibility": "Every non-null ws_command is unsupported before Home Assistant command dispatch, including commands with dedicated native tools. No semantic map is implemented. Native MCP/Assist discovery disclose the limitation; remote backend retains transport capability. A future bounded map requires a separate compatibility decision."},
-    {"surface": "ha_manage_custom_tool api_get/api_post/ws_send", "native_compatibility": "callable saved-script ABI names return UNSUPPORTED_OPERATION before Home Assistant I/O; saved source is preserved; call_tool invokes the native Engine with current actor, tool policy and visibility. No REST/WebSocket emulation or semantic-map fallback is provided."},
-    {"surface": "caller attribution", "native_compatibility": "Core Context identifies the native actor rather than necessarily the historical server account; explicit authorization remains required"}
-  ]
+    {
+      "surface": "automatic restore of a missing calendar UID",
+      "native_compatibility": "Core exposes bounded occurrences, not authoritative UID absence. Restore updates a located occurrence; an unlocated UID returns calendar_identity_unavailable and saved manual creation arguments. No recreation follows an empty query or a failed provider update."
+    },
+    {
+      "surface": "direct server_port/secret_path URL",
+      "native_compatibility": "requires client URL migration when HA listens on another port; cannot retain exact URL with HA as the sole HTTP listener"
+    },
+    {
+      "surface": "enable_webhook=False",
+      "native_compatibility": "must not silently enable public webhook; preserve legacy runtime or migrate to an explicitly local/authenticated HA route"
+    },
+    {
+      "surface": "ha_call_service.ws_command",
+      "native_compatibility": "Every non-null ws_command is unsupported before Home Assistant command dispatch, including commands with dedicated native tools. No semantic map is implemented. Native MCP/Assist discovery disclose the limitation; remote backend retains transport capability. A future bounded map requires a separate compatibility decision."
+    },
+    {
+      "surface": "ha_manage_custom_tool api_get/api_post/ws_send",
+      "native_compatibility": "callable saved-script ABI names return UNSUPPORTED_OPERATION before Home Assistant I/O; saved source is preserved; call_tool invokes the native Engine with current actor, tool policy and visibility. No REST/WebSocket emulation or semantic-map fallback is provided."
+    },
+    {
+      "surface": "caller attribution",
+      "native_compatibility": "Core Context identifies the native actor rather than necessarily the historical server account; explicit authorization remains required"
+    }
+  ],
+  "upstream_contract_updates": {
+    "revision": "8b022630215c7a516d9e0b92aa39c4d3cc94dc5d",
+    "reference": "upstream-contract-8b0226302.json",
+    "decision": "Julien: upstream remains the functional reference; adapt Native to upstream choices without preserving retired upstream APIs. Historical baseline files remain immutable.",
+    "tools": {
+      "ha_config_get_automation": {
+        "rename_parameters": {
+          "identifier": "entity_id"
+        }
+      },
+      "ha_config_set_automation": {
+        "rename_parameters": {
+          "identifier": "entity_id"
+        }
+      },
+      "ha_config_remove_automation": {
+        "rename_parameters": {
+          "identifier": "entity_id"
+        }
+      },
+      "ha_set_integration": {
+        "remove_parameters": [
+          "confirm_token"
+        ],
+        "replacement": "Explicit flow_id/menu_choice/abort step API; meaning changed, no parameter alias."
+      },
+      "ha_get_integration": {
+        "remove_parameters": [
+          "include_knx_project"
+        ],
+        "replacement": "The integration command schema is returned and knx/get_knx_project is invoked through ha_set_integration."
+      },
+      "ha_manage_hacs": {
+        "extend_enum": {
+          "action": [
+            "accept_warning"
+          ]
+        },
+        "reason": "Confirmed per-user Marketplace warning acceptance added upstream."
+      }
+    }
+  }
 }

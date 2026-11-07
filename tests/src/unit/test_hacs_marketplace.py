@@ -204,8 +204,9 @@ class TestMarketplaceCommands:
         assert "AUTH_FORBIDDEN" in text
         assert "warning_not_accepted" in text
         assert "first-run warning" in text
-        assert "Marketplace UI" in text
-        assert "cannot accept" in text
+        assert "Settings > Marketplace" in text
+        assert "action='accept_warning'" in text
+        assert "confirm=True" in text
         assert not _writes(world.ws)
 
     async def test_github_gate_is_not_mistaken_for_a_connection_failure(self, tools):
@@ -419,3 +420,69 @@ async def test_invalid_repository_url_never_dispatches_add_or_replays(repository
     assert error.value.code == "VALIDATION_INVALID_PARAMETER"
     assert error.value.status == "not_started"
     assert not _writes(world.ws)
+
+
+UNACCEPTED = StoreApi("marketplace", {**MARKETPLACE.info, "warning_accepted": False})
+
+
+class TestAcceptWarning:
+    """Core 2026.11 keeps the first-run warning per user; the server's user
+    accepts it once the person confirms they read it (#2970, #2971)."""
+
+    @contextmanager
+    def _store(self, ws, store):
+        with (
+            _on_marketplace(ws, store.prefix),
+            patch(
+                "ha_mcp.tools.tools_hacs.command",
+                new=AsyncMock(return_value=store.info),
+            ),
+        ):
+            yield
+
+    async def test_confirmed_accept_reaches_the_marketplace(self, tools):
+        ws = _ws(_ok(None))
+        with self._store(ws, UNACCEPTED):
+            result = await tools.ha_manage_hacs(action="accept_warning", confirm=True)
+        ws.send_command.assert_awaited_once_with("marketplace/warning/accept")
+        assert result["success"] is True
+        assert result["warning_accepted"] is True
+
+    @pytest.mark.parametrize("confirm", [None, False])
+    async def test_unconfirmed_accept_asks_for_the_users_word(self, tools, confirm):
+        ws = _ws()
+        with self._store(ws, UNACCEPTED), pytest.raises(ToolError) as excinfo:
+            await tools.ha_manage_hacs(action="accept_warning", confirm=confirm)
+        text = str(excinfo.value)
+        assert "VALIDATION" in text
+        assert "confirm=True" in text
+        ws.send_command.assert_not_awaited()
+
+    async def test_already_accepted_sends_nothing(self, tools):
+        ws = _ws()
+        with self._store(ws, MARKETPLACE):
+            result = await tools.ha_manage_hacs(action="accept_warning", confirm=True)
+        ws.send_command.assert_not_awaited()
+        assert result["success"] is True
+        assert result["warning_accepted"] is True
+
+    async def test_hacs_has_no_warning_to_accept(self, tools):
+        ws = _ws()
+        with self._store(ws, StoreApi("hacs")), pytest.raises(ToolError) as excinfo:
+            await tools.ha_manage_hacs(action="accept_warning", confirm=True)
+        assert "Marketplace" in str(excinfo.value)
+        ws.send_command.assert_not_awaited()
+
+    async def test_repository_parameters_do_not_apply(self, tools):
+        with pytest.raises(ToolError) as excinfo:
+            await tools.ha_manage_hacs(
+                action="accept_warning", confirm=True, repository_id="123"
+            )
+        assert "repository_id" in str(excinfo.value)
+
+    async def test_confirm_does_not_apply_to_other_actions(self, tools):
+        with pytest.raises(ToolError) as excinfo:
+            await tools.ha_manage_hacs(
+                action="download", repository_id="123", confirm=True
+            )
+        assert "confirm" in str(excinfo.value)

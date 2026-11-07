@@ -168,7 +168,7 @@ class NativeRestoreOperations:
     async def capture_safety(self, outcome: dict[str, Any]) -> Path | None:
         independent_safety = _is_flow_helper_domain(self.data["domain"]) or self.data[
             "domain"
-        ] in {"helper_config_subentry", "file", "yaml", "yaml_file"}
+        ] in {"helper_config_subentry", "integration", "file", "yaml", "yaml_file"}
         if self.before is None or (
             not independent_safety
             and not self.snapshots.manager.policy.flag("enable_auto_backup")

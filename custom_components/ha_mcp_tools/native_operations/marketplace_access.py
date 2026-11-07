@@ -12,6 +12,7 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntryState
 
+from ha_mcp.runtime.hacs_values import MARKETPLACE_WARNING_GUIDANCE
 from ha_mcp.tool_api import ToolFailure
 
 from .hacs_access import HacsAccess
@@ -87,7 +88,7 @@ class MarketplaceAccess(HacsAccess):
         ):
             raise ToolFailure(
                 "AUTH_FORBIDDEN",
-                "Marketplace warning_not_accepted: this administrator must accept the Marketplace first-run warning in the Marketplace UI.",
+                f"Marketplace warning_not_accepted: {MARKETPLACE_WARNING_GUIDANCE}",
                 status="not_started",
             )
         if action == "add_repository" and not self.owner.github_connected:

@@ -3,6 +3,8 @@
 from typing import Any
 from urllib.parse import quote_plus
 
+from ha_mcp.renamed_tools import CLIENT_TOOL_LIST_REFRESH_STEPS
+
 from .projection import project_fields
 from .report_templates import (
     REPORT_END_MARKER,
@@ -41,15 +43,14 @@ _ISSUE_TITLE_MAX_CHARS = 256
 
 
 MISSING_TOOL_HINT = (
-    "MISSING/UNAVAILABLE TOOL? If the problem is that a tool you expected is not "
-    "in your tool list (can't find it, can't call it), this is very likely NOT a "
-    "bug. MCP clients cache the tool list when they connect and do NOT pick up "
-    "newly enabled tools until the connection is refreshed. Server-side logs "
-    "saying a tool is 'enabled' do NOT mean the client has loaded it. Ask the "
-    "user to refresh their MCP connection first: in Claude Desktop / claude.ai "
-    "use the connector's refresh option, or simply disconnect and reconnect it; "
-    "in Claude Code run /mcp and reconnect the server. Only file a bug if the "
-    "tool is still missing after a refresh."
+    "MISSING TOOL OR UNKNOWN PARAMETER? A tool you expected is not in your tool "
+    "list, or a tool rejects as unknown a parameter your tool list shows: very "
+    "likely NOT a bug. MCP clients cache the tool list, so they miss newly "
+    "enabled tools and keep showing parameter names an ha-mcp update renamed; "
+    "server logs saying a tool is 'enabled' do NOT mean the client loaded it. "
+    f"Ask the user to refresh first ({CLIENT_TOOL_LIST_REFRESH_STEPS}), then "
+    "start a new conversation. Only file a bug if the problem remains after a "
+    "refresh."
 )
 
 
@@ -384,9 +385,9 @@ def render_report(
         "known_client_issues_hint": KNOWN_CLIENT_ISSUES_HINT,
         "instructions": (
             "WORKFLOW FOR FILING A REPORT:\n\n"
-            "0. **PRE-CHECK — is the problem a missing/unavailable tool?** If "
-            "the user's issue is that a tool they expected is missing or "
-            "cannot be called, DO NOT file a bug yet. See the "
+            "0. **PRE-CHECK — missing tool or unknown parameter?** If "
+            "the user's issue is that a tool is missing or rejects a name "
+            "shown by their cached tool list, DO NOT file a bug yet. See the "
             "`missing_tool_hint` field: the likely cause is a stale MCP "
             "client tool list (not a server bug), fixed by refreshing or "
             "reconnecting the MCP connection. Only continue with this report "

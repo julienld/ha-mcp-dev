@@ -14,7 +14,7 @@ from ..core_config_entries import (
 async def _config_entries_prep(
     hass: HomeAssistant, msg: dict[str, Any]
 ) -> dict[str, Any]:
-    return await load_entry_secret_values(hass)
+    return await load_entry_secret_values(hass, msg)
 
 
 def _do_config_entries(

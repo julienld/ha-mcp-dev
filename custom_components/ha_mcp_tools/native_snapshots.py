@@ -125,7 +125,14 @@ class NativeSnapshots:
                     "Integration snapshot requires public metadata only",
                     "integration_metadata",
                 )
-            return copy.deepcopy(current_entry)
+            from .native_operations.snapshot_sources import integration_snapshot
+
+            current = await integration_snapshot(self.manager.hass, payload["entry_id"])
+            if current is None:
+                raise _FlowHelperReadError(
+                    "Integration entry no longer exists", "entry_missing"
+                )
+            return current
         if payload.get("kind") == "flow":
             return await flow_snapshot(self.manager.hass, payload)
         if payload.get("kind") == "subentry":

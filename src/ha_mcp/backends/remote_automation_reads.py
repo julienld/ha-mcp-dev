@@ -10,8 +10,8 @@ from ha_mcp.client.rest_client import (
     HomeAssistantError,
 )
 from ha_mcp.errors import ErrorCode, create_error_response
+from ha_mcp.tools.automation_registry_details import core_related, registry_details
 from ha_mcp.tools.component_automation import automation_lookup
-from ha_mcp.tools.config_write_helpers import fetch_registry_entry
 from ha_mcp.tools.helpers import raise_tool_error
 from ha_mcp.tools.util_helpers import list_visible_registry_ids
 
@@ -92,17 +92,9 @@ class RemoteAutomationReads:
         self, target: _Target, warnings: list[str]
     ) -> tuple[dict[str, Any] | None, dict[str, Any] | None, dict[str, Any] | None]:
         """The automation's registry row, Core's validation verdict and references."""
-        lookup = target.lookup
-        if lookup is not None:
-            references = lookup.get("references")
-            if references is None and lookup.get("loaded") is False:
-                warnings.append(_REFERENCES_NOT_LOADED)
-            return lookup.get("entity"), lookup.get("validation"), references
-        warnings.append(_REFERENCES_NEED_COMPONENT)
-        if target.entity_id is None:
-            return None, None, None
-        entity = await fetch_registry_entry(self._client, target.entity_id, warnings)
-        return entity, await self._repair_validation(target.entity_id, warnings), None
+        return await registry_details(
+            self._client, target.lookup, target.entity_id, warnings
+        )
 
     async def _repair_validation(
         self, entity_id: str, warnings: list[str]
@@ -209,4 +201,13 @@ class RemoteAutomationReads:
             "validation": validation,
             "references": references,
             "warnings": warnings,
+            **(
+                {
+                    "related": await core_related(
+                        self._client, target.entity_id, warnings
+                    )
+                }
+                if target.lookup is None
+                else {}
+            ),
         }

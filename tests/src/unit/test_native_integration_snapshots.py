@@ -21,6 +21,12 @@ async def test_integration_setter_captures_only_the_supported_known_before_image
         "title": "Before",
         "disabled_by": None,
     }
+    if kind == "integration":
+        before["options"] = {"interval": 15}
+        monkeypatch.setattr(
+            "custom_components.ha_mcp_tools.native_operations.snapshot_sources.integration_snapshot",
+            AsyncMock(return_value=copy.deepcopy(before)),
+        )
     helper_type = "integration" if kind == "integration" else "utility_meter"
     domain = "integration" if kind == "integration" else "helper_utility_meter"
     if kind == "flow":
@@ -40,7 +46,7 @@ async def test_integration_setter_captures_only_the_supported_known_before_image
         "source_tool": "ha_set_integration",
         "backup_id": "entry",
         "entry_id": "entry",
-        "current_entry": copy.deepcopy(before),
+        "current_entry": {k: v for k, v in before.items() if k != "options"},
         "action": "update",
     }
     result = await snapshots.helper_backup(payload, CallContext("owner"))

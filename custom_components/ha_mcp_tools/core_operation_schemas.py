@@ -30,6 +30,7 @@ def config_entries_parameters(vol: Any) -> dict[Any, Any]:
         vol.Optional("entry_id"): vol.Any(str, None),
         vol.Optional("domain"): vol.Any(str, None),
         vol.Optional("include_subentry_data", default=False): bool,
+        vol.Optional("type_filter"): [str],
     }
 
 
@@ -119,3 +120,9 @@ def helper_write_parameters(vol: Any) -> dict[Any, Any]:
             vol.Optional("category"): vol.Any(str, None),
         },
     }
+
+
+def native_config_entries_parameters(vol: Any) -> dict[Any, Any]:
+    fields = config_entries_parameters(vol)
+    fields[vol.Optional("integration_type")] = str
+    return fields

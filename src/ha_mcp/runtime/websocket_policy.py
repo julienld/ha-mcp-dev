@@ -271,3 +271,14 @@ def validate_ws_request(
             )
         )
     return command_type, command_params
+
+
+def command_payload(command: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """Preserve every payload field while preventing command-envelope injection."""
+    if {"id", "type"} & payload.keys():
+        raise_failure(
+            create_validation_error(
+                "id and type are reserved WebSocket transport fields",
+            )
+        )
+    return {"type": command, **payload}

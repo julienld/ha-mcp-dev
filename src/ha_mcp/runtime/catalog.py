@@ -21,6 +21,7 @@ from ha_mcp.tools.tool_hints import read_only_hints, write_hints
 
 from .actions import ServiceCallTools
 from .area_writes import AreaWriteTools
+from .argument_hints import _stale_tool_list_hint
 from .automation_writes import AutomationWriteTools
 from .category_writes import CategoryWriteTools
 from .config_reads import AutomationReadTools, SceneReadTools, ScriptReadTools
@@ -88,6 +89,27 @@ def define_tool(
         try:
             validated = model.model_validate(arguments)
         except ValidationError as exc:
+            unknown = sorted(
+                {
+                    str(error["loc"][0])
+                    for error in exc.errors()
+                    if error["type"] == "extra_forbidden" and error["loc"]
+                }
+            )
+            if unknown:
+                message = f"Tool {method_name!r} received extra parameter(s): {', '.join(unknown)}. Valid parameters: {', '.join(model.model_fields)}."
+                raise ToolFailure(
+                    "INVALID_ARGUMENTS",
+                    message,
+                    data={
+                        "success": False,
+                        "error": {
+                            "code": "INVALID_ARGUMENTS",
+                            "message": message,
+                            "suggestion": _stale_tool_list_hint(unknown),
+                        },
+                    },
+                ) from exc
             raise ToolFailure("INVALID_ARGUMENTS", str(exc)) from exc
         # model_dump recursively changes arbitrary user objects. Tool parameters
         # should retain the values the authoritative validator produced.
@@ -158,7 +180,7 @@ def _integration_reader(backend: Backend) -> ToolDefinition:
     properties = definition.input_schema["properties"]
     properties["include_options"]["description"] = (
         "Include persisted options for each entry; automatically enabled when domain is set. "
-        "With secret redaction enabled, reading options can start an integration's options flow to inspect password fields."
+        "With secret redaction enabled and no explicit schema request, option values are withheld instead of starting a flow."
     )
     properties["include_schema"]["description"] += (
         " Opens the actual Core options flow, which may change configuration immediately."
@@ -172,9 +194,9 @@ def _integration_reader(backend: Backend) -> ToolDefinition:
         definition,
         description=definition.description
         + (
-            "\n\nNATIVE FLOW EFFECTS: options/subentry schema inspection and password-field redaction "
+            "\n\nNATIVE FLOW EFFECTS: explicit options/subentry schema inspection "
             "can initialize Core flows with immediate effects. These branches require write admission; "
-            "ordinary persisted-value reads do not open flows when secret redaction is disabled."
+            "ordinary persisted-value reads do not open flows, including when secret redaction is enabled."
         ),
     )
 

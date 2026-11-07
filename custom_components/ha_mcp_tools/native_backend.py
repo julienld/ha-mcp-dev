@@ -57,7 +57,7 @@ _CORE_PARAMETERS = {
     "helpers.storage.write": core_operation_schemas.helper_write_parameters,
     "helpers.registry.snapshot": core_operation_schemas.registries_parameters,
     "helpers.entities.for_entry": core_operation_schemas.registry_lookup_parameters,
-    "integrations.entries": core_operation_schemas.config_entries_parameters,
+    "integrations.entries": core_operation_schemas.native_config_entries_parameters,
     "registries.snapshot": core_operation_schemas.registries_parameters,
     "assist.exposure": core_operation_schemas.exposure_parameters,
     "entities.enrich": core_operation_schemas.entity_enrich_parameters,
@@ -195,7 +195,11 @@ class NativeBackend:
         try:
             await self.authorize(context)
         except PermissionError as error:
-            if operation in {"config.flow.start", "config.flow.configure"}:
+            if operation in {
+                "config.flow.start",
+                "config.flow.configure",
+                "config.flow.read",
+            }:
                 raise ToolFailure(
                     "AUTH_REQUIRED", "Flow admission was revoked.", status="not_started"
                 ) from error
@@ -226,6 +230,8 @@ class NativeBackend:
     async def _execute_owned_operation(
         self, operation: str, arguments: dict[str, Any], context: CallContext
     ) -> Any:
+        if operation == "integrations.command.execute":
+            return await self._integration_command(arguments, context)
         if operation in {"config.entries.watch", "config.entries.observe"}:
             from .native_operations.entry_watches import NativeEntryWatches
 
@@ -258,6 +264,7 @@ class NativeBackend:
             ),
             "config.flow.start",
             "config.flow.configure",
+            "config.flow.read",
             "config.flow.abort",
             "config.reload.watch",
             "config.reload.wait",
@@ -325,6 +332,7 @@ class NativeBackend:
         if operation in {
             "config.flow.start",
             "config.flow.configure",
+            "config.flow.read",
             "config.flow.abort",
         }:
             from .native_operations.flows import NativeFlows, _unknown_flow_outcome
@@ -341,6 +349,27 @@ class NativeBackend:
         if self._reload_watches is None:
             self._reload_watches = NativeReloadWatches(self.hass, self.authorize)
         return await self._reload_watches.execute(operation, arguments, context)
+
+    async def _integration_command(
+        self, arguments: dict[str, Any], context: CallContext
+    ) -> Any:
+        message = arguments.get("message", {})
+        command = message.get("type")
+        if command != "knx/get_knx_project":
+            raise UnsupportedOperation("integrations.ws_command." + str(command))
+        from .native_operations.command_validation import _validated_payload
+
+        entry = self.hass.config_entries.async_get_entry(arguments["entry_id"])
+        if entry is None or entry.domain != "knx":
+            raise ToolFailure(
+                "CONFIG_CONFLICT",
+                "The KNX entry changed before the command.",
+                status="not_started",
+            )
+        _validated_payload(
+            self.hass, command, {k: v for k, v in message.items() if k != "type"}
+        )
+        return await self.execute("integrations.knx_project", {}, context)
 
     async def _execute_core_operation(
         self, operation: str, arguments: dict[str, Any], context: CallContext

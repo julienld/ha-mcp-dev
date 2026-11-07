@@ -127,12 +127,48 @@ def _preserved_definitions(before: Any, after: Any) -> bool:
     )
 
 
+def _upstream_input_contract(
+    before: dict[str, Any], tool_name: str | None
+) -> dict[str, Any]:
+    contract = json.loads(
+        (_CONTRACTS / "compatibility.json").read_text(encoding="utf-8")
+    )
+    update = (
+        contract.get("upstream_contract_updates", {})
+        .get("tools", {})
+        .get(tool_name, {})
+    )
+    if update:
+        before = json.loads(json.dumps(before))
+        properties = before.get("properties", {})
+        renames = update.get("rename_parameters", {})
+        for retired, current in renames.items():
+            if retired in properties:
+                properties[current] = properties.pop(retired)
+        for parameter, additions in update.get("extend_enum", {}).items():
+            if parameter in properties:
+                properties[parameter]["enum"] = [
+                    *properties[parameter]["enum"],
+                    *additions,
+                ]
+        removed = set(update.get("remove_parameters", []))
+        for retired in removed:
+            properties.pop(retired, None)
+        before["required"] = [
+            renames.get(name, name)
+            for name in before.get("required", [])
+            if name not in removed
+        ]
+    return before
+
+
 def _changed_inputs(
     before: dict[str, Any],
     after: dict[str, Any],
     *,
     tool_name: str | None = None,
 ) -> list[str]:
+    before = _upstream_input_contract(before, tool_name)
     changes = []
     old_properties = before.get("properties", {})
     new_properties = after.get("properties", {})
@@ -179,6 +215,38 @@ def _changed_inputs(
         )
     )
     return changes
+
+
+def test_current_interfaces_match_the_independent_upstream_source_receipt() -> None:
+    from ha_mcp.runtime.catalog import build_initial_catalog
+
+    contract = json.loads(
+        (_CONTRACTS / "compatibility.json").read_text(encoding="utf-8")
+    )
+    update = contract["upstream_contract_updates"]
+    reference = json.loads(
+        (_CONTRACTS / update["reference"]).read_text(encoding="utf-8")
+    )
+    assert reference["revision"] == update["revision"]
+    from ha_mcp.runtime.catalog import define_tool
+    from ha_mcp.runtime.hacs_tools import HacsFacade
+
+    definitions = {tool.name: tool for tool in build_initial_catalog(MagicMock())}
+    definitions["ha_manage_hacs"] = define_tool(
+        MagicMock(), HacsFacade, "ha_manage_hacs", annotations={}
+    )
+    existing_extensions = {"ha_config_get_automation": {"config_format"}}
+    for name, source in reference["tools"].items():
+        schema = definitions[name].input_schema
+        assert set(schema["properties"]) == set(
+            source["parameters"]
+        ) | existing_extensions.get(name, set()), name
+        assert set(schema.get("required", [])) == set(source["required"]), name
+        for parameter, values in source.get("enums", {}).items():
+            assert schema["properties"][parameter]["enum"] == list(values), (
+                name,
+                parameter,
+            )
 
 
 @pytest.mark.parametrize("database_included", [False, True])

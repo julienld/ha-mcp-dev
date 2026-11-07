@@ -1,6 +1,7 @@
 """Integration recovery changes only the enabled state of the same live entry."""
 
 import copy
+import json
 import sys
 from enum import StrEnum
 from types import SimpleNamespace
@@ -13,6 +14,53 @@ from ha_mcp.runtime.snapshot_payloads import BackupRestoreError
 from ha_mcp.tool_api import CallContext
 
 from .test_native_snapshot_restore import runtime as runtime
+
+
+@pytest.mark.parametrize("auto_backup", [True, False])
+async def test_options_restore_uses_a_fresh_safety_image_and_shared_options_owner(
+    integration, monkeypatch, auto_backup
+):
+    from custom_components.ha_mcp_tools.native_operations.integration_restore import (
+        NativeIntegrationRestore,
+    )
+
+    integration.entry.options = {"interval": 10}
+    integration.manager.policy.flags["enable_auto_backup"] = auto_backup
+
+    async def read(_hass, **_query):
+        return {
+            "entries": [
+                {
+                    **integration.entry.as_json_fragment,
+                    "options": copy.deepcopy(integration.entry.options),
+                    "subentries": [],
+                }
+            ]
+        }
+
+    async def restore_options(self, config, current_options):
+        assert current_options == {"interval": 10}
+        integration.entry.options = copy.deepcopy(config["options"])
+
+    monkeypatch.setattr(
+        "custom_components.ha_mcp_tools.core_config_entries.config_entries", read
+    )
+    monkeypatch.setattr(
+        NativeIntegrationRestore, "restore_options", restore_options, raising=False
+    )
+    path = integration.store.capture(
+        "integration",
+        integration.entry.entry_id,
+        {**integration.entry.as_json_fragment, "options": {"interval": 30}},
+        "fixture",
+    )
+    result = await integration.snapshots.restore_snapshot(
+        path.name, CallContext("actor")
+    )
+    assert integration.entry.options == {"interval": 30}
+    safety = integration.store.read_snapshot(result["safety_backup"])
+    assert safety["config"]["options"] == {"interval": 10}
+    assert "data" not in safety["config"]
 
 
 class Disabler(StrEnum):
@@ -40,6 +88,16 @@ class Entry:
 @pytest.fixture
 def integration(runtime: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
     manager, snapshots, store, _old_path, _rows, _calls = runtime
+    monkeypatch.setattr(
+        "custom_components.ha_mcp_tools.core_config_entries.json_bytes",
+        lambda value: json.dumps(value).encode(),
+    )
+    monkeypatch.setattr(
+        "custom_components.ha_mcp_tools.core_config_entries.load_entry_secret_values",
+        AsyncMock(
+            return_value={"secret_values": frozenset(), "secret_scrub_degraded": False}
+        ),
+    )
     entry = Entry()
     entries = {entry.entry_id: entry}
 
@@ -81,19 +139,24 @@ def integration(runtime: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
     )
 
 
-async def test_integration_snapshot_restores_enabled_state_but_not_credentials_or_metadata(
+async def test_historical_integration_snapshot_restores_state_and_reports_missing_options(
     integration: Any,
 ) -> None:
     before = copy.deepcopy(integration.entry.as_json_fragment)
-    result = await integration.snapshots.restore_snapshot(
-        integration.path.name, CallContext("actor")
-    )
+    with pytest.raises(BackupRestoreError) as caught:
+        await integration.snapshots.restore_snapshot(
+            integration.path.name, CallContext("actor")
+        )
+    assert caught.value.outcome["apply_status"] == "applied"
+    assert caught.value.outcome["reason"] == "options_not_restored"
+    result = caught.value.outcome
     assert result["apply_status"] == "applied"
     assert integration.entry.disabled_by == "user"
     assert integration.entry.title == "Current entry"
     safety = integration.store.read_snapshot(result["safety_backup"])
-    assert safety["config"] == before
-    assert "data" not in safety["config"] and "options" not in safety["config"]
+    assert all(safety["config"][key] == value for key, value in before.items())
+    assert safety["config"]["options"] == {}
+    assert "data" not in safety["config"]
     integration.owner.async_set_disabled_by.assert_awaited_once()
 
 

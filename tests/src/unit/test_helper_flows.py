@@ -14,6 +14,8 @@ import pytest
 from ha_mcp import backup_manager as bm
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp.client.rest_client import HomeAssistantConnectionError
+from ha_mcp.runtime import helper_flows as shared_helper_flows
+from ha_mcp.runtime import helper_targets
 from ha_mcp.tools import auto_backup, flow_helper_lookup, helper_flows
 from ha_mcp.tools.backup import _edits_create
 from ha_mcp.tools.config_entry_backup import resolve_config_entry_backup_domain
@@ -42,7 +44,7 @@ def _error(exc_info: pytest.ExceptionInfo[ToolError]) -> dict[str, Any]:
 async def test_helper_types_are_read_from_core_once_per_client(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(helper_flows, "_fetch_helper_flow_types", _REAL_FETCH)
+    monkeypatch.setattr(shared_helper_flows, "_fetch_helper_flow_types", _REAL_FETCH)
     client = _Client(["template", "my_helper"])
     for _ in range(2):
         assert await helper_flows.helper_flow_types(client) == {"template", "my_helper"}
@@ -55,8 +57,8 @@ async def test_helper_types_are_read_from_core_once_per_client(
 async def test_a_helper_integration_installed_later_shows_up_after_the_cache_expires(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(helper_flows, "_fetch_helper_flow_types", _REAL_FETCH)
-    monkeypatch.setattr(helper_flows, "_TTL_SECONDS", 0.0)
+    monkeypatch.setattr(shared_helper_flows, "_fetch_helper_flow_types", _REAL_FETCH)
+    monkeypatch.setattr(shared_helper_flows, "_TTL_SECONDS", 0.0)
     client = _Client(["template"])
     await helper_flows.helper_flow_types(client)
     await helper_flows.helper_flow_types(client)
@@ -67,7 +69,7 @@ async def test_a_helper_integration_installed_later_shows_up_after_the_cache_exp
 async def test_a_client_that_cannot_be_weakly_referenced_is_still_served(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(helper_flows, "_fetch_helper_flow_types", _REAL_FETCH)
+    monkeypatch.setattr(shared_helper_flows, "_fetch_helper_flow_types", _REAL_FETCH)
     client = SimpleNamespace(_request=AsyncMock(return_value=["template"]))
     assert await helper_flows.helper_flow_types(client) == {"template"}
 
@@ -76,7 +78,7 @@ async def test_a_client_that_cannot_be_weakly_referenced_is_still_served(
 async def test_an_unreadable_helper_list_is_a_connection_error_not_an_empty_one(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(helper_flows, "_fetch_helper_flow_types", _REAL_FETCH)
+    monkeypatch.setattr(shared_helper_flows, "_fetch_helper_flow_types", _REAL_FETCH)
     with pytest.raises(HomeAssistantConnectionError):
         await helper_flows.helper_flow_types(_Client({}))
 
@@ -87,7 +89,7 @@ async def test_storage_types_need_no_core_read(
     monkeypatch: pytest.MonkeyPatch, helper_type: str, also: tuple[str, ...]
 ) -> None:
     fetch = AsyncMock()
-    monkeypatch.setattr(helper_flows, "_fetch_helper_flow_types", fetch)
+    monkeypatch.setattr(shared_helper_flows, "_fetch_helper_flow_types", fetch)
     await helper_flows.require_helper_type(_Client([]), helper_type, *also)
     fetch.assert_not_awaited()
 
@@ -102,7 +104,7 @@ async def test_a_helper_integration_installed_since_the_last_read_is_accepted(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fetch = AsyncMock(side_effect=[frozenset({"template"}), frozenset({"new_helper"})])
-    monkeypatch.setattr(helper_flows, "_fetch_helper_flow_types", fetch)
+    monkeypatch.setattr(shared_helper_flows, "_fetch_helper_flow_types", fetch)
     client = _Client([])
     await helper_flows.helper_flow_types(client)  # cached before the install
     await helper_flows.require_helper_type(client, "new_helper")
@@ -114,7 +116,7 @@ async def test_a_fresh_read_is_not_repeated_for_an_unknown_type(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fetch = AsyncMock(return_value=frozenset({"template"}))
-    monkeypatch.setattr(helper_flows, "_fetch_helper_flow_types", fetch)
+    monkeypatch.setattr(shared_helper_flows, "_fetch_helper_flow_types", fetch)
     with pytest.raises(ToolError):
         await helper_flows.require_helper_type(_Client([]), "no_such_helper")
     assert fetch.await_count == 1
@@ -125,9 +127,9 @@ async def test_an_entity_of_a_newly_installed_helper_integration_is_a_helper(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fetch = AsyncMock(side_effect=[frozenset({"template"}), frozenset({"new_helper"})])
-    monkeypatch.setattr(helper_flows, "_fetch_helper_flow_types", fetch)
+    monkeypatch.setattr(shared_helper_flows, "_fetch_helper_flow_types", fetch)
     monkeypatch.setattr(
-        flow_helper_lookup,
+        helper_targets,
         "_read_registry_entry",
         AsyncMock(return_value=({"platform": "new_helper"}, "ok")),
     )
@@ -174,7 +176,7 @@ async def test_a_failed_helper_flow_read_is_a_structured_connection_error(
     monkeypatch: pytest.MonkeyPatch, call: Any
 ) -> None:
     monkeypatch.setattr(
-        helper_flows,
+        shared_helper_flows,
         "_fetch_helper_flow_types",
         AsyncMock(side_effect=HomeAssistantConnectionError("down")),
     )
@@ -247,7 +249,7 @@ async def test_an_entry_delete_proceeds_when_the_helper_flow_read_fails(
     reported."""
     _enable_auto_backup(monkeypatch, tmp_path)
     monkeypatch.setattr(
-        helper_flows,
+        shared_helper_flows,
         "_fetch_helper_flow_types",
         AsyncMock(side_effect=HomeAssistantConnectionError("down")),
     )
@@ -296,7 +298,7 @@ async def test_a_custom_helper_flow_is_created_through_its_config_flow(
     """A helper integration outside Core's built-in list is created through
     its own config flow, like template or group."""
     monkeypatch.setattr(
-        helper_flows,
+        shared_helper_flows,
         "_fetch_helper_flow_types",
         AsyncMock(return_value=frozenset({"template", "my_custom_helper"})),
     )
@@ -320,7 +322,7 @@ async def test_a_custom_helper_flow_describes_its_config_flow_fields(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        helper_flows,
+        shared_helper_flows,
         "_fetch_helper_flow_types",
         AsyncMock(return_value=frozenset({"template", "my_custom_helper"})),
     )
@@ -337,7 +339,7 @@ async def test_a_custom_helper_flow_is_removed_through_the_flow_path(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        helper_flows,
+        shared_helper_flows,
         "_fetch_helper_flow_types",
         AsyncMock(return_value=frozenset({"template", "my_custom_helper"})),
     )

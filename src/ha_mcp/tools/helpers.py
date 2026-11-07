@@ -23,6 +23,7 @@ from ..errors import (
     create_auth_error,
     create_connection_error,
 )
+from ..redaction import scrub_known_secrets
 from ..runtime.action_params import (
     _parse_json_dict_param as _shared_parse_json_dict_param,
 )
@@ -218,7 +219,7 @@ def log_tool_usage(func: Any) -> Any:
             # recorded as a success. str() is empty on a bare CancelledError,
             # so the class name stands in.
             success = False
-            error_message = str(e) or type(e).__name__
+            error_message = scrub_known_secrets(str(e)) or type(e).__name__
             raise
         finally:
             execution_time_ms = (time.time() - start_time) * 1000

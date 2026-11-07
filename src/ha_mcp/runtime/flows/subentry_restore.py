@@ -15,12 +15,13 @@ from typing import Any
 from .entry import (
     _SUBENTRY_CREATE_LOCKS,
     OptionsFlowError,
-    _abort_subentry_flow_best_effort,
     _created_subentry_id,
     _OptionsFlowProgress,
     _reject_redaction_sentinels,
+    _restore_flow_failure,
     _subentry_ids,
 )
+from .introspect import abort_failed_flow
 from .walker import (
     _RECONFIGURE_SUCCESS_REASONS,
     _FlowType,
@@ -96,9 +97,13 @@ async def _walk_snapshot(
             complete_snapshot=True,
         )
     except (Exception, asyncio.CancelledError) as err:
-        failure = err if isinstance(err, OptionsFlowError) else progress.failure()
+        failure = _restore_flow_failure(progress, err)
         if failure.flow_id and failure.apply_status == "not_applied":
-            await _abort_subentry_flow_best_effort(client, failure.flow_id)
+            await abort_failed_flow(
+                client.abort_config_subentry_flow,
+                failure.flow_id,
+                kind="config subentry flow",
+            )
         if isinstance(err, (OptionsFlowError, asyncio.CancelledError)):
             raise
         raise failure from err

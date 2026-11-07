@@ -106,12 +106,12 @@ class AutomationRemovalTools(AutomationReadTools, ConfigRemovalTools):
 
     async def ha_config_remove_automation(
         self,
-        identifier: Annotated[
-            str | None,
+        entity_id: Annotated[
+            str,
             Field(
-                description="Automation entity_id or config id; identifier remains accepted."
+                description="The automation's entity_id (e.g. 'automation.old_automation') or its config id"
             ),
-        ] = None,
+        ],
         wait: Annotated[
             bool,
             Field(
@@ -119,12 +119,6 @@ class AutomationRemovalTools(AutomationReadTools, ConfigRemovalTools):
                 default=True,
             ),
         ] = True,
-        entity_id: Annotated[
-            str | None,
-            Field(
-                description="Automation entity_id or config id; compatible alias of identifier."
-            ),
-        ] = None,
     ) -> dict[str, Any]:
         """Delete a Home Assistant automation permanently.
 
@@ -137,9 +131,7 @@ class AutomationRemovalTools(AutomationReadTools, ConfigRemovalTools):
         - Delete automation: ha_config_remove_automation("automation.old_automation")
         - Delete by unique_id: ha_config_remove_automation("my_unique_id")
         """
-        identifier = compatible_automation_identifier(
-            identifier, entity_id, required=True
-        )
+        identifier = compatible_automation_identifier(None, entity_id, required=True)
         assert identifier is not None
         try:
             validate_identifier_not_empty(

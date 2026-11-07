@@ -1,15 +1,25 @@
 """Shared integration inspection with finite metadata, flow and diagnostics ports."""
 
-import asyncio
 import logging
 from typing import Any
 
 from ha_mcp.errors import ErrorCode, create_error_response
+from ha_mcp.runtime.errors import raise_failure as raise_tool_error
+from ha_mcp.runtime.ignored_entries import normalize_ignored_entry
+from ha_mcp.runtime.integration_components import (
+    SCRUB_DEGRADED_WARNING,
+    fetch_config_entries,
+)
+from ha_mcp.runtime.integration_schema import (
+    entry_count,
+    options_unread_warning,
+    options_withheld_warning,
+    withhold_component_options,
+)
+from ha_mcp.runtime.validation import validate_identifier_not_empty
 
-from .errors import raise_failure
 from .flows.settings import redaction_enabled
 from .integration_entries import IntegrationEntryReads
-from .integration_inspection import fetch_entry_options_with_status
 from .integration_logs import get_logger_levels
 from .projection import build_pagination_metadata
 
@@ -25,87 +35,81 @@ class IntegrationListReads(IntegrationEntryReads):
         exact_match: bool | None,
         limit_int: int,
         offset_int: int,
+        integration_type: str | None = None,
     ) -> dict[str, Any]:
         """List config entries with optional domain/query filtering and pagination."""
         # Component fast path: one in-process read (domain filtered server-side,
-        # options materialized on each row) replaces the REST list + per-entry
-        # OptionsFlow probes. Normalize the domain to HA's canonical lowercase so
-        # the component's exact-match filter mirrors the legacy client-side one.
+        # options materialized on each row) replaces the per-entry OptionsFlow
+        # probes; the REST list is read for integration_type only when the
+        # component cannot filter by type.
+        # Normalize the domain to HA's canonical lowercase: both the component
+        # and Core's REST list filter by exact match.
         domain_norm = domain.strip().lower() if domain else None
-        rows = await self._component_entries(domain=domain_norm)
-        if rows is not None:
-            return await self._list_entries_from_component(
-                rows, domain, query, include_opts, exact_match, limit_int, offset_int
+        params: dict[str, str] = {}
+        if domain_norm:
+            params["domain"] = domain_norm
+        if integration_type is not None:
+            # A blank type matches no integration, so the list would come back
+            # empty but for entries whose integration Core cannot find.
+            params["type"] = validate_identifier_not_empty(
+                integration_type, "integration_type"
             )
-
-        # Use REST API endpoint for config entries
-        response = await self.backend.execute("config.entries.list", {}, self.context)
-
-        if not isinstance(response, list):
-            raise_failure(
-                create_error_response(
-                    ErrorCode.SERVICE_CALL_FAILED,
-                    "Unexpected response format from Home Assistant",
-                    context={"response_type": type(response).__name__},
-                )
+        read = await fetch_config_entries(
+            self._flow_client(), domain=domain_norm, integration_type=params.get("type")
+        )
+        if read is not None:
+            rows = read.rows
+            if integration_type is not None and not read.type_filtered:
+                # A component without the type filter: Core's REST list
+                # decides which entries match the type.
+                matching = {
+                    entry.get("entry_id")
+                    for entry in await self._fetch_rest_entries(params)
+                }
+                rows = [row for row in rows if row.get("entry_id") in matching]
+            listed = await self._list_entries_from_component(
+                rows,
+                domain_norm,
+                query,
+                include_opts,
+                exact_match,
+                limit_int,
+                offset_int,
             )
+            if include_opts and read.secret_scrub_degraded:
+                listed.setdefault("warnings", []).append(SCRUB_DEGRADED_WARNING)
+            return listed
 
-        entries = response
-
-        # Apply domain filter before formatting
-        if domain:
-            domain_lower = domain.strip().lower()
-            entries = [
-                e for e in entries if e.get("domain", "").lower() == domain_lower
-            ]
+        response = await self._fetch_rest_entries(params)
 
         # Fetch current logger levels once; enrich each entry with its effective level.
         level_warnings: list[str] = []
         logger_levels = await get_logger_levels(self._flow_client(), level_warnings)
 
-        # `_format_entry` is sync and cannot probe the OptionsFlow; options
-        # are filled in by a second async pass below for entries that
-        # advertise supports_options=True. See `fetch_entry_options_with_status`.
         formatted_entries = [
             self._format_entry(entry, include_opts, logger_levels, bool(level_warnings))
-            for entry in entries
+            for entry in response
         ]
-
-        # quiet=True: per-entry probe failures are aggregated into a response
-        # warning below instead of one log line each (bulk fan-out).
-        probe_failures: list[str] = []
-        if include_opts:
-            options_targets = [
-                e for e in formatted_entries if e.get("supports_options")
-            ]
-            if options_targets:
-                fetched = await asyncio.gather(
-                    *(
-                        fetch_entry_options_with_status(
-                            self._flow_client(), e["entry_id"], quiet=True
-                        )
-                        for e in options_targets
-                    ),
-                    return_exceptions=True,
-                )
-                for entry, probe in zip(options_targets, fetched, strict=True):
-                    if isinstance(probe, BaseException):
-                        raise probe
-                    opts, probe_ok = probe
-                    entry["options"] = opts
-                    if not probe_ok:
-                        probe_failures.append(entry["entry_id"])
-
-        return self._finalize_entry_list(
+        result = self._finalize_entry_list(
             formatted_entries,
-            domain,
+            domain_norm,
             query,
             exact_match,
             limit_int,
             offset_int,
-            probe_failures,
             level_warnings,
         )
+        # Core's rows have no options, and a list opens no options flow to
+        # read them (#2987): an entry that has one comes back without the key.
+        if include_opts:
+            unread = [e for e in result["entries"] if e.get("supports_options")]
+            for entry in unread:
+                entry.pop("options", None)
+            if unread:
+                result.setdefault("warnings", []).append(
+                    options_unread_warning(entry_count(len(unread)))
+                )
+        return result
 
     async def _list_entries_from_component(
         self,
@@ -124,9 +128,9 @@ class IntegrationListReads(IntegrationEntryReads):
         needs no per-entry OptionsFlow probe. ``options`` are raw persisted
         values (a field never set may be absent) and may contain
         ``"**redacted**"`` markers.
-        With ``redact_secrets`` on, the returned page IS probed per entry
-        after pagination (``_redact_component_options``) to learn each
-        entry's password markers — the one case where this path probes.
+        With ``redact_secrets`` on, every option value of a returned entry
+        that has an options flow is withheld: only that flow's form tells
+        the password fields apart, and a list opens no flow (#2987).
         """
         level_warnings: list[str] = []
         logger_levels = await get_logger_levels(self._flow_client(), level_warnings)
@@ -141,31 +145,19 @@ class IntegrationListReads(IntegrationEntryReads):
             exact_match,
             limit_int,
             offset_int,
-            [],
             level_warnings,
         )
         # Component options are raw persisted values — under redact_secrets
-        # every RETURNED row must be redacted (#2157). Runs on the paginated
-        # slice only: entries outside it are not in the response, and
-        # bounding the probe fan-out to the page keeps the component fast
-        # path from probing an entire installation per list call.
+        # every RETURNED row must be redacted (#2157).
         if include_opts and redaction_enabled():
-            redaction_warnings: list[str] = []
-            probes = await asyncio.gather(
-                *(
-                    self._redact_component_options(
-                        formatted.get("entry_id"), formatted, redaction_warnings
-                    )
-                    for formatted in result["entries"]
-                ),
-                return_exceptions=True,
-            )
-            # A failing flow must not detach sibling probes from this owned call.
-            for probe in probes:
-                if isinstance(probe, BaseException):
-                    raise probe
-            if redaction_warnings:
-                result.setdefault("warnings", []).extend(redaction_warnings)
+            withheld = 0
+            for formatted in result["entries"]:
+                if withhold_component_options(formatted):
+                    withheld += 1
+            if withheld:
+                result.setdefault("warnings", []).append(
+                    options_withheld_warning(entry_count(withheld))
+                )
         return result
 
     def _finalize_entry_list(
@@ -176,14 +168,12 @@ class IntegrationListReads(IntegrationEntryReads):
         exact_match: bool | None,
         limit_int: int,
         offset_int: int,
-        probe_failures: list[str],
         extra_warnings: list[str] | None = None,
     ) -> dict[str, Any]:
         """Query-filter, summarize, and paginate formatted entries.
 
         Shared tail of the component-served and legacy list paths so their
-        response shapes stay identical. ``probe_failures`` is always empty on
-        the component path (options ride the same read — no per-entry probe).
+        response shapes stay identical.
         """
         # Apply search filter if query provided
         if query and query.strip():
@@ -211,16 +201,9 @@ class IntegrationListReads(IntegrationEntryReads):
             "query": query if query else None,
         }
         if domain:
-            result_data["domain_filter"] = domain.strip().lower()
+            result_data["domain_filter"] = domain
         if extra_warnings:
             result_data.setdefault("warnings", []).extend(extra_warnings)
-        if probe_failures:
-            result_data.setdefault("warnings", []).append(
-                f"options probe failed for {len(probe_failures)} "
-                f"entr{'y' if len(probe_failures) == 1 else 'ies'} "
-                f"({', '.join(probe_failures)}) - their 'options' may be "
-                "incomplete; empty options does not mean an entry has none"
-            )
         return result_data
 
     @staticmethod
@@ -230,18 +213,19 @@ class IntegrationListReads(IntegrationEntryReads):
         logger_levels: dict[str, dict[str, Any]] | None = None,
         levels_unknown: bool = False,
     ) -> dict[str, Any]:
-        """Format a raw config entry into the response shape."""
+        """Copy the entry row minus ``options``/``subentries``; add the tool's fields.
+
+        Every other key passes through (Core's fields, plus ``unique_id`` on the
+        component path); ``supports_options`` and ``supports_reconfigure`` are
+        forced off for an ignored entry.
+        ``options`` comes back when ``include_opts`` is set.
+        """
         formatted_entry: dict[str, Any] = {
-            "entry_id": entry.get("entry_id"),
-            "domain": entry.get("domain"),
-            "title": entry.get("title"),
-            "state": entry.get("state"),
-            "source": entry.get("source"),
-            "supports_options": entry.get("supports_options", False),
-            "supports_unload": entry.get("supports_unload", False),
-            "supports_reconfigure": entry.get("supports_reconfigure", False),
-            "disabled_by": entry.get("disabled_by"),
+            key: value
+            for key, value in entry.items()
+            if key not in ("options", "subentries")
         }
+        normalize_ignored_entry(formatted_entry)
 
         # Surface the effective Python logger level for this integration
         # ("DEFAULT" = no override; falls back to the root logger level).
@@ -262,14 +246,6 @@ class IntegrationListReads(IntegrationEntryReads):
         # Include options when requested (for auditing template definitions, etc.)
         if include_opts:
             formatted_entry["options"] = entry.get("options", {})
-
-        # Include pref_disable_new_entities and pref_disable_polling if present
-        if "pref_disable_new_entities" in entry:
-            formatted_entry["pref_disable_new_entities"] = entry[
-                "pref_disable_new_entities"
-            ]
-        if "pref_disable_polling" in entry:
-            formatted_entry["pref_disable_polling"] = entry["pref_disable_polling"]
 
         return formatted_entry
 
@@ -302,3 +278,16 @@ class IntegrationListReads(IntegrationEntryReads):
         # Sort by score descending
         matches.sort(key=lambda x: x[0], reverse=True)
         return [match[1] for match in matches]
+
+    async def _fetch_rest_entries(self, params: dict[str, str]) -> list[Any]:
+        """Core's REST entry list, filtered by Core with ``params``."""
+        response = await self._flow_client().list_config_entries(**params)
+        if not isinstance(response, list):
+            raise_tool_error(
+                create_error_response(
+                    ErrorCode.SERVICE_CALL_FAILED,
+                    "Unexpected response format from Home Assistant",
+                    context={"response_type": type(response).__name__},
+                )
+            )
+        return response

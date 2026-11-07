@@ -59,7 +59,7 @@ class NativeIntegrationState(CoreOperationOwner):
             {
                 "integration": arguments["domain"],
                 "level": arguments["level"],
-                "persistence": "once",
+                "persistence": arguments.get("persistence", "once"),
             },
         )
         domain = data["integration"]

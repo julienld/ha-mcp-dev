@@ -724,3 +724,26 @@ def is_service_outcome_unknown(error: Exception) -> bool:
         isinstance(error, HomeAssistantWebSocketServiceError)
         and error.code != "unknown_command"
     )
+
+
+class HomeAssistantCommandNotSent(HomeAssistantConnectionError):
+    """A WS command that provably never left the process.
+
+    Raised by ``HomeAssistantWebSocketClient.send_command``'s entry guard (socket not
+    authenticated) and by ``send_websocket_message`` when no attempt obtained a client
+    (raised from the acquisition error, so a rejected token survives as ``__cause__``).
+    A subclass of ``HomeAssistantConnectionError``, so broad handlers are unaffected,
+    yet a write consumer can catch it FIRST: the write provably never happened, so a
+    legacy first fire cannot double-apply. Check ``__cause__`` before such a fallback:
+    resending a rejected token over REST adds a 401 toward Home Assistant's IP ban. A
+    ``send_json_message`` failure is NOT this type: ``websocket.send()`` raising does
+    not prove the frame was untransmitted (bytes may already be on the socket when the
+    close surfaces), so send_command re-raises the original exception and the consumer
+    treats it as ambiguous. A post-send socket close (mid-await) likewise raises a plain
+    ``HomeAssistantConnectionError`` (the close handler sets it on the pending future),
+    so type alone distinguishes never-sent from sent-then-dropped/ambiguous.
+    """
+
+
+class HomeAssistantAuthNotSent(HomeAssistantCommandNotSent, HomeAssistantAuthError):
+    """A local acquisition refusal preserves both auth and no-dispatch evidence."""

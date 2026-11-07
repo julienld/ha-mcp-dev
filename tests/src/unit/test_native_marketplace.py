@@ -15,6 +15,29 @@ from .test_native_hacs import call
 from .test_native_hacs import hacs as hacs
 
 
+async def test_confirmed_warning_acceptance_uses_the_attributable_core_owner(
+    marketplace,
+):
+    accepted = set()
+    marketplace.owner.warning_accepted.side_effect = lambda user: user in accepted
+    marketplace.owner.async_accept_warning = Mock(side_effect=accepted.add)
+    result = await call(marketplace, "accept_warning", confirm=True)
+    assert not result.is_error, result
+    assert result.data["warning_accepted"] is True
+    marketplace.owner.async_accept_warning.assert_called_once_with(
+        marketplace.actor.user_id
+    )
+    assert accepted == {marketplace.actor.user_id}
+
+
+async def test_warning_acceptance_without_confirmation_never_calls_core(marketplace):
+    marketplace.owner.async_accept_warning = Mock()
+    result = await call(marketplace, "accept_warning")
+    assert result.is_error
+    assert "confirm=True" in result.data["error"]["message"]
+    marketplace.owner.async_accept_warning.assert_not_called()
+
+
 @pytest.fixture
 def marketplace(hacs, monkeypatch):
     hacs.hass.config.components.remove("hacs")

@@ -2,19 +2,11 @@
 
 import asyncio
 import json
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
-from ha_mcp.runtime.flows.walker import ReconfigureStatus
-from ha_mcp.runtime.integration_reconfigure import ReconfigureRunner
-from ha_mcp.runtime.reconfigure_identity import ReconfigureIdentity
-from ha_mcp.runtime.reconfigure_preflight import PreparedReconfigure
-from ha_mcp.tools.integration_reconfigure import (
-    ReconfigureRunner as LegacyReconfigureRunner,
-)
 from ha_mcp.tools.tools_integrations import IntegrationTools
 
 
@@ -110,55 +102,29 @@ class TestSetIntegrationModes:
     async def test_no_arguments_rejected(self, tools):
         await self._assert_invalid(tools.ha_set_integration(), "Nothing to do")
 
-    async def test_entry_id_alone_rejected(self, tools):
-        await self._assert_invalid(
-            tools.ha_set_integration(entry_id="abc"), "Nothing to do"
-        )
-
-    async def test_reconfigure_only_parameters_are_rejected_in_options_mode(
-        self, tools
-    ):
-        """Identity guards and confirmation must not be silently ignored."""
-        with (
-            patch(
-                "ha_mcp.runtime.integration_writes.update_config_entry_options",
-                new=AsyncMock(return_value={"success": True}),
-            ) as options_mock,
-            pytest.raises(ToolError) as exc_info,
-        ):
-            await tools.ha_set_integration(
-                entry_id="abc",
-                config={"scan_interval": 30},
-                expected_device_id="device-1",
-            )
-
-        err = json.loads(str(exc_info.value))
-        assert err["error"]["code"] == "VALIDATION_INVALID_PARAMETER"
-        assert "reconfigure" in err["error"]["message"].lower()
-        options_mock.assert_not_awaited()
-
+    @pytest.mark.parametrize(
+        ("name", "value"),
+        [("expected_device_id", "device-1"), ("expected_unique_id", "unique-1")],
+    )
     async def test_reconfigure_only_parameters_rejected_outside_reconfigure_mode(
-        self, tools
+        self, tools, name, value
     ):
         """The identity guards must not ride an unguarded options update."""
         with (
             patch(
-                "ha_mcp.runtime.integration_writes.update_config_entry_options",
+                "ha_mcp.runtime.integration_writes.run_integration_step",
                 new=AsyncMock(return_value={"success": True}),
             ) as options_mock,
             pytest.raises(ToolError) as exc_info,
         ):
             await tools.ha_set_integration(
-                entry_id="abc",
-                config={"scan_interval": 30},
-                expected_unique_id="unique-1",
-                confirm_token="sha256:whatever",
+                entry_id="abc", config={"scan_interval": 30}, **{name: value}
             )
 
         err = json.loads(str(exc_info.value))
         assert err["error"]["code"] == "VALIDATION_INVALID_PARAMETER"
         assert "reconfigure" in err["error"]["message"].lower()
-        assert err["rejected_parameters"] == ["confirm_token", "expected_unique_id"]
+        assert err["rejected_parameters"] == [name]
         options_mock.assert_not_awaited()
 
     async def test_set_integration_has_explicit_safety_annotations(self, tools):
@@ -169,252 +135,117 @@ class TestSetIntegrationModes:
         assert annotations.read_only_hint is False
         assert annotations.idempotent_hint is False
 
-    # === Reconfigure mode ===
-
-    async def test_reconfigure_mode_delegates_to_shared_handler(
-        self, tools, mock_client
-    ):
-        sentinel = {"success": True, "operation": "reconfigure"}
-        with patch.object(
-            ReconfigureRunner,
-            "run",
-            new=AsyncMock(return_value=sentinel),
-        ) as run_mock:
-            result = await tools.ha_set_integration(
-                entry_id="abc",
-                reconfigure=True,
-                config={"host": "192.0.2.170"},
-                expected_device_id="device-1",
-                confirm_token="sha256:preview",
-            )
-        run_mock.assert_awaited_once_with(
-            "abc",
-            config={"host": "192.0.2.170"},
-            expected_device_id="device-1",
-            expected_unique_id=None,
-            expected_mac=None,
-            expected_entity_ids=None,
-            confirm_token="sha256:preview",
-        )
-        assert result is sentinel
-
-    @pytest.mark.parametrize("confirm_token", ["sha256:stale", "not-a-token"])
-    async def test_reconfigure_rejects_untrusted_token_without_snapshot(
-        self, tools, confirm_token
-    ):
-        """A token that does not match current state must not snapshot.
-
-        The backup boundary sits behind token validation, so a rejected
-        confirmation leaves no phantom `scope="edits"` entry burning the
-        per-entity retention.
-        """
-        entry = {
-            "entry_id": "abc",
-            "domain": "shelly",
-            "supports_reconfigure": True,
-        }
-        identity = ReconfigureIdentity()
-        with (
-            patch(
-                "ha_mcp.runtime.integration_reconfigure.prepare_reconfigure_request",
-                new=AsyncMock(
-                    return_value=PreparedReconfigure(
-                        entry_id="abc",
-                        entry=entry,
-                        flow_config={"host": "192.0.2.170"},
-                        identity=identity,
-                        expected_identity={
-                            "device_id": None,
-                            "unique_id": None,
-                            "mac": None,
-                            "entity_ids": [],
-                        },
-                    )
-                ),
-            ),
-            patch(
-                "ha_mcp.runtime.integration_reconfigure._reconfigure_preflight_token",
-                return_value="sha256:current",
-            ),
-            patch(
-                "ha_mcp.config.get_global_settings",
-                return_value=SimpleNamespace(enable_auto_backup=True),
-            ),
-            patch(
-                "ha_mcp.tools.auto_backup._capture_pre_write_snapshot",
-                new=AsyncMock(),
-            ) as capture_mock,
-            pytest.raises(ToolError) as exc_info,
-        ):
-            await tools.ha_set_integration(
-                entry_id="abc",
-                reconfigure=True,
-                config={"host": "192.0.2.170"},
-                confirm_token=confirm_token,
-            )
-
-        capture_mock.assert_not_awaited()
-        payload = json.loads(str(exc_info.value))
-        assert payload["status"] == ReconfigureStatus.STALE_PREFLIGHT
-        # A stale token must force a fresh preflight, so the rejection must not
-        # hand the caller a usable token to resubmit with.
-        assert "confirm_token" not in payload
-        assert "confirm_token" not in payload.get("context", {})
-
-    async def test_reconfigure_mode_reuses_shared_preflight_validation(
-        self, tools, mock_client
-    ):
-        entry = {
-            "entry_id": "abc",
-            "domain": "shelly",
-            "title": "Kitchen",
-            "supports_reconfigure": True,
-        }
-        identity = ReconfigureIdentity()
-        with (
-            patch(
-                "ha_mcp.runtime.integration_reconfigure.prepare_reconfigure_request",
-                new=AsyncMock(
-                    return_value=PreparedReconfigure(
-                        entry_id="abc",
-                        entry=entry,
-                        flow_config={"host": "192.0.2.170"},
-                        identity=identity,
-                        expected_identity={
-                            "device_id": None,
-                            "unique_id": None,
-                            "mac": None,
-                            "entity_ids": [],
-                        },
-                    )
-                ),
-            ) as prepare_mock,
-        ):
-            preview = await LegacyReconfigureRunner(mock_client).run(
-                "abc",
-                config={"host": "192.0.2.170"},
-                expected_device_id="device-1",
-            )
-
-        assert preview["success"] is True
-        assert "preview" not in preview  # status is the single signal
-        assert preview["status"] == ReconfigureStatus.PREVIEW
-        assert preview["confirm_token"].startswith("sha256:")
-        session = prepare_mock.await_args.args[0]
-        assert session.backend.client is mock_client
-        prepare_mock.assert_awaited_once_with(
-            session,
-            "abc",
-            config={"host": "192.0.2.170"},
-            expected_identity={
-                "device_id": "device-1",
-                "unique_id": None,
-                "mac": None,
-                "entity_ids": [],
-            },
-        )
-
-    async def test_reconfigure_mode_passes_prepared_identity_to_apply(
-        self, tools, mock_client
-    ):
-        entry = {
-            "entry_id": "abc",
-            "domain": "shelly",
-            "title": "Kitchen",
-            "supports_reconfigure": True,
-        }
-        identity = ReconfigureIdentity(device_ids=["device-1"])
-        with (
-            patch(
-                "ha_mcp.runtime.integration_reconfigure.prepare_reconfigure_request",
-                new=AsyncMock(
-                    return_value=PreparedReconfigure(
-                        entry_id="abc",
-                        entry=entry,
-                        flow_config={"host": "192.0.2.170"},
-                        identity=identity,
-                        expected_identity={
-                            "device_id": None,
-                            "unique_id": None,
-                            "mac": None,
-                            "entity_ids": [],
-                        },
-                    )
-                ),
-            ),
-            patch(
-                "ha_mcp.runtime.integration_reconfigure.reconfigure_config_entry",
-                new=AsyncMock(return_value={"success": True}),
-            ) as apply_mock,
-        ):
-            preview = await LegacyReconfigureRunner(mock_client).run(
-                "abc",
-                config={"host": "192.0.2.170"},
-                expected_device_id="device-1",
-            )
-            result = await LegacyReconfigureRunner(mock_client).run(
-                "abc",
-                config={"host": "192.0.2.170"},
-                expected_device_id="device-1",
-                confirm_token=preview["confirm_token"],
-            )
-
-        assert result == {"success": True}
-        apply_mock.assert_awaited_once()
-        assert apply_mock.await_args is not None
-        assert apply_mock.await_args.kwargs["prepared"] == PreparedReconfigure(
-            entry_id="abc",
-            entry=entry,
-            flow_config={"host": "192.0.2.170"},
-            identity=identity,
-            expected_identity={
-                "device_id": None,
-                "unique_id": None,
-                "mac": None,
-                "entity_ids": [],
-            },
-        )
-
     # === Mode delegation ===
 
-    async def test_add_mode_delegates_to_create_config_entry(self, tools, mock_client):
-        sentinel = {"success": True, "entry_id": "new123", "domain": "workday"}
-        with patch(
-            "ha_mcp.runtime.integration_writes.create_config_entry",
-            new=AsyncMock(return_value=sentinel),
-        ) as create_mock:
-            result = await tools.ha_set_integration(
-                domain="workday", config={"name": "Workday"}
-            )
-        session = create_mock.await_args.args[0]
-        assert session.backend.client is mock_client
-        create_mock.assert_awaited_once_with(session, "workday", {"name": "Workday"})
-        assert result is sentinel
-
-    async def test_add_mode_defaults_config_to_empty_dict(self, tools, mock_client):
-        with patch(
-            "ha_mcp.runtime.integration_writes.create_config_entry",
-            new=AsyncMock(return_value={"success": True}),
-        ) as create_mock:
-            await tools.ha_set_integration(domain="sun")
-        session = create_mock.await_args.args[0]
-        assert session.backend.client is mock_client
-        create_mock.assert_awaited_once_with(session, "sun", {})
-
-    async def test_options_mode_delegates_to_update_config_entry_options(
-        self, tools, mock_client
+    @pytest.mark.parametrize(
+        ("call", "expected"),
+        [
+            pytest.param(
+                {"domain": "Workday ", "config": {"name": "Workday"}},
+                {"domain": "workday", "entry_id": None, "config": {"name": "Workday"}},
+                id="add",
+            ),
+            pytest.param(
+                {"domain": "sun"},
+                {"domain": "sun", "entry_id": None, "config": None},
+                id="add-without-config",
+            ),
+            pytest.param(
+                {"domain": "knx", "flow_id": "f1", "menu_choice": "tunnel"},
+                {
+                    "domain": "knx",
+                    "entry_id": None,
+                    "flow_id": "f1",
+                    "menu_choice": "tunnel",
+                },
+                id="add-continue-menu",
+            ),
+            pytest.param(
+                {"entry_id": "abc", "config": {"scan_interval": 30}},
+                {"domain": None, "entry_id": "abc", "config": {"scan_interval": 30}},
+                id="options",
+            ),
+            pytest.param(
+                {"entry_id": "abc", "flow_id": "f1", "abort": True},
+                {"domain": None, "entry_id": "abc", "flow_id": "f1", "abort": True},
+                id="options-abort",
+            ),
+            pytest.param(
+                {"entry_id": "abc"},
+                {"domain": None, "entry_id": "abc"},
+                id="options-first-step",
+            ),
+            pytest.param(
+                {
+                    "entry_id": "abc",
+                    "reconfigure": True,
+                    "config": {"host": "192.0.2.170"},
+                    "expected_device_id": "device-1",
+                },
+                {
+                    "domain": None,
+                    "entry_id": "abc",
+                    "config": {"host": "192.0.2.170"},
+                    "expected_identity": {
+                        "device_id": "device-1",
+                        "unique_id": None,
+                        "mac": None,
+                        "entity_ids": [],
+                    },
+                },
+                id="reconfigure",
+            ),
+            pytest.param(
+                {
+                    "entry_id": "abc",
+                    "reconfigure": True,
+                    "flow_id": "f1",
+                    "menu_choice": "advanced",
+                    "abort": True,
+                    "expected_device_id": "device-1",
+                    "expected_unique_id": "uid",
+                    "expected_mac": "AA:BB",
+                    "expected_entity_ids": ["switch.x"],
+                },
+                {
+                    "domain": None,
+                    "entry_id": "abc",
+                    "flow_id": "f1",
+                    "menu_choice": "advanced",
+                    "abort": True,
+                    "expected_identity": {
+                        "device_id": "device-1",
+                        "unique_id": "uid",
+                        "mac": "AA:BB",
+                        "entity_ids": ["switch.x"],
+                    },
+                },
+                id="reconfigure-every-argument",
+            ),
+        ],
+    )
+    async def test_add_and_options_modes_delegate_to_run_integration_step(
+        self, tools, mock_client, call, expected
     ):
-        sentinel = {"success": True, "entry_id": "abc", "updated": True}
+        """One step per call: domain (setup) and entry_id (options) both go
+        through run_integration_step; the unset parameters stay unset."""
+        sentinel = {"success": True, "flow_id": "f1"}
         with patch(
-            "ha_mcp.runtime.integration_writes.update_config_entry_options",
+            "ha_mcp.runtime.integration_writes.run_integration_step",
             new=AsyncMock(return_value=sentinel),
-        ) as update_mock:
-            result = await tools.ha_set_integration(
-                entry_id="abc", config={"scan_interval": 30}
-            )
-        session = update_mock.await_args.args[0]
-        assert session.backend.client is mock_client
-        update_mock.assert_awaited_once_with(session, "abc", {"scan_interval": 30})
+        ) as step_mock:
+            result = await tools.ha_set_integration(**call)
+
+        step_mock.assert_awaited_once_with(
+            step_mock.await_args.args[0],
+            **{
+                "flow_id": None,
+                "config": None,
+                "menu_choice": None,
+                "abort": False,
+                **expected,
+            },
+        )
         assert result is sentinel
 
     async def test_enable_disable_mode_still_works(self, tools, mock_client):

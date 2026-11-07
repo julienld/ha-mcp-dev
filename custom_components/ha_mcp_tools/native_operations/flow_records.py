@@ -16,6 +16,15 @@ async def helper_types(
     return {"types": sorted(await async_get_config_flows(hass, type_filter="helper"))}
 
 
+async def core_helper_types(
+    hass: HomeAssistant, arguments: dict[str, Any]
+) -> dict[str, Any]:
+    from homeassistant.loader import async_get_integration_descriptions
+
+    descriptions = await async_get_integration_descriptions(hass)
+    return {"types": sorted(descriptions["core"]["helper"])}
+
+
 async def entry_metadata(hass: HomeAssistant, arguments: dict[str, Any]) -> Any:
     entry = hass.config_entries.async_get_entry(arguments["entry_id"])
     if entry is None:
@@ -40,10 +49,28 @@ async def subentries(
     ]
 
 
+async def integration_commands(
+    hass: HomeAssistant, arguments: dict[str, Any]
+) -> dict[str, Any]:
+    from ..core_contract import integration_commands as describe_commands
+
+    result = describe_commands(hass, arguments)
+    if any(
+        row.get("command") != "knx/get_knx_project"
+        for row in result.get("commands", [])
+    ):
+        result.setdefault("warnings", []).append(
+            "These are Core's registered command schemas. Native dispatch currently ports knx/get_knx_project; other integration WS extensions require the Legacy runtime and refuse before dispatch here."
+        )
+    return result
+
+
 DIRECT_OPERATIONS: dict[
     str, tuple[Callable[[HomeAssistant, dict[str, Any]], Awaitable[Any]], bool]
 ] = {
     "helpers.flow.types": (helper_types, False),
+    "integrations.commands": (integration_commands, False),
+    "helpers.flow.core_types": (core_helper_types, False),
     "config.entries.read": (entry_metadata, False),
     "config.subentries.list": (subentries, False),
 }

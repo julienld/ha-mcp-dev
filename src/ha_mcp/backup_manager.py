@@ -122,6 +122,7 @@ from .runtime.snapshot_files import (
     _now_ts,
     _require_dict,
     _require_list,
+    _restore_is_flow_driven,
     _safe_entity_id,
 )
 from .runtime.snapshot_flow_restore import (
@@ -974,6 +975,11 @@ class BackupManager(SnapshotFilesMixin):
                     return await self._restore_snapshot_data(
                         name, data, take_safety_backup=take_safety_backup
                     )
+            if data["domain"] == "integration":
+                async with self.config_entry_write_guard(data["entity_id"]):
+                    return await self._restore_snapshot_data(
+                        name, data, take_safety_backup=take_safety_backup
+                    )
             return await self._restore_snapshot_data(
                 name, data, take_safety_backup=take_safety_backup
             )
@@ -1026,7 +1032,7 @@ class BackupManager(SnapshotFilesMixin):
     ) -> Path | None:
         """Take a restore's recovery point; a failed capture raises and blocks it."""
         is_flow = _is_flow_helper_domain(domain)
-        flow_driven = is_flow or domain == "helper_config_subentry"
+        flow_driven = _restore_is_flow_driven(domain)
         if not flow_driven and not getattr(self._settings, "enable_auto_backup", False):
             return None  # auto-backup off: no safety backup is promised
         # The restore overwrites the current state, so the throttle that a

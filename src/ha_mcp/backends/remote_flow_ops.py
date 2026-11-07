@@ -46,13 +46,40 @@ async def read_flow_operation(
         from ha_mcp.redaction import redaction_enabled
 
         return {"redact_secrets": redaction_enabled()}
+    if operation == "helpers.flow.core_types":
+        return await _core_helper_types(client)
     if operation == "helpers.flow.types":
-        from ha_mcp.tools.helper_flows import listed_helper_flows
+        domains = await client._request(
+            "GET", "/config/config_entries/flow_handlers", params={"type": "helper"}
+        )
+        if not isinstance(domains, list):
+            from ha_mcp.errors import HomeAssistantConnectionError
 
-        return {
-            "types": sorted(await listed_helper_flows(client, arguments["helper_type"]))
-        }
+            raise HomeAssistantConnectionError(
+                "flow_handlers returned an unexpected response shape"
+            )
+        return {"types": sorted(str(domain) for domain in domains)}
     raise UnsupportedOperation(operation)
+
+
+async def _core_helper_types(client: Any) -> dict[str, Any]:
+    from ha_mcp.errors import (
+        HomeAssistantAdminRequiredError,
+        HomeAssistantConnectionError,
+    )
+
+    if await client.token_is_admin() is False:
+        raise HomeAssistantAdminRequiredError(
+            "integration/descriptions requires an administrator"
+        )
+    answer = await client.send_websocket_message({"type": "integration/descriptions"})
+    result = answer.get("result") if isinstance(answer, dict) else None
+    helpers = result.get("core", {}).get("helper") if isinstance(result, dict) else None
+    if not isinstance(helpers, dict):
+        raise HomeAssistantConnectionError(
+            "integration/descriptions returned an unexpected response shape"
+        )
+    return {"types": sorted(helpers)}
 
 
 class RemoteFlows:
@@ -100,6 +127,11 @@ class RemoteFlows:
             result: dict[str, Any] = await self._start(kind, arguments)
             self._record(result, kind, context)
             return result
+        return await self._continue(operation, arguments, context)
+
+    async def _continue(
+        self, operation: str, arguments: dict[str, Any], context: CallContext
+    ) -> dict[str, Any]:
         flow_id = arguments["flow_id"]
         owner = self.owned.get(flow_id)
         if owner is None or owner[1:] != (context.user_id, context.client_id):
@@ -117,6 +149,13 @@ class RemoteFlows:
                 return response
             finally:
                 self.owned.pop(flow_id, None)
+        if operation == "config.flow.read":
+            result = await self.client._request(
+                "GET",
+                f"/config/config_entries/{'' if kind == 'config' else 'options/' if kind == 'options' else 'subentries/'}flow/{flow_id}",
+            )
+            self._record(result, kind, context)
+            return result
         if operation != "config.flow.configure" or "user_input" not in arguments:
             raise UnsupportedOperation(operation)
         result = await getattr(self.client, f"submit_{_PREFIXES[kind]}_flow_step")(

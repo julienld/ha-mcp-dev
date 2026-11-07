@@ -1,4 +1,5 @@
-"""Describe and validate selected Core commands without invoking their handlers.
+"""Describe and validate selected Core commands, and describe an integration's
+own ``<domain>/`` commands, without invoking their handlers.
 
 The registry is the authority: this bridge holds no copies of Core validators.
 It never dispatches a command. Writes still use Core's authenticated endpoints.
@@ -23,12 +24,28 @@ _OPENAPI_CONVERT = _optional_attr("voluptuous_openapi", "convert")
 _OPENAPI_UNSUPPORTED = _optional_attr("voluptuous_openapi", "UNSUPPORTED")
 COMMAND = "ha_mcp_tools/core_contract"
 CAPABILITY = "core_contract"
+INTEGRATION_COMMAND = "ha_mcp_tools/integration_commands"
+INTEGRATION_CAPABILITY = "integration_commands"
 # This is a bridge permission boundary, not a copy of the commands' fields.
 COMMANDS = (
     "energy/save_prefs",
     "history/history_during_period",
     "recorder/statistics_during_period",
 )
+
+
+def _entry_schema(command: str, entry: Any) -> Any:
+    """The request schema of ``command``'s registry ``entry``, None if absent."""
+    if not entry:
+        return None
+    if entry[1] is False:
+        # Core registers a command without fields as False and refuses any field.
+        from homeassistant.components.websocket_api.messages import (
+            BASE_COMMAND_MESSAGE_SCHEMA,
+        )
+
+        return BASE_COMMAND_MESSAGE_SCHEMA.extend({"type": command})
+    return entry[1]
 
 
 def _schema(hass: HomeAssistant, command: str) -> Any:
@@ -132,7 +149,11 @@ def describe_contract(hass: HomeAssistant, command: str) -> dict[str, Any]:
     schema = _schema(hass, command)
     if schema is None:
         return {"status": "unavailable", "reason": "Core command is not registered"}
-    result: dict[str, Any] = {"status": "available", "command": command}
+    return {"status": "available", "command": command, **_describe(schema)}
+
+
+def _describe(schema: Any) -> dict[str, Any]:
+    result: dict[str, Any] = {}
     try:
         if _TO_JSON_SCHEMA is not None:
             try:
@@ -165,6 +186,24 @@ def describe_contract(hass: HomeAssistant, command: str) -> dict[str, Any]:
             "Some Core validators cannot be described. Validation still uses the complete registered schema."
         ]
     return result
+
+
+def integration_commands(hass: HomeAssistant, msg: dict[str, Any]) -> dict[str, Any]:
+    """Describe a domain's own commands with their registered request schemas.
+
+    The ``<domain>/`` prefix is this bridge's permission boundary.
+    """
+    prefix = f"{msg['domain']}/"
+    registered = hass.data.get("websocket_api") or {}
+    return {
+        "status": "available",
+        "domain": msg["domain"],
+        "commands": [
+            {"command": name, **_describe(_entry_schema(name, entry))}
+            for name, entry in sorted(registered.items())
+            if name.startswith(prefix)
+        ],
+    }
 
 
 def _defaults() -> dict[str, Any]:
@@ -204,6 +243,14 @@ def command_specs(vol: Any) -> list[tuple[dict[Any, Any], Any, Any]]:
                 vol.Optional("payload"): dict,
             },
             execute,
+            None,
+        ),
+        (
+            {
+                vol.Required("type"): INTEGRATION_COMMAND,
+                vol.Required("domain"): str,
+            },
+            integration_commands,
             None,
         ),
         (

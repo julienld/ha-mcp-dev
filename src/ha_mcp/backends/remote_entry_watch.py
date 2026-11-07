@@ -65,7 +65,7 @@ class RemoteEntryWatches:
 
     async def _close(self, key: str) -> None:
         ws, (subscription_id, _) = self.owned[key][0]
-        await await_owned_io(ws.unsubscribe_command(subscription_id))
+        await await_owned_io(ws.release_subscription(subscription_id))
         self.owned.pop(key, None)
 
     async def stop(self) -> None:

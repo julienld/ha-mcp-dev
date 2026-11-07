@@ -10,6 +10,38 @@ changes. The 6 November compatibility pass below restores the installation
 floor and automatic entity-history contracts; historical audit entries remain
 evidence of their original candidate, rather than current behavior.
 
+## Upstream functional reference, 7 November 2026
+
+The current integration target is upstream
+`8b022630215c7a516d9e0b92aa39c4d3cc94dc5d`. Upstream remains the functional
+reference for both runtimes. Native adapts those choices to actual Core owners;
+it does not retain an API retired upstream through a fork-only compatibility
+layer. The historical sections below describe their original revisions.
+
+- `ha_set_integration` uses explicit `flow_id`, `menu_choice` and `abort` calls.
+  The retired `confirm_token` and automatic multi-step contract are removed.
+  Existing-entry calls retain before-image capture and actor/client flow ownership.
+- Automation tools advertise `entity_id`. Cached calls using `identifier` are
+  served through upstream's renamed-parameter middleware and receive catalogue
+  refresh guidance. Their normalized/stored configuration views remain available.
+- `ha_get_integration` reads options without implicitly opening an options flow.
+  Schema probes are explicit. `include_knx_project` is replaced by
+  `ha_set_integration(entry_id=..., ws_command="knx/get_knx_project")`, which
+  reaches Native's existing KNX read owner. Other generic integration commands
+  remain an explicit Native limitation: refusal before dispatch, Legacy available.
+- Integration backups capture safely scrubbed options, and restores use the shared
+  options-flow/readback sequence. Historical images without options report the
+  partial outcome; deleted entries cannot be recreated from public metadata.
+- Integration-type filtering, flow progress/errors/translations, log persistence,
+  Marketplace warning acceptance with confirmation, and stale-tool-list guidance
+  follow upstream. No install, warning acceptance or house change is performed
+  by synchronizing this source.
+
+The [immutable upstream receipt](upstream-contract-8b0226302.json) and the narrow
+`upstream_contract_updates` in the machine contract identify the approved schema
+changes. Historical catalogue and live proofs are preserved, not recaptured or
+transferred to the new candidate.
+
 ## Compatibility restoration, 6 November 2026
 
 Upstream integration is now based on
@@ -642,9 +674,26 @@ capture and deferred Core handoff. Its reply confirms scheduling only, with
 `restore_completed=false`. Hidden-entity enforcement refuses full restore.
 Edit backups reuse the existing store and native domain restorers, checking
 actual content and target identities. Renamed scripts retain their storage key.
-Integration metadata restores only an existing entry's enabled state, without
-replaying credentials or connection options. Container tests exercise local
-archives and edit captures; a full restore and HAOS remain unqualified.
+Integration snapshots follow the current upstream contract: an existing entry's
+enabled state and safely captured options can be restored. The actual Core
+config-entry producer applies the secrets scrub; degraded or placeholder options
+are withheld with an explicit reason, and entry.data and subentries are never
+captured. A restore uses the shared complete-options walker and requires a fresh
+safety image, including when automatic backups are disabled. Historical snapshots
+without options report that partial outcome after the enabled state is restored.
+A deleted integration cannot be recreated from these images. These contracts do
+not establish full-system restore or power-loss durability.
+
+The upstream integration flow API is also the Native public reference at
+8b0226302: flow_id/menu_choice/abort replace the retired confirm_token and automatic
+multi-step contract. Each flow invocation other than abort captures its existing
+entry before Core can act, subject to the configured automatic-backup policy;
+repeated internal checks in the same invocation do not duplicate that capture.
+Owned flow re-reads run Core's actual step and therefore require write admission.
+Integration command schemas come from Core's registry. The renamed KNX-project
+surface routes through its existing Native read owner; other generic integration
+WS extensions remain unported and refuse before dispatch, with Legacy available.
+No synthetic WebSocket connection or transport fallback is introduced.
 
 Native developer controls edit only the entry's native configuration through
 shared validators and locked patch producers. Editing one tool preserves its

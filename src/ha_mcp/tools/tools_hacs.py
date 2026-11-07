@@ -7,6 +7,7 @@ to discover custom integrations, Lovelace cards, themes, and more.
 
 import functools
 import inspect
+import json
 import logging
 from typing import Any
 
@@ -645,6 +646,23 @@ class HacsTools:
             "Manage HACS", destructive=True, idempotent=False, open_world=True
         ),
     )(log_tool_usage(_hacs_legacy_errors(HacsFacade.ha_manage_hacs)))
+
+    async def _hacs_accept_warning(self, confirm: bool | None) -> dict[str, Any]:
+        from .hacs_backend import accept_warning
+
+        owner = await self._get_hacs_client()
+        if isinstance(owner, MarketplaceRemote):
+            ws = owner.ws
+            api = StoreApi("marketplace", await command(ws, "marketplace/info"))
+        else:
+            ws, api = owner, StoreApi("hacs")
+        try:
+            return await accept_warning(ws, api)
+        except ToolError as error:
+            payload = json.loads(str(error))
+            raise ToolFailure(
+                payload["error"]["code"], payload["error"]["message"], data=payload
+            ) from error
 
 
 def register_hacs_tools(mcp: Any, client: Any, **kwargs: Any) -> None:

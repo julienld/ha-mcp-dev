@@ -6,6 +6,13 @@ from ha_mcp.errors import ErrorCode, create_error_response
 
 from .errors import raise_failure
 
+MARKETPLACE_WARNING_GUIDANCE = (
+    "The Marketplace's first-run warning is accepted per user. Ask the user "
+    "whether they have read it in Settings > Marketplace and accept it; "
+    "if they do, call ha_manage_hacs(action='accept_warning', confirm=True) "
+    "for this server's user, then retry. Acceptance under another account does not count."
+)
+
 # HACS uses different category names internally vs what users expect
 # User-friendly name -> HACS internal name
 CATEGORY_MAP = {
@@ -132,3 +139,9 @@ def _reject_foreign_params(action: str, **per_action: dict[str, Any]) -> None:
 def versionless_install_refused(installed_version: Any, latest_version: Any) -> bool:
     """Core update.services rejects an unspecified version under this condition."""
     return latest_version is None or installed_version == latest_version
+
+
+CATEGORY_HELP = (
+    "One of the categories the store reports (search's store.categories); "
+    "'lovelace' means 'plugin' (dashboard cards)."
+)

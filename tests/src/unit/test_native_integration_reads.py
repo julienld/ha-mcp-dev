@@ -1,6 +1,5 @@
 """Integration inspection uses Core owners and discloses flow effects."""
 
-import asyncio
 import copy
 import importlib
 import json
@@ -17,6 +16,7 @@ from ha_mcp.runtime.integration_reads import (
     IntegrationReadTools,
     inspection_starts_flow,
 )
+from ha_mcp.runtime.redaction import REDACTED_SET
 from ha_mcp.tool_api import CallContext, ToolFailure
 
 from .test_native_engine_backend import native as native
@@ -45,6 +45,7 @@ def inspection(native: Any, monkeypatch: pytest.MonkeyPatch) -> tuple:
     hass, user, entry, manager, backend, _ = _setup(native, monkeypatch)
     entry.options = {"threshold": 7, "password": "private-test-value"}
     entry.supports_options = True
+    entry.as_json_fragment.update(supports_options=True, source="user", state="loaded")
     entry.source = "user"
     entry.state = "loaded"
     entry.subentries = {
@@ -127,13 +128,12 @@ async def test_native_details_and_paginated_options_are_real_readonly_values(
         await engine.backend.stop()
 
 
-@pytest.mark.parametrize("probe", ["options", "subentry", "redaction"])
+@pytest.mark.parametrize("probe", ["options", "subentry"])
 @pytest.mark.parametrize("failure", ["callback", "serialization"])
 async def test_schema_and_redaction_probes_are_gated_and_unknown_is_preserved(
     native: Any, flows: Any, monkeypatch: pytest.MonkeyPatch, probe: str, failure: str
 ) -> None:
     engine, _, _, _, manager = inspection(native, monkeypatch)
-    engine.backend.redaction_enabled = lambda: probe == "redaction"
     arguments = {"entry_id": "entry"}
     if probe == "options":
         arguments["include_schema"] = True
@@ -200,7 +200,7 @@ async def test_native_options_and_subentry_forms_close_owned_flows(
         )
         assert not result.is_error, result.data
         assert result.data["entry"]["options"]["threshold"] == 7
-        assert result.data["options_schema"]["data_schema"][0]["default"] == 99
+        assert result.data["options_schema"]["fields"][0]["default"] == 99
         assert result.data["subentry_schema"]["flow_type"] == "form"
         assert manager.async_abort.call_count == 2
         assert not engine.backend._flows.owned
@@ -212,7 +212,7 @@ async def test_native_options_and_subentry_forms_close_owned_flows(
     "device_id,core_august",
     [(None, False), ("device", False), ("other", False), ("device", True)],
 )
-async def test_native_diagnostics_and_knx_use_owners_and_shared_projection(
+async def test_native_diagnostics_use_owners_and_shared_projection(
     native: Any,
     flows: Any,
     monkeypatch: pytest.MonkeyPatch,
@@ -291,14 +291,12 @@ async def test_native_diagnostics_and_knx_use_owners_and_shared_projection(
             "diagnostics_data_path": "data.items",
             "diagnostics_data_offset": 1,
             "diagnostics_data_limit": 1,
-            "include_knx_project": True,
             "device_id": device_id,
         },
         CallContext("actor", read_only=True),
     )
     assert not result.is_error, result.data
-    assert result.data["knx_project"]["count"] == 1
-    knx.assert_awaited_once()
+    knx.assert_not_awaited()
     if device_id == "other":
         assert "Diagnostics not available" in result.data["diagnostics"]["error"]
         callback.assert_not_awaited()
@@ -324,7 +322,7 @@ async def test_remote_getter_runs_same_body_with_existing_transports(
 ) -> None:
     from ha_mcp.backends.remote import RemoteBackend
     from ha_mcp.client.rest_client import HomeAssistantClient
-    from ha_mcp.tools import tools_integrations
+    from ha_mcp.tools import component_config_entries
 
     rows = [
         {
@@ -336,8 +334,12 @@ async def test_remote_getter_runs_same_body_with_existing_transports(
             "subentries": [],
         }
     ]
-    fetch = AsyncMock(return_value=copy.deepcopy(rows))
-    monkeypatch.setattr(tools_integrations, "_fetch_entries_via_component", fetch)
+    fetch = AsyncMock(
+        return_value=component_config_entries.ComponentEntries(
+            copy.deepcopy(rows), False
+        )
+    )
+    monkeypatch.setattr(component_config_entries, "fetch_config_entries", fetch)
     client = HomeAssistantClient("http://unused.example", "test-only")
     monkeypatch.setattr(
         client,
@@ -370,40 +372,23 @@ async def test_remote_getter_runs_same_body_with_existing_transports(
         await client.close()
 
 
-async def test_uncertain_bulk_probe_drains_other_owned_probes_before_return(
-    native: Any, flows: Any, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize(
+    "arguments", [{"include_options": True}, {"entry_id": "entry"}]
+)
+async def test_redacted_entry_reads_withhold_options_without_opening_flows(
+    native: Any, flows: Any, monkeypatch: pytest.MonkeyPatch, arguments: dict[str, Any]
 ) -> None:
-    engine, hass, _, entry, manager = inspection(native, monkeypatch)
+    engine, _, _, _, manager = inspection(native, monkeypatch)
     engine.backend.redaction_enabled = lambda: True
-    second = copy.copy(entry)
-    second.entry_id = "second"
-    hass.config_entries.async_entries = lambda domain=None: [entry, second]
-    started, failed, release = asyncio.Event(), asyncio.Event(), asyncio.Event()
-
-    async def probe(handler: str, **kwargs: Any) -> dict:
-        if handler == "entry":
-            await started.wait()
-            failed.set()
-            raise ValueError("first probe committed then failed")
-        started.set()
-        await release.wait()
-        return {"flow_id": "second-flow", "type": "form", "data_schema": []}
-
-    manager.async_init.side_effect = probe
-    task = asyncio.create_task(
-        engine.call(
-            "ha_get_integration", {"include_options": True}, CallContext("actor")
-        )
-    )
     try:
-        await asyncio.wait_for(failed.wait(), 2)
-        with pytest.raises(TimeoutError):
-            await asyncio.wait_for(asyncio.shield(task), 0.05)
+        result = await engine.call(
+            "ha_get_integration", arguments, CallContext("actor", read_only=True)
+        )
+        assert not result.is_error, result.data
+        rows = result.data.get("entries", [result.data.get("entry", {})])
+        assert rows and all(row["options"]["threshold"] == REDACTED_SET for row in rows)
+        assert result.data.get("warnings")
+        manager.async_init.assert_not_awaited()
+        manager.async_abort.assert_not_called()
     finally:
-        release.set()
-        result = await asyncio.wait_for(task, 2)
         await engine.backend.stop()
-    assert result.is_error and result.status == "outcome_unknown"
-    assert not engine.backend._flows.owned
-    assert manager.async_init.await_count == 2
-    manager.async_abort.assert_called_once_with("second-flow")

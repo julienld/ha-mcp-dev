@@ -26,7 +26,6 @@ from typing import Any
 import pytest
 
 from ...utilities.assertions import MCPAssertions, safe_call_tool
-from ...utilities.entity_registry_backup import assert_entity_registry_backup
 from ...utilities.topology import component_surface_available
 from ...utilities.wait_helpers import wait_for_entity_state, wait_for_tool_result
 
@@ -1242,23 +1241,20 @@ class TestToggleOffSkipsCapture:
         )
 
 
-# ---------------------------------------------------------------- entity lane
+# ---------------------------------------------------------------- dashboard_resource lane
 
 
-@pytest.mark.convenience
-@pytest.mark.cleanup
-@pytest.mark.external_only
-class TestEntityRegistryCaptureRestore:
-    """Auto-capture/restore the registry hidden flag through the public tools.
+# ---------------------------------------------------------------- calendar lane
+#
+# calendar_event has no entity in the base image, so this lane creates its
+# own backing entity via the local_calendar config flow (it ships with HA
+# Core and is not a ``helper_type``), driven through ``ha_client`` like
+# test_integration_setup.py does. Capture fires on DELETE (and on an update,
+# which carries a uid). The test tears its config entry down in a finally
+# block. The todo_item lane is test_todo_capture_restore.py.
 
-    Kept external-only: _enable_auto_backup changes this pytest process, not
-    an embedded server's settings. The original 2dc server captured generic
-    state under domain='entity'; this proves the candidate's registry contract,
-    not unchanged cross-version parity of that older backup format.
-    """
 
-    async def test_entity_registry_full_loop(
-        self, mcp_client, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        _enable_auto_backup(monkeypatch)
-        await assert_entity_registry_backup(mcp_client, "light.bed_light")
+# ``integration`` (config_entries/disable) still has no full-loop e2e here:
+# it needs a real integration that is safe to disable/re-enable, and the
+# base image's core integrations are unsafe to toggle. Payload-shape: unit
+# tests; options round trip: test_integration_options_restore.py.

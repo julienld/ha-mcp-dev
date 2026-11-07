@@ -5,6 +5,7 @@ from typing import Any, Literal, NoReturn
 from ha_mcp.errors import ErrorCode, create_error_response
 
 from .errors import raise_failure
+from .helper_flows import listed_helper_flows
 from .helper_schema import SIMPLE_HELPER_TYPES
 
 
@@ -20,10 +21,7 @@ async def _read_registry_entry(
 
 
 async def _flow_types(session: Any, helper_type: str) -> frozenset[str]:
-    result = await session.backend.execute(
-        "helpers.flow.types", {"helper_type": helper_type}, session.context
-    )
-    return frozenset(result["types"])
+    return await listed_helper_flows(session, helper_type)
 
 
 YAML_HELPER_REMOVAL = (
