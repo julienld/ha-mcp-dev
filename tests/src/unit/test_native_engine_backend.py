@@ -77,6 +77,10 @@ def native(monkeypatch: pytest.MonkeyPatch) -> Any:
             f"custom_components.ha_mcp_tools.native_operations.{owner_name}"
         )
         monkeypatch.setattr(owner, "json_bytes", module.json_bytes)
+    raw_commands = importlib.import_module(
+        "custom_components.ha_mcp_tools.native_raw_commands"
+    )
+    monkeypatch.setattr(raw_commands, "json_bytes", module.json_bytes)
     monkeypatch.setattr(module, "Context", SimpleNamespace)
     monkeypatch.setattr(module, "vol", _REAL_VOL)
     monkeypatch.setattr(wsapi, "vol", _REAL_VOL)

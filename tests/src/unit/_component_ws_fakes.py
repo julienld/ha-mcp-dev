@@ -329,3 +329,36 @@ def fake_json_bytes(fragment: FakeFragment) -> bytes:
         if isinstance(fragment, FakeFragment)
         else json.dumps(fragment).encode()
     )
+
+
+class FakeState:
+    def __init__(
+        self,
+        entity_id,
+        state="on",
+        friendly_name=None,
+        last_changed="2026-07-16T00:00:00+00:00",
+        last_updated="2026-07-16T00:00:00+00:00",
+        **attrs,
+    ):
+        self.entity_id = entity_id
+        self.state = state
+        self.attributes = dict(attrs)
+        if friendly_name is not None:
+            self.attributes["friendly_name"] = friendly_name
+        self.last_changed = last_changed
+        self.last_updated = last_updated
+
+    def as_dict(self):
+        # Mirrors core ``State.as_dict()`` / the REST ``/api/states/<id>`` shape.
+        # Timestamps are already ISO strings here — the real WS transport encodes
+        # core's datetimes to the same isoformat, so the server sees plain JSON
+        # either way (see websocket_api.overview._do_states byte-parity note).
+        return {
+            "entity_id": self.entity_id,
+            "state": self.state,
+            "attributes": dict(self.attributes),
+            "last_changed": self.last_changed,
+            "last_updated": self.last_updated,
+            "context": {"id": "01ABC", "parent_id": None, "user_id": None},
+        }

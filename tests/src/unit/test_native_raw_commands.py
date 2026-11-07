@@ -1,9 +1,10 @@
 """Known raw commands retain Core bodies without creating a transport server."""
 
+import importlib
 import json
 import sys
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 from ha_mcp.runtime import Engine
 from ha_mcp.runtime.catalog import build_initial_catalog
@@ -12,6 +13,27 @@ from ha_mcp.tool_api import CallContext
 from .test_component_ws_phase2_async import _call_hass, _FakeCallServices
 from .test_native_engine_backend import EventBus, authorize
 from .test_native_engine_backend import native as native
+
+
+async def test_raw_read_after_another_test_preimports_the_serializer(
+    monkeypatch, request
+):
+    raw = importlib.import_module("custom_components.ha_mcp_tools.native_raw_commands")
+    monkeypatch.setattr(raw, "json_bytes", Mock())
+    native = request.getfixturevalue("native")
+    backend, _user = raw_backend(native, ["get_config"])
+    body = {"future": {"retained": [1]}}
+    backend.hass.config = SimpleNamespace(as_dict=lambda: body)
+    engine = Engine(backend, build_initial_catalog(backend))
+
+    result = await engine.call(
+        "ha_call_service", {"ws_command": "get_config"}, CallContext("actor")
+    )
+
+    assert not result.is_error, result.data
+    assert result.data["result"] == body
+    result.data["result"]["future"]["retained"].append(2)
+    assert body["future"]["retained"] == [1]
 
 
 async def test_device_listing_keeps_child_devices_and_omits_unserialized_entries(

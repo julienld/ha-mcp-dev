@@ -28,6 +28,7 @@ config_get was withdrawn pre-release). Highlights:
 from __future__ import annotations
 
 import asyncio
+import importlib
 import json
 import logging
 import sys
@@ -44,6 +45,7 @@ from ._component_ws_fakes import (
     FakeFragment,
     FakeRegEntry,
     FakeServices,
+    FakeState,
     _FakeConnection,
     _FakeWSApi,
     _Unauthorized,
@@ -99,37 +101,6 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
 # =============================================================================
 # Fakes
 # =============================================================================
-class FakeState:
-    def __init__(
-        self,
-        entity_id,
-        state="on",
-        friendly_name=None,
-        last_changed="2026-07-16T00:00:00+00:00",
-        last_updated="2026-07-16T00:00:00+00:00",
-        **attrs,
-    ):
-        self.entity_id = entity_id
-        self.state = state
-        self.attributes = dict(attrs)
-        if friendly_name is not None:
-            self.attributes["friendly_name"] = friendly_name
-        self.last_changed = last_changed
-        self.last_updated = last_updated
-
-    def as_dict(self):
-        # Mirrors core ``State.as_dict()`` / the REST ``/api/states/<id>`` shape.
-        # Timestamps are already ISO strings here — the real WS transport encodes
-        # core's datetimes to the same isoformat, so the server sees plain JSON
-        # either way (see websocket_api.overview._do_states byte-parity note).
-        return {
-            "entity_id": self.entity_id,
-            "state": self.state,
-            "attributes": dict(self.attributes),
-            "last_changed": self.last_changed,
-            "last_updated": self.last_updated,
-            "context": {"id": "01ABC", "parent_id": None, "user_id": None},
-        }
 
 
 class FakeStates:
@@ -1868,6 +1839,7 @@ class TestMatchTypeTaxonomy:
 
 @pytest.fixture
 def functional_ws(monkeypatch):
+    importlib.import_module("custom_components.ha_mcp_tools.websocket_api.hacs_cache")
     fake = _FakeWSApi()
     monkeypatch.setattr(wsapi, "websocket_api", fake)
     monkeypatch.setattr(wsapi, "vol", _REAL_VOL)
@@ -1959,6 +1931,7 @@ class TestRegistrationAndAdminGate:
             wsapi.card_definitions.WS_DASHBOARD_CARDS,  # test_card_definitions.py
             wsapi.todo_items.WS_TODO_ITEM,  # test_component_todo_items.py
             wsapi.automation_config.WS_AUTOMATION_CONFIG,
+            "ha_mcp_tools/hacs_cache",  # test_hacs_cache_bridge.py covers its gates.
         }
         assert "ha_mcp_tools/config_get" not in functional_ws.registered
 
