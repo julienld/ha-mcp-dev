@@ -224,7 +224,7 @@ def test_client_selection() -> None:
                 ).click()
                 expect(visible_dialog).not_to_be_visible(timeout=180000)
             else:
-                scope.get_by_role("button", name="Menu", exact=True).click()
+                scope.get_by_role("button", name="Menu", exact=True).press("Enter")
                 scope.get_by_role(
                     "menuitem",
                     name=re.compile("autre version|other version", re.IGNORECASE),
