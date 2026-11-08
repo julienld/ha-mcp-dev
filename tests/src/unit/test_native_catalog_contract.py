@@ -13,6 +13,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from tests.native.catalog_contract import structural_schema as _structural_schema
+
 from .test_container_param_coercion_complete import _all_registered_tools
 
 _CONTRACTS = Path(__file__).resolve().parents[3] / "docs" / "native-migration"
@@ -23,38 +25,12 @@ _ANNOTATIONS = (
     "idempotentHint",
     "openWorldHint",
 )
-_DOCUMENTATION = frozenset({"title", "description", "examples", "$comment"})
-_NAME_MAPS = frozenset(
-    {"properties", "$defs", "definitions", "patternProperties", "dependentSchemas"}
-)
-_OPAQUE_VALUES = frozenset({"default", "const", "enum", "example", "examples"})
 
 
 def _shared_annotation_overrides() -> dict[str, Any]:
     return json.loads((_CONTRACTS / "compatibility.json").read_text(encoding="utf-8"))[
         "shared_annotation_overrides"
     ]
-
-
-def _structural_schema(value: Any) -> Any:
-    """Ignore prose, preserving user keys and literal values named like prose."""
-    if isinstance(value, list):
-        return [_structural_schema(item) for item in value]
-    if not isinstance(value, dict):
-        return value
-    result = {}
-    for key, item in value.items():
-        if key in _DOCUMENTATION:
-            continue
-        if key in _NAME_MAPS and isinstance(item, dict):
-            result[key] = {
-                name: _structural_schema(schema) for name, schema in item.items()
-            }
-        elif key in _OPAQUE_VALUES or key.startswith("x-"):
-            result[key] = item
-        else:
-            result[key] = _structural_schema(item)
-    return result
 
 
 def _adds_error_log_cursor(before: Any, after: Any) -> bool:

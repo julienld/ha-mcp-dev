@@ -64,6 +64,8 @@ def test_http_bench_and_units_are_not_multiplied_by_the_core_matrix():
         ("hacs_owners", "native-v1.2.3", None),
         ("protocol", "", "protocol"),
         ("protocol", "native-v1.2.3", None),
+        ("upgrade_paths", "", "upgrade_paths"),
+        ("upgrade_paths", "native-v1.2.3", None),
         ("live", "", "live"),
         ("live", "native-v1.2.3", None),
         ("unknown", "", None),

@@ -14,13 +14,14 @@ on:
       - '.github/workflows/native-migration.yml'
       - '.github/workflows/core-window.yml'
       - '.github/workflows/legacy-core.yml'
+      - '.github/workflows/native-upgrade-paths.yml'
   workflow_dispatch:
     inputs:
       target:
         description: 'Qualification to run (live opens a temporary fork-only HA environment)'
         required: true
         type: choice
-        options: [native, hacs_owners, protocol, live]
+        options: [native, hacs_owners, protocol, upgrade_paths, live]
         default: native
       published_tag:
         description: 'Existing public native release tag to qualify from its unchanged manifest URL'
@@ -83,7 +84,7 @@ jobs:
           import os
           from pathlib import Path
           target, tag = os.environ["TARGET"], os.environ["PUBLISHED_TAG"]
-          if target not in {"native", "hacs_owners", "protocol", "live"}:
+          if target not in {"native", "hacs_owners", "protocol", "upgrade_paths", "live"}:
               raise SystemExit("Unknown qualification target")
           if target != "native" and tag:
               raise SystemExit("published_tag is only valid with target=native")
@@ -119,6 +120,11 @@ jobs:
     needs: select-qualification
     if: ${{ needs.select-qualification.outputs.route == 'protocol' }}
     uses: ./.github/workflows/native-protocol-comparison.yml
+
+  upgrade_paths:
+    needs: select-qualification
+    if: ${{ needs.select-qualification.outputs.route == 'upgrade_paths' }}
+    uses: ./.github/workflows/native-upgrade-paths.yml
 
   live:
     needs: select-qualification

@@ -1,0 +1,146 @@
+name: Main to Native upgrade paths
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-upgrade-paths-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  qualify:
+    if: github.repository == 'julienld/ha-mcp-dev'
+    name: Persisted clients across Main, upgrade, Native and restart
+    runs-on: ubuntu-24.04
+    timeout-minutes: 100
+    outputs:
+      upgrade: ${{ steps.result.outputs.upgrade }}
+      native: ${{ steps.result.outputs.native }}
+    env:
+      UV_EXCLUDE_NEWER: '7 days'
+    steps:
+      - name: Freeze the actual upstream default branch
+        id: baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python3 - <<'PY'
+          import json, os, re, subprocess
+          from pathlib import Path
+          def api(path):
+              return json.loads(subprocess.check_output(['gh', 'api', path], text=True))
+          branch = api('repos/homeassistant-ai/ha-mcp')['default_branch']
+          from urllib.parse import quote
+          revision = api('repos/homeassistant-ai/ha-mcp/commits/' + quote(branch, safe=''))['sha']
+          if not re.fullmatch(r'[a-f0-9]{40}', revision) or not re.fullmatch(r'[A-Za-z0-9_./-]+', branch):
+              raise SystemExit('Invalid upstream identity')
+          with Path(os.environ['GITHUB_OUTPUT']).open('a') as output:
+              output.write(f'branch={branch}\nrevision={revision}\n')
+          PY
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          path: harness
+          submodules: true
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          repository: homeassistant-ai/ha-mcp
+          ref: ${{ steps.baseline.outputs.revision }}
+          path: baseline
+          submodules: true
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.sha }}
+          path: candidate
+          submodules: true
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          # renovate: datasource=github-releases depName=astral-sh/uv
+          version: '0.13.4'
+          python-version: '3.13'
+      - name: Resolve and freeze a current supported Core release
+        id: core
+        run: uv run --locked -s harness/scripts/core_window.py --output "$RUNNER_TEMP/upgrade-core-window.json"
+      - name: Exercise five persistent connections sequentially
+        id: exercise
+        continue-on-error: true
+        env:
+          BASELINE_REVISION: ${{ steps.baseline.outputs.revision }}
+          BASELINE_BRANCH: ${{ steps.baseline.outputs.branch }}
+          CORE_VERSION: ${{ steps.core.outputs.latest }}
+        run: |
+          umask 077
+          uv run --locked -s harness/tests/native/upgrade_paths/run.py run \
+            --baseline-source "$GITHUB_WORKSPACE/baseline" \
+            --baseline-revision "$BASELINE_REVISION" --baseline-branch "$BASELINE_BRANCH" \
+            --candidate-source "$GITHUB_WORKSPACE/candidate" --candidate-revision "$GITHUB_SHA" \
+            --core-image "ghcr.io/home-assistant/home-assistant:$CORE_VERSION" \
+            --state "$RUNNER_TEMP/upgrade-cleanup.json" --output "$GITHUB_WORKSPACE/upgrade-results" \
+            > "$RUNNER_TEMP/upgrade-private.log" 2>&1
+      - name: Remove owned containers, networks, credentials and raw logs
+        id: cleanup
+        if: always()
+        run: |
+          uv run --locked -s harness/tests/native/upgrade_paths/run.py cleanup --state "$RUNNER_TEMP/upgrade-cleanup.json"
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          (Path(os.environ['RUNNER_TEMP']) / 'upgrade-private.log').unlink(missing_ok=True)
+          PY
+      - name: Publish fail-closed gate results
+        id: result
+        if: always()
+        env:
+          CLEANUP: ${{ steps.cleanup.outcome }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          path = Path('upgrade-results/report.json')
+          report = json.loads(path.read_bytes()) if path.is_file() else {}
+          with Path(os.environ['GITHUB_OUTPUT']).open('a') as output:
+              for name, field in [('upgrade', 'upgrade_passed'), ('native', 'native_switch_passed')]:
+                  passed = report.get(field) is True and os.environ['CLEANUP'] == 'success'
+                  output.write(f'{name}={str(passed).lower()}\n')
+          with Path(os.environ['GITHUB_STEP_SUMMARY']).open('a') as summary:
+              summary.write('Finite upgrade matrix: embedded HTTP, five auth profiles, three MCP versions.\n\n')
+              summary.write('Only sanitized report.json is retained. Missing profiles or failed prerequisites fail the gates.\n')
+          PY
+      - name: Preserve sanitized upgrade evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: native-upgrade-paths-${{ github.sha }}-${{ github.run_attempt }}
+          path: upgrade-results/report.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  upgrade:
+    name: Upgrade retains existing Legacy clients
+    needs: qualify
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Require every existing client and grant to survive
+        env:
+          PASSED: ${{ needs.qualify.outputs.upgrade }}
+        run: test "$PASSED" = true
+
+  native:
+    name: Explicit Native switch retains the same clients
+    needs: qualify
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Require unchanged connections through Native and restart
+        env:
+          PASSED: ${{ needs.qualify.outputs.native }}
+        run: test "$PASSED" = true
