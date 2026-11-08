@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -125,17 +126,32 @@ def test_client_selection() -> None:
             page.get_by_role("button", name="Log in", exact=True).click()
             page.locator("home-assistant").wait_for(timeout=90000)
             page.goto(base + "/" + domain, wait_until="domcontentloaded")
-            page.wait_for_timeout(3000)
+            page.get_by_role("button").first.wait_for(timeout=60000)
             page.screenshot(path=str(args.output / "store-initial.png"), full_page=True)
-            result["initial_ui"] = page.locator("body").inner_text()
-            result["buttons"] = page.get_by_role("button").all_text_contents()
+            result["initial_ui"] = page.locator("body").aria_snapshot()
+            repository_id = str(verify.api(repository, "")["id"])
+            ws(base, TEST_TOKEN, {"type": domain + "/repositories/add", "repository": repository, "category": "integration"})
+            ws(base, TEST_TOKEN, {"type": domain + "/repository/beta", "repository": repository_id, "show_beta": True})
+            info = ws(base, TEST_TOKEN, {"type": domain + "/repository/info", "repository_id": repository_id})
+            result["repository_before"] = {key: info.get(key) for key in ("full_name", "available_version", "installed", "ref", "file_name", "beta", "releases")}
+            assert info["full_name"] == repository and not info["installed"]
+            page.goto(base + "/" + domain + "/repository/" + repository_id, wait_until="domcontentloaded")
+            page.get_by_text("Manage Home Assistant with AI", exact=False).first.wait_for(timeout=60000)
+            result["repository_ui"] = page.locator("body").aria_snapshot()
+            page.screenshot(path=str(args.output / "repository.png"), full_page=True)
+            download = page.get_by_role("button", name=re.compile("Télécharger|Download", re.IGNORECASE))
+            if download.count():
+                download.first.click()
+                page.get_by_role("dialog").wait_for(timeout=20000)
+                result["download_dialog"] = page.locator("body").aria_snapshot()
+                page.screenshot(path=str(args.output / "download-dialog.png"), full_page=True)
             result["observed"] = True
             browser.close()
     except Exception as error:
         result["error"] = str(error)
         if page is not None:
             try:
-                result["last_ui"] = page.locator("body").inner_text()
+                result["last_ui"] = page.locator("body").aria_snapshot()
                 result["buttons"] = page.get_by_role("button").all_text_contents()
                 page.screenshot(
                     path=str(args.output / "client-error.png"), full_page=True

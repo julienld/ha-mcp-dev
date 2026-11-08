@@ -31,7 +31,7 @@ SITE = "https://julienld.github.io/ha-mcp-simple-release-qa-20261108"
 def api(repo: str, path: str, fields: dict | None = None) -> object:
     if repo not in {SOURCE, MIRROR, FORK} or (fields is not None and repo != FORK):
         raise ValueError("Unexpected QA endpoint or cross-repository write")
-    args = ["gh", "api", f"repos/{repo}/{path}"]
+    args = ["gh", "api", f"repos/{repo}" + ("/" + path if path else "")]
     if fields is not None:
         args += ["--input", "-"]
     result = subprocess.run(
