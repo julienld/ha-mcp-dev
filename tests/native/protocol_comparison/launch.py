@@ -44,6 +44,7 @@ LABEL = "ha-mcp.protocol-comparison"
 ROLES = {"baseline": "legacy", "candidate": "native"}
 OVERLAYS = (
     "tests/src/e2e/_conftest_embedded.py",
+    "tests/src/e2e/_conftest_knobs.py",
     "tests/src/e2e/_conftest_native_runtime.py",
     "tests/src/e2e/_conftest_testcontainer.py",
     "tests/src/e2e/_conftest_seed.py",

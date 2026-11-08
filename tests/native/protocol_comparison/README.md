@@ -18,6 +18,13 @@ checkpoint and the required fork rerun.
 This does not qualify authentication, owner coverage or installation beyond the
 specific checks that actually pass in the resulting report.
 
+The November 7 preflight also exercises the frozen U2 baseline after overlaying
+the current test helpers. It caught the missing `_conftest_knobs.py` dependency
+of the current testcontainer helper. The overlay now includes that helper and
+records its hash. The offline locked CLI regression checks actual baseline
+imports without installing the candidate or changing baseline application files;
+it does not establish container startup or a paired 600-read result.
+
 ## Executable launcher
 
 `launch.py` now performs the entire bring-up/comparison/cleanup. The continuity

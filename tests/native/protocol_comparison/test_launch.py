@@ -10,6 +10,8 @@ import shutil
 import subprocess
 import sys
 import textwrap
+import zipfile
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
@@ -470,7 +472,32 @@ def test_locked_cli_imports_real_worker_helpers_without_the_candidate_installed(
     None
 ):
     """The project venv must not hide undeclared dependencies of the PEP 723 CLI."""
+    _locked_cli_preflight(Path(__file__).resolve().parents[3])
+
+
+def test_overlay_imports_real_helpers_from_the_immutable_legacy_baseline(
+    tmp_path: Path,
+) -> None:
     repository = Path(__file__).resolve().parents[3]
+    archive = subprocess.check_output(
+        [
+            "git",
+            "archive",
+            "--format=zip",
+            launch.BASELINE,
+            "tests",
+            "custom_components/ha_mcp_tools/server_pin.py",
+        ],
+        cwd=repository,
+    )
+    source = tmp_path / "baseline"
+    with zipfile.ZipFile(BytesIO(archive)) as files:
+        files.extractall(source)
+    launch.overlay_continuity(repository, source)
+    _locked_cli_preflight(source)
+
+
+def _locked_cli_preflight(source: Path) -> None:
     uv_executable = shutil.which("uv")
     if uv_executable is None:
         pytest.skip("uv executable unavailable for offline PEP 723 preflight")
@@ -484,7 +511,7 @@ def test_locked_cli_imports_real_worker_helpers_without_the_candidate_installed(
             str(Path(launch.__file__).resolve()),
             "preflight",
             "--source",
-            str(repository),
+            str(source),
         ],
         check=False,
         capture_output=True,
