@@ -366,16 +366,15 @@ class AutomationWriteTools(AutomationRuntimeTools):
                 verified = await self._guard_alias_replacement(identifier, config_dict)
                 resolved_id = verified[1] if verified is not None else None
             bp_warnings = _check_best_practices(config_dict)
-            await self._validate_core_automation(config_dict, identifier, bp_warnings)
             validation_meta = await self._validate_references(config_dict, "automation")
+            await self._validate_core_automation(config_dict, identifier, bp_warnings)
             await self._validate_categories({"automation": effective_category})
-            return await self._run_config_update(
+            response = await self._run_config_update(
                 config_dict,
                 identifier,
                 effective_category,
                 wait,
                 bp_warnings,
-                validation_meta,
                 MandatoryBPS,
                 conflict_warnings,
                 resolved_id,
@@ -384,6 +383,8 @@ class AutomationWriteTools(AutomationRuntimeTools):
                 run_actions=run_actions,
                 verified=verified,
             )
+            merge_validation_meta(response, validation_meta)
+            return response
         except ToolFailure as failure:
             raise await self._augment_failure(failure, bp_warnings) from None
         except Exception as error:  # noqa: BLE001 - facade-specific classification
@@ -567,7 +568,6 @@ class AutomationWriteTools(AutomationRuntimeTools):
         effective_category: str | None,
         wait: bool,
         bp_warnings: BestPracticeCheckResult,
-        validation_meta: dict[str, Any],
         MandatoryBPS: bool,
         conflict_warnings: list[str] | None = None,
         resolved_id: str | None = None,
@@ -671,8 +671,6 @@ class AutomationWriteTools(AutomationRuntimeTools):
 
         if bp_warnings:
             result["best_practice_warnings"] = list(bp_warnings)
-
-        merge_validation_meta(result, validation_meta)
 
         automation_id = entity_id or identifier or result.get("unique_id")
         response = {
