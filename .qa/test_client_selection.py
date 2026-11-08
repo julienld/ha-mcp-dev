@@ -236,11 +236,13 @@ def test_client_selection() -> None:
                 result["download_dialog"] = scope.locator("body").aria_snapshot()[
                     -8000:
                 ]
-                dialog.get_by_role("combobox").click()
+                dialog.get_by_role("button", name=re.compile(r"^Version\b")).press(
+                    "Enter"
+                )
                 result["version_options"] = scope.locator("body").aria_snapshot()[
                     -8000:
                 ]
-                scope.get_by_role("option", name=re.compile(r"v9\.1\.1\b")).click()
+                scope.get_by_text("v9.1.1", exact=True).click()
                 dialog.get_by_role(
                     "button", name=re.compile("^Installer$|^Install$", re.IGNORECASE)
                 ).click()
