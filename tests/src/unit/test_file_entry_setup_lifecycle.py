@@ -2,6 +2,7 @@
 
 import asyncio
 import importlib
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -167,3 +168,76 @@ async def test_cancelled_setup_retains_previous_owner_until_issued_work_finishes
     assert not previous.pending
     assert await component.async_setup_entry(manager.hass, entry)
     await component.async_unload_entry(manager.hass, entry)
+
+
+@pytest.mark.parametrize(
+    ("service", "arguments"),
+    [
+        ("list_files", {"path": "www"}),
+        ("read_file", {"path": "www/notes.txt"}),
+        (
+            "write_file",
+            {"path": "www/notes.txt", "content": "updated", "overwrite": True},
+        ),
+        ("delete_file", {"path": "www/notes.txt"}),
+    ],
+)
+async def test_registered_file_handler_retains_its_entry_lifetime(
+    setup_world, monkeypatch, service, arguments
+):
+    component, manager, entry, _previous, _unsubscribe = setup_world
+    hass = manager.hass
+    target = Path(hass.config.path("www", "notes.txt"))
+    io = Mock(wraps=hass.async_add_executor_job)
+    monkeypatch.setattr(hass, "async_add_executor_job", io)
+    call = SimpleNamespace(
+        data={**arguments, component.CALLER_TOKEN_FIELD: "fixture-capability"}
+    )
+    handlers = []
+
+    async def finalize(*_args, **_kwargs):
+        registered = {
+            registration.args[1]: registration.args[2]
+            for registration in hass.services.async_register.call_args_list
+            if registration.args[0] == component.DOMAIN
+        }
+        handler = registered[service]
+        handlers.append(handler)
+        before_io = io.call_count
+        refused = await handler(call)
+        assert refused["error"]["code"] == "INTEGRATION_STOPPING"
+        assert io.call_count == before_io
+        assert await asyncio.to_thread(target.read_text) == "before"
+
+    monkeypatch.setattr(component, "async_register_entry_device", finalize)
+    assert await component.async_setup_entry(hass, entry)
+    handler = handlers[0]
+    try:
+        result = await handler(call)
+        assert result["success"] is True
+        if service == "read_file":
+            assert result["content"] == "before"
+        elif service == "list_files":
+            assert result["count"] == 1
+        elif service == "write_file":
+            assert await asyncio.to_thread(target.read_text) == "updated"
+        else:
+            assert not await asyncio.to_thread(target.exists)
+    finally:
+        await component.async_unload_entry(hass, entry)
+
+    before_io = io.call_count
+    refused = await handler(call)
+    assert refused["success"] is False and io.call_count == before_io
+
+    # A subsequent setup restores the valid service credential. Cached handlers
+    # must still reject their old owner rather than gain the new entry's lifetime.
+    monkeypatch.setattr(component, "async_register_entry_device", AsyncMock())
+    assert await component.async_setup_entry(hass, entry)
+    try:
+        before_io = io.call_count
+        refused = await handler(call)
+        assert refused["error"]["code"] == "INTEGRATION_STOPPING"
+        assert io.call_count == before_io
+    finally:
+        await component.async_unload_entry(hass, entry)
