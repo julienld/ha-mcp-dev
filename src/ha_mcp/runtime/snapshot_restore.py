@@ -61,8 +61,8 @@ async def restore_snapshot_data(
             safety_path = await operations.capture_safety(outcome)
             if safety_path is not None:
                 store._protect_snapshot(safety_path.name)
-                await operations.require_safety(safety_path)
                 outcome["safety_backup"] = safety_path.name
+                await operations.require_safety(safety_path)
         status = "unknown"
         step = "apply"
         result = await operations.apply(needs_safety, safety_path is not None)

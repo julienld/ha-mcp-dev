@@ -126,51 +126,49 @@ class TestDashboardResourceCaptureRestore:
             "resource_id"
         )
         assert resource_id, f"resource_id missing: {create}"
-        await asyncio.sleep(_HA_PROPAGATION_SETTLE_SECONDS)
+        backup_name = None
+        try:
+            await asyncio.sleep(_HA_PROPAGATION_SETTLE_SECONDS)
 
-        mcp = MCPAssertions(mcp_client)
-        await mcp.call_tool_success(
-            "ha_config_set_dashboard_resource",
-            {
-                "resource_id": resource_id,
-                "content": f"export const E2E_BK_EDITED = '{suffix}';",
-                "resource_type": "module",
-            },
-        )
+            mcp = MCPAssertions(mcp_client)
+            await mcp.call_tool_success(
+                "ha_config_set_dashboard_resource",
+                {
+                    "resource_id": resource_id,
+                    "content": f"export const E2E_BK_EDITED = '{suffix}';",
+                    "resource_type": "module",
+                },
+            )
 
-        backup_name = await _wait_for_backup(
-            mcp_client, domain="dashboard_resource", entity_id=str(resource_id)
-        )
+            backup_name = await _wait_for_backup(
+                mcp_client, domain="dashboard_resource", entity_id=str(resource_id)
+            )
 
-        restore = await mcp.call_tool_success(
-            "ha_manage_backup",
-            {"scope": "edits", "action": "restore", "backup_name": backup_name},
-        )
-        assert restore.get("success") is True
+            restore = await mcp.call_tool_success(
+                "ha_manage_backup",
+                {"scope": "edits", "action": "restore", "backup_name": backup_name},
+            )
+            assert restore.get("success") is True
 
-        # The restored resource must carry the ORIGINAL content back,
-        # byte-identical — a snapshot that dropped or mangled the data: URI
-        # would still "restore" successfully without this assertion.
-        listed = await mcp.call_tool_success(
-            "ha_config_list_dashboard_resources", {"include_content": True}
-        )
-        restored = next(
-            (r for r in listed.get("resources", []) if r.get("id") == resource_id),
-            None,
-        )
-        assert restored is not None, "restored resource missing from listing"
-        assert restored.get("_content") == original
-
-        await safe_call_tool(
-            mcp_client,
-            "ha_manage_backup",
-            {"scope": "edits", "action": "delete", "backup_name": backup_name},
-        )
-        await safe_call_tool(
-            mcp_client,
-            "ha_config_delete_dashboard_resource",
-            {"resource_id": resource_id},
-        )
+            # The restored resource must carry the ORIGINAL content back,
+            # byte-identical — a snapshot that dropped or mangled the data: URI
+            # would still "restore" successfully without this assertion.
+            listed = await mcp.call_tool_success(
+                "ha_config_list_dashboard_resources", {"include_content": True}
+            )
+            restored = next(
+                (r for r in listed.get("resources", []) if r.get("id") == resource_id),
+                None,
+            )
+            assert restored is not None, "restored resource missing from listing"
+            assert restored.get("_content") == original
+        finally:
+            await _delete_leftover_backup(mcp_client, backup_name)
+            await safe_call_tool(
+                mcp_client,
+                "ha_config_delete_dashboard_resource",
+                {"resource_id": resource_id},
+            )
 
 
 # ---------------------------------------------------------------- calendar lane

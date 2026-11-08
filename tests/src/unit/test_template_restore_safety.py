@@ -83,6 +83,31 @@ async def test_template_safety_opt_out_still_refuses_failed_capture(
     restore.assert_not_awaited()
 
 
+@pytest.mark.parametrize("failure_type", [bm.BackupRestoreError, OSError])
+async def test_safety_verification_failure_reports_existing_recovery_image(
+    manager, monkeypatch, failure_type
+):
+    source = snapshot(manager)
+    current = {"entry_id": "template-entry", "options": _record()["options"]}
+    restore = AsyncMock(return_value={})
+    manager.register(
+        bm.DomainHandler("helper_template", AsyncMock(return_value=current), restore)
+    )
+
+    def refuse_safety(path):
+        assert path.is_file()
+        raise failure_type("Safety verification failed")
+
+    monkeypatch.setattr(bm, "_require_restore_safety", refuse_safety)
+    with pytest.raises(bm.BackupRestoreError) as caught:
+        await manager.restore_snapshot(source.name)
+    outcome = caught.value.outcome
+    assert outcome["apply_status"] == "not_applied"
+    assert manager.read_snapshot(outcome["safety_backup"])["config"] == current
+    restore.assert_not_awaited()
+    manager.delete_snapshot(outcome["safety_backup"])
+
+
 async def test_absent_template_opt_out_recreates_without_safety(recovery):
     result = await recovery.manager.restore_snapshot(
         recovery.name, take_safety_backup=False
@@ -430,7 +455,8 @@ async def test_missing_safety_at_pin_handoff_refuses_apply(manager, monkeypatch)
     with pytest.raises(bm.BackupRestoreError) as caught:
         await manager.restore_snapshot(source.name)
     assert caught.value.outcome["apply_status"] == "not_applied"
-    assert caught.value.outcome["safety_backup"] is None
+    assert caught.value.outcome["safety_backup"]
+    assert not (source.parent / caught.value.outcome["safety_backup"]).exists()
     restore.assert_not_awaited()
     assert source.exists()
 
