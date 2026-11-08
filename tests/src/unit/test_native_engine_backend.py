@@ -7,7 +7,7 @@ import json
 import sys
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -360,6 +360,41 @@ async def test_core_schema_implementation_failure_is_not_remapped(
             "services.call_observe", {}, CallContext("actor")
         )
     assert caught.value is failure
+
+
+@pytest.mark.parametrize("helper_type", [None, "unknown_helper"])
+async def test_invalid_helper_snapshot_write_is_rejected_before_owner_lookup(
+    native: Any, monkeypatch: pytest.MonkeyPatch, helper_type: str | None
+) -> None:
+    helpers = importlib.import_module(
+        "custom_components.ha_mcp_tools.native_operations.helpers"
+    )
+    owner_lookup = Mock(return_value=None)
+    monkeypatch.setattr(helpers, "collection_owner", owner_lookup)
+    collection = FakeCollection()
+    hass = _hass(collection)
+    authorize(hass)
+    backend = native.NativeBackend(hass)
+
+    async def invoke(arguments: Any, context: CallContext) -> Any:
+        return await backend.execute("helpers.storage.write", arguments, context)
+
+    tool = ToolDefinition("helper_write", "Helper write", {"type": "object"}, invoke)
+    arguments: dict[str, Any] = {
+        "action": "update",
+        "item_id": "test",
+        "data": {"name": "Changed"},
+        "expected_item": {"id": "test", "name": "Before"},
+    }
+    if helper_type is not None:
+        arguments["helper_type"] = helper_type
+    result = await Engine(backend, [tool]).call(
+        "helper_write", arguments, CallContext("actor")
+    )
+    assert result.is_error and result.status == "not_started"
+    assert result.data["error"]["code"] == "VALIDATION_FAILED"
+    owner_lookup.assert_not_called()
+    assert collection.data == {}
 
 
 async def test_idempotent_noop_keeps_confirmed_state_result(native: Any) -> None:

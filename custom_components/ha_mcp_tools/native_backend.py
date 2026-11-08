@@ -392,12 +392,9 @@ class NativeBackend:
             )
         payload = dict(arguments)
         if operation == "helpers.storage.write":
-            from .native_operations.helpers import check_expected_item
-
             expected = payload.pop("expected_item", None)
             expected_registry = payload.pop("expected_registry", None)
             payload.pop("wait_for_entity", None)
-            check_expected_item(self.hass, payload, expected)
         include_changed_states = (
             payload.pop("include_changed_states", False)
             if operation == "services.call_observe"
@@ -415,7 +412,9 @@ class NativeBackend:
             ) from error
         if operation == "helpers.storage.write":
             from .native_operations.helper_mutations import NativeHelperMutations
+            from .native_operations.helpers import check_expected_item
 
+            check_expected_item(self.hass, values, expected)
             result = await NativeHelperMutations(self.hass, self.authorize).execute(
                 {
                     **values,
