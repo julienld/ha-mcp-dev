@@ -1,0 +1,151 @@
+"""Observe and exercise real installer UIs against the isolated QA releases."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import os
+import shutil
+import sys
+import tempfile
+from pathlib import Path
+from types import SimpleNamespace
+
+import requests
+import verify
+from playwright.sync_api import Error as PlaywrightError
+from playwright.sync_api import sync_playwright
+from testcontainers.core.container import DockerContainer
+from websockets.asyncio.client import connect
+
+
+async def command(url: str, token: str, message: dict) -> object:
+    uri = url.replace("http://", "ws://") + "/api/websocket"
+    async with connect(uri, open_timeout=15) as websocket:
+        assert json.loads(await websocket.recv())["type"] == "auth_required"
+        await websocket.send(json.dumps({"type": "auth", "access_token": token}))
+        assert json.loads(await websocket.recv())["type"] == "auth_ok"
+        await websocket.send(json.dumps({"id": 1, **message}))
+        async with asyncio.timeout(180):
+            while True:
+                reply = json.loads(await websocket.recv())
+                if reply.get("id") == 1 and reply.get("type") == "result":
+                    if not reply.get("success"):
+                        raise RuntimeError(json.dumps(reply.get("error")))
+                    return reply.get("result")
+
+
+def ws(url: str, token: str, message: dict) -> object:
+    return asyncio.run(command(url, token, message))
+
+
+def test_client_selection() -> None:
+    os.environ["E2E_NO_TOOLS_ENTRY"] = "1"
+    sys.path.insert(0, os.environ["QA_CLIENT_SOURCE"])
+    from tests.src.e2e._conftest_testcontainer import _prepare_testcontainer_config
+    from tests.src.e2e.workflows.embedded.test_embedded_update_path import _wait_http_ok
+    from tests.test_constants import TEST_PASSWORD, TEST_TOKEN, TEST_USER
+
+    args = SimpleNamespace(
+        core=os.environ["QA_CLIENT_CORE"],
+        repo=os.environ["QA_CLIENT_REPO"],
+        output=Path(os.environ["QA_CLIENT_OUTPUT"]),
+    )
+    assert args.core in {"2026.8.0", "2026.11.0"}
+    assert args.repo in {"source", "mirror"}
+    if (
+        os.environ.get("GITHUB_ACTIONS") != "true"
+        or os.environ.get("GITHUB_REPOSITORY") != verify.FORK
+    ):
+        raise ValueError("Only the isolated fork runner may launch these clients")
+    args.output.mkdir(parents=True, exist_ok=True)
+    os.environ["E2E_NO_TOOLS_ENTRY"] = "1"
+    config, temp_dir, _, _ = _prepare_testcontainer_config(False)
+    config = Path(config)
+    assert config.is_relative_to(Path(tempfile.gettempdir()))
+    storage = config / ".storage/core.config_entries"
+    entries = json.loads(storage.read_text())
+    entries["data"]["entries"] = [
+        e for e in entries["data"]["entries"] if e["domain"] in {"hacs", "sun"}
+    ]
+    storage.write_text(json.dumps(entries), encoding="utf-8")
+    for name in (
+        "home-assistant_v2.db",
+        "home-assistant_v2.db-wal",
+        "home-assistant_v2.db-shm",
+    ):
+        (config / name).unlink(missing_ok=True)
+    assert not (config / "custom_components/ha_mcp_tools").exists()
+    repository = verify.SOURCE if args.repo == "source" else verify.MIRROR
+    domain = "hacs" if args.core == "2026.8.0" else "marketplace"
+    result = {
+        "core": args.core,
+        "backend": domain,
+        "repository": repository,
+        "qualification_complete": False,
+    }
+    container = DockerContainer(f"ghcr.io/home-assistant/home-assistant:{args.core}")
+    page = None
+    container.with_exposed_ports(8123).with_volume_mapping(str(config), "/config", "rw")
+    for name, value in {
+        "PIP_INDEX_URL": verify.INDEX + "/simple/",
+        "PIP_EXTRA_INDEX_URL": "https://pypi.org/simple",
+        "UV_INDEX_URL": verify.INDEX + "/simple/",
+        "UV_EXTRA_INDEX_URL": "https://pypi.org/simple",
+        "UV_INDEX_STRATEGY": "unsafe-best-match",
+        "TZ": "UTC",
+    }.items():
+        container.with_env(name, value)
+    try:
+        container.start()
+        base = f"http://{container.get_container_host_ip()}:{container.get_exposed_port(8123)}"
+        _wait_http_ok(base + "/api/", {"Authorization": "Bearer " + TEST_TOKEN}, 180)
+        result["api_version"] = requests.get(
+            base + "/api/config",
+            headers={"Authorization": "Bearer " + TEST_TOKEN},
+            timeout=20,
+        ).json()["version"]
+        with sync_playwright() as playwright:
+            executable = shutil.which("google-chrome") or shutil.which(
+                "google-chrome-stable"
+            )
+            if executable is None:
+                raise RuntimeError("The hosted test runner has no Chrome executable")
+            browser = playwright.chromium.launch(
+                executable_path=executable,
+                headless=True,
+                args=["--no-sandbox", "--disable-dev-shm-usage"],
+            )
+            page = browser.new_page(
+                viewport={"width": 1400, "height": 1000}, locale="en-US"
+            )
+            page.goto(base + "/", wait_until="domcontentloaded")
+            page.locator('input[name="username"]').fill(TEST_USER, timeout=90000)
+            page.locator('input[name="password"]').fill(TEST_PASSWORD)
+            page.get_by_role("button", name="Log in", exact=True).click()
+            page.locator("home-assistant").wait_for(timeout=90000)
+            page.goto(base + "/" + domain, wait_until="domcontentloaded")
+            page.wait_for_timeout(3000)
+            page.screenshot(path=str(args.output / "store-initial.png"), full_page=True)
+            result["initial_ui"] = page.locator("body").inner_text()
+            result["buttons"] = page.get_by_role("button").all_text_contents()
+            result["observed"] = True
+            browser.close()
+    except Exception as error:
+        result["error"] = str(error)
+        if page is not None:
+            try:
+                result["last_ui"] = page.locator("body").inner_text()
+                result["buttons"] = page.get_by_role("button").all_text_contents()
+                page.screenshot(
+                    path=str(args.output / "client-error.png"), full_page=True
+                )
+            except (PlaywrightError, OSError) as capture_error:
+                result["capture_error"] = str(capture_error)
+        raise
+    finally:
+        (args.output / "client-observed.json").write_text(
+            json.dumps(result, indent=2) + "\n", encoding="utf-8"
+        )
+        container.stop()
+        shutil.rmtree(temp_dir, ignore_errors=True)
