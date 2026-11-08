@@ -139,28 +139,35 @@ async def test_entry_lock_wait_is_cancellable_and_owned_abort_ignores_readonly(
     backend = flows.NativeFlows(
         SimpleNamespace(config_entries=SimpleNamespace(options=owner)), AsyncMock()
     )
-    await backend.execute(
-        "config.flow.start", {"kind": "options", "handler": "entry"}, actor
-    )
-    second = asyncio.create_task(
-        backend.execute(
+    try:
+        await backend.execute(
             "config.flow.start", {"kind": "options", "handler": "entry"}, actor
         )
-    )
-    await asyncio.sleep(0)
-    assert owner.async_init.await_count == 1 and not second.done()
-    second.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        _ = await second
-    assert (
-        backend.starting == 0 and registry_update_lock("config_entry", "entry").locked()
-    )
-    await backend.execute(
-        "config.flow.abort", {"flow_id": "owned"}, CallContext("actor", read_only=True)
-    )
-    assert (
-        not backend.owned and not registry_update_lock("config_entry", "entry").locked()
-    )
+        second = asyncio.create_task(
+            backend.execute(
+                "config.flow.start", {"kind": "options", "handler": "entry"}, actor
+            )
+        )
+        await asyncio.sleep(0)
+        assert owner.async_init.await_count == 1 and not second.done()
+        second.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            _ = await second
+        assert (
+            backend.starting == 0
+            and registry_update_lock("config_entry", "entry").locked()
+        )
+        await backend.execute(
+            "config.flow.abort",
+            {"flow_id": "owned"},
+            CallContext("actor", read_only=True),
+        )
+        assert (
+            not backend.owned
+            and not registry_update_lock("config_entry", "entry").locked()
+        )
+    finally:
+        await backend.stop()
 
 
 async def test_waiting_flow_rechecks_expected_revision_after_prior_flow_commits(
@@ -177,28 +184,32 @@ async def test_waiting_flow_rechecks_expected_revision_after_prior_flow_commits(
         ),
         AsyncMock(),
     )
-    arguments = {"kind": "options", "handler": "entry", "expected_modified_at": 1.0}
-    await backend.execute("config.flow.start", arguments, actor)
-    waiting = asyncio.create_task(
-        backend.execute("config.flow.start", arguments, actor)
-    )
-    await asyncio.sleep(0)
-    assert owner.async_init.await_count == 1
+    try:
+        arguments = {"kind": "options", "handler": "entry", "expected_modified_at": 1.0}
+        await backend.execute("config.flow.start", arguments, actor)
+        waiting = asyncio.create_task(
+            backend.execute("config.flow.start", arguments, actor)
+        )
+        await asyncio.sleep(0)
+        assert owner.async_init.await_count == 1
 
-    async def commit(*args: Any) -> dict:
-        entry.modified_at = SimpleNamespace(timestamp=lambda: 2.0)
-        return {"type": "create_entry", "flow_id": "owned"}
+        async def commit(*args: Any) -> dict:
+            entry.modified_at = SimpleNamespace(timestamp=lambda: 2.0)
+            return {"type": "create_entry", "flow_id": "owned"}
 
-    owner.async_configure.side_effect = commit
-    await backend.execute(
-        "config.flow.configure", {"flow_id": "owned", "user_input": {}}, actor
-    )
-    with pytest.raises(ToolFailure, match="changed after its snapshot"):
-        _ = await waiting
-    assert owner.async_init.await_count == 1 and backend.starting == 0
-    assert (
-        not backend.owned and not registry_update_lock("config_entry", "entry").locked()
-    )
+        owner.async_configure.side_effect = commit
+        await backend.execute(
+            "config.flow.configure", {"flow_id": "owned", "user_input": {}}, actor
+        )
+        with pytest.raises(ToolFailure, match="changed after its snapshot"):
+            _ = await waiting
+        assert owner.async_init.await_count == 1 and backend.starting == 0
+        assert (
+            not backend.owned
+            and not registry_update_lock("config_entry", "entry").locked()
+        )
+    finally:
+        await backend.stop()
 
 
 @pytest.mark.parametrize("previous", ["not_applied", "unknown", "applied"])
