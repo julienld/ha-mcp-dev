@@ -197,11 +197,10 @@ def test_client_selection() -> None:
             ).first.wait_for(timeout=60000)
             result["repository_ui"] = scope.locator("body").aria_snapshot()
             page.screenshot(path=str(args.output / "repository.png"), full_page=True)
-            download = scope.get_by_role(
-                "button", name=re.compile("Télécharger|Download", re.IGNORECASE)
-            )
-            if download.count():
-                download.first.click()
+            if domain == "hacs":
+                scope.get_by_role(
+                    "button", name=re.compile("Télécharger|Download", re.IGNORECASE)
+                ).first.click()
                 dialog = scope.locator("hacs-download-dialog")
                 visible_dialog = scope.get_by_role("alertdialog")
                 visible_dialog.wait_for(timeout=30000)
@@ -225,7 +224,29 @@ def test_client_selection() -> None:
                 ).click()
                 expect(visible_dialog).not_to_be_visible(timeout=180000)
             else:
-                raise AssertionError("No actual installer download action")
+                scope.get_by_role("button", name="Menu", exact=True).click()
+                scope.get_by_role(
+                    "menuitem",
+                    name=re.compile("autre version|other version", re.IGNORECASE),
+                ).click()
+                dialog = scope.locator("dialog-marketplace-install")
+                dialog.locator("ha-generic-picker").wait_for(
+                    state="attached", timeout=30000
+                )
+                result["download_dialog"] = scope.locator("body").aria_snapshot()[
+                    -8000:
+                ]
+                dialog.get_by_role("combobox").click()
+                result["version_options"] = scope.locator("body").aria_snapshot()[
+                    -8000:
+                ]
+                scope.get_by_role("option", name=re.compile(r"v9\.1\.1\b")).click()
+                dialog.get_by_role(
+                    "button", name=re.compile("^Installer$|^Install$", re.IGNORECASE)
+                ).click()
+                expect(dialog.locator("ha-generic-picker")).not_to_be_attached(
+                    timeout=180000
+                )
             component = config / "custom_components/ha_mcp_tools"
 
             def installed() -> dict:

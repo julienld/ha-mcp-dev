@@ -2,7 +2,7 @@
 # requires-python = ">=3.13"
 # dependencies = []
 # ///
-"""Report client discovery honestly, separately from installation qualification."""
+"""Report only the installer assertions actually completed by the QA driver."""
 
 import json
 import os
@@ -19,6 +19,15 @@ def main() -> None:
         raise ValueError("Unexpected qualification reporter")
     result = json.loads(Path("qa-simple-zip-result.json").read_text(encoding="utf-8"))
     state = "success" if os.environ.get("QA_CLIENT_OUTCOME") == "success" else "failure"
+    observation = (
+        Path(os.environ["RUNNER_TEMP"]) / "simple-zip-client/client-observed.json"
+    )
+    qualified = (
+        observation.exists()
+        and json.loads(observation.read_text()).get("qualification_complete") is True
+    )
+    if not qualified:
+        state = "failure"
     url = f"https://github.com/{verify.FORK}/actions/runs/{os.environ['GITHUB_RUN_ID']}"
     label = os.environ["QA_CLIENT_CORE"] + " / " + os.environ["QA_CLIENT_REPO"]
     verify.api(
@@ -27,7 +36,7 @@ def main() -> None:
         {
             "state": state,
             "context": "Simple ZIP / client discovery " + label,
-            "description": "Installer UI exploration: " + state,
+            "description": "Actual installer version selection: " + state,
             "target_url": url,
         },
     )
@@ -35,7 +44,12 @@ def main() -> None:
         verify.FORK,
         "issues/14/comments",
         {
-            "body": f"[Agent] Installer UI discovery ({label}): **{state}**. [Run and observations]({url}). Product `{result['product_sha']}`. Discovery only; installer version-selection qualification is not asserted by this stage.",
+            "body": f"[Agent] Installer version selection ({label}): **{state}**. [Run and observations]({url}). Product `{result['product_sha']}`. "
+            + (
+                "Old archive selected and installed through the actual UI, then explicit ZIP → old archive → ZIP installs; installed files compared with the published ZIP."
+                if qualified
+                else "Qualification incomplete; inspect the UI observations before drawing a product conclusion."
+            ),
         },
     )
 
