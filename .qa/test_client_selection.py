@@ -2,19 +2,22 @@
 
 from __future__ import annotations
 
+import hashlib
+import io
 import json
 import os
 import re
 import shutil
 import sys
 import tempfile
+import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 
 import requests
 import verify
 from playwright.sync_api import Error as PlaywrightError
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import expect, sync_playwright
 from testcontainers.core.container import DockerContainer
 from websockets.sync.client import connect
 
@@ -183,13 +186,90 @@ def test_client_selection() -> None:
             )
             if download.count():
                 download.first.click()
-                page.wait_for_timeout(1000)
-                result["host_after_click"] = page.locator("body").aria_snapshot()
-                result["frame_after_click"] = scope.locator("body").aria_snapshot()
-                result["download_dialog"] = scope.locator("body").aria_snapshot()
+                dialog = scope.get_by_role("alertdialog")
+                dialog.wait_for(timeout=30000)
+                result["download_dialog"] = dialog.aria_snapshot()
                 page.screenshot(
                     path=str(args.output / "download-dialog.png"), full_page=True
                 )
+                dialog.get_by_role(
+                    "button",
+                    name=re.compile(
+                        "version différente|different version", re.IGNORECASE
+                    ),
+                ).click()
+                dialog.get_by_role("combobox").click(timeout=30000)
+                result["version_options"] = scope.locator("body").aria_snapshot()[
+                    -8000:
+                ]
+                scope.get_by_role("option", name=re.compile(r"v9\.1\.1\b")).click()
+                dialog.get_by_role(
+                    "button", name=re.compile("^Télécharger$|^Download$", re.IGNORECASE)
+                ).click()
+                expect(dialog).not_to_be_visible(timeout=180000)
+            else:
+                raise AssertionError("No actual installer download action")
+            component = config / "custom_components/ha_mcp_tools"
+
+            def installed() -> dict:
+                info = ws(
+                    base,
+                    TEST_TOKEN,
+                    {
+                        "type": domain + "/repository/info",
+                        "repository_id": repository_id,
+                    },
+                )
+                manifest = json.loads((component / "manifest.json").read_text())
+                assert info["installed"]
+                return {
+                    "ref": info.get("ref"),
+                    "installed_version": info.get("installed_version"),
+                    "manifest_version": manifest["version"],
+                }
+
+            result["old_first_install"] = installed()
+            assert result["old_first_install"]["manifest_version"] == "9.1.1"
+            latest = info["available_version"]
+            published = verify.release(repository, latest)
+            asset = verify.asset(published)
+            assert asset is not None
+            published_zip = verify.download(asset["browser_download_url"])
+            result["zip_sha256"] = hashlib.sha256(published_zip).hexdigest()
+            result["zip_asset_id"] = asset["id"]
+            with zipfile.ZipFile(io.BytesIO(published_zip)) as archive:
+                expected = {
+                    name: archive.read(name)
+                    for name in archive.namelist()
+                    if not name.endswith("/")
+                }
+            result["explicit_version_installs"] = []
+            for target in (latest, "v9.1.1", latest):
+                ws(
+                    base,
+                    TEST_TOKEN,
+                    {
+                        "type": domain
+                        + (
+                            "/repository/download"
+                            if domain == "hacs"
+                            else "/repository/install"
+                        ),
+                        "repository": repository_id,
+                        "version": target,
+                    },
+                )
+                observed = installed()
+                observed["requested_version"] = target
+                if target == "v9.1.1":
+                    assert observed["manifest_version"] == "9.1.1"
+                else:
+                    assert all(
+                        (component / name).read_bytes() == value
+                        for name, value in expected.items()
+                    )
+                result["explicit_version_installs"].append(observed)
+            result["qualification_complete"] = True
             result["observed"] = True
     except Exception as error:
         result["error"] = str(error)
