@@ -120,6 +120,7 @@ jobs:
         QA_CLIENT_SOURCE: ${{ github.workspace }}/source
         QA_CLIENT_CORE: ${{ inputs.client_core }}
         QA_CLIENT_REPO: ${{ inputs.client_repo }}
+        QA_LEGACY_CACHE_PROBE: ${{ inputs.phase == 'client-stable' }}
         QA_CLIENT_OUTPUT: ${{ runner.temp }}/simple-zip-client
     - name: Report client exploration
       if: ${{ always() && startsWith(inputs.phase, 'client') && steps.release.outcome == 'success' }}

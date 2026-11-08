@@ -17,6 +17,7 @@ from types import SimpleNamespace
 
 import requests
 import verify
+import yaml
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import expect, sync_playwright
 from testcontainers.core.container import DockerContainer
@@ -75,6 +76,13 @@ def test_client_selection() -> None:
     ):
         (config / name).unlink(missing_ok=True)
     assert not (config / "custom_components/ha_mcp_tools").exists()
+    configuration_file = config / "configuration.yaml"
+    configuration = yaml.safe_load(configuration_file.read_text())
+    configuration["logger"] = {
+        "default": "warning",
+        "logs": {"custom_components.hacs": "debug"},
+    }
+    configuration_file.write_text(yaml.safe_dump(configuration), encoding="utf-8")
     repository = verify.SOURCE if args.repo == "source" else verify.MIRROR
     domain = "hacs" if args.core == "2026.8.0" else "marketplace"
     result = {
@@ -83,6 +91,24 @@ def test_client_selection() -> None:
         "repository": repository,
         "qualification_complete": False,
     }
+    cache_probe = domain == "hacs" and os.environ.get("QA_LEGACY_CACHE_PROBE") == "true"
+
+    def download_diagnostics() -> list[str]:
+        log = config / "home-assistant.log"
+        if not log.exists():
+            return []
+        token = os.environ.get("GITHUB_TOKEN", "")
+        lines = [
+            line
+            for line in log.read_text(errors="replace").splitlines()[-3000:]
+            if repository in line
+            or "ha_mcp_tools.zip" in line
+            or "release assets" in line
+        ]
+        return [line.replace(token, "[redacted]") if token else line for line in lines][
+            -80:
+        ]
+
     container = DockerContainer(f"ghcr.io/home-assistant/home-assistant:{args.core}")
     page = None
     playwright = None
@@ -222,7 +248,28 @@ def test_client_selection() -> None:
                 dialog.get_by_role(
                     "button", name=re.compile("^Télécharger$|^Download$", re.IGNORECASE)
                 ).click()
-                expect(visible_dialog).not_to_be_visible(timeout=180000)
+                if cache_probe:
+                    error = dialog.get_by_role("alert")
+                    expect(error).to_be_visible(timeout=60000)
+                    result["cold_old_install_error"] = error.inner_text()
+                    result["download_diagnostics"] = download_diagnostics()
+                    result["legacy_cache_failure_reproduced"] = True
+                    dialog.get_by_role(
+                        "button", name=re.compile("^Annuler$|^Cancel$")
+                    ).click()
+                    for target in (info["available_version"], "v9.1.1"):
+                        ws(
+                            base,
+                            TEST_TOKEN,
+                            {
+                                "type": "hacs/repository/download",
+                                "repository": repository_id,
+                                "version": target,
+                            },
+                        )
+                    result["workaround_old_after_latest"] = True
+                else:
+                    expect(visible_dialog).not_to_be_visible(timeout=180000)
             else:
                 scope.get_by_role("button", name="Menu", exact=True).press("Enter")
                 scope.get_by_role(
@@ -309,10 +356,11 @@ def test_client_selection() -> None:
                         for name, value in expected.items()
                     )
                 result["explicit_version_installs"].append(observed)
-            result["qualification_complete"] = True
+            result["qualification_complete"] = not cache_probe
             result["observed"] = True
     except Exception as error:
         result["error"] = str(error)
+        result["download_diagnostics"] = download_diagnostics()
         if page is not None:
             try:
                 result["last_ui"] = page.locator("body").aria_snapshot()
