@@ -21,8 +21,6 @@ from .test_native_engine_backend import native as native
 async def test_registry_reads_keep_raw_keys_and_isolate_invalid_ids(
     native, monkeypatch, single
 ):
-    import importlib
-
     owner = importlib.import_module(
         "custom_components.ha_mcp_tools.native_registry_ops"
     )
