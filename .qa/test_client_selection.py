@@ -139,6 +139,8 @@ def test_client_selection() -> None:
             page.locator('input[name="password"]').fill(TEST_PASSWORD)
             page.get_by_role("button", name="Log in", exact=True).click()
             page.locator("ha-sidebar").wait_for(timeout=90000)
+            if domain == "marketplace":
+                ws(base, TEST_TOKEN, {"type": "marketplace/warning/accept"})
             repository_id = str(verify.api(repository, "")["id"])
             ws(
                 base,
@@ -200,7 +202,7 @@ def test_client_selection() -> None:
             )
             if download.count():
                 download.first.click()
-                dialog = scope.get_by_role("alertdialog")
+                dialog = scope.locator("hacs-download-dialog")
                 dialog.wait_for(timeout=30000)
                 result["download_dialog"] = dialog.aria_snapshot()
                 page.screenshot(
