@@ -44,6 +44,13 @@ async def watch_entry_reload(
         yield settled
     finally:
         if watch is not None:
-            await await_owned_io(
-                client.backend.execute("config.entries.close", watch, client.context)
-            )
+            try:
+                await await_owned_io(
+                    client.backend.execute(
+                        "config.entries.close", watch, client.context
+                    )
+                )
+            except Exception as error:  # noqa: BLE001 - cleanup must preserve the outcome
+                logger.warning(
+                    "Entry-change observation close failed: %s", type(error).__name__
+                )

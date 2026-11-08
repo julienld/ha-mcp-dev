@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-from ha_mcp.tool_api import CallContext, UnsupportedOperation
+from ha_mcp.tool_api import CallContext, ToolFailure, UnsupportedOperation
 from ha_mcp.utils.owned_executor import await_owned_io
 
 
@@ -16,6 +16,7 @@ class RemoteBackend:
         self.client = client
         self.cache_owner = client
         self._flows: Any = None
+        self._closing = False
         self._reload_watches: Any = None
         self._entry_watches: Any = None
 
@@ -131,12 +132,19 @@ class RemoteBackend:
             "config.flow.read",
             "config.flow.abort",
         }:
+            if self._closing:
+                raise ToolFailure(
+                    "BACKEND_STOPPED",
+                    "Remote backend is stopping.",
+                    status="not_started",
+                )
             if self._flows is None:
                 self._flows = RemoteFlows(self.client)
             return await self._flows.execute(operation, arguments, context)
         return await read_flow_operation(self.client, operation, arguments)
 
     async def stop(self) -> None:
+        self._closing = True
         results = await await_owned_io(
             asyncio.gather(
                 *(

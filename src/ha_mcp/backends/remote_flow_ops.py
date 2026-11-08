@@ -11,6 +11,7 @@ from ha_mcp.utils.owned_executor import await_owned_io
 
 _LOGGER = logging.getLogger(__name__)
 _PREFIXES = {"config": "config", "options": "options", "subentry": "config_subentry"}
+_MAX_FLOWS = 32
 
 
 async def read_flow_operation(
@@ -86,8 +87,32 @@ class RemoteFlows:
     def __init__(self, client: Any) -> None:
         self.client = client
         self.owned: dict[str, tuple[str, str | None, str]] = {}
+        self._starting = 0
+        self._active = 0
+        self._idle = asyncio.Event()
+        self._idle.set()
+        self._closing = False
+        self._stop_task: asyncio.Task[None] | None = None
 
     async def execute(
+        self, operation: str, arguments: dict[str, Any], context: CallContext
+    ) -> dict[str, Any]:
+        if self._closing:
+            raise ToolFailure(
+                "BACKEND_STOPPED",
+                "Configuration flow owner is stopping.",
+                status="not_started",
+            )
+        self._active += 1
+        self._idle.clear()
+        try:
+            return await await_owned_io(self._execute(operation, arguments, context))
+        finally:
+            self._active -= 1
+            if not self._active:
+                self._idle.set()
+
+    async def _execute(
         self, operation: str, arguments: dict[str, Any], context: CallContext
     ) -> dict[str, Any]:
         if context.read_only:
@@ -97,37 +122,46 @@ class RemoteFlows:
                 status="not_started",
             )
         if operation == "config.flow.start":
-            if len(self.owned) >= 32:
+            if len(self.owned) + self._starting >= _MAX_FLOWS:
                 raise ToolFailure(
                     "FLOW_LIMIT",
                     "Too many active configuration flows.",
                     status="not_started",
                 )
-            kind = arguments.get("kind", "config")
-            expected = arguments.get("expected_modified_at")
-            if expected is not None:
-                entry_id = (
-                    arguments["handler"]
-                    if kind == "options"
-                    else arguments["handler"][0]
-                    if kind == "subentry"
-                    else arguments.get("entry_id")
-                )
-                if entry_id is None:
-                    raise UnsupportedOperation(
-                        "config.flow.expected_revision_requires_entry"
-                    )
-                current = await self.client.get_config_entry(entry_id)
-                if current.get("modified_at") != expected:
-                    raise ToolFailure(
-                        "CONFIG_CONFLICT",
-                        "The config entry changed after its snapshot was read.",
-                        status="not_started",
-                    )
-            result: dict[str, Any] = await self._start(kind, arguments)
-            self._record(result, kind, context)
-            return result
+            self._starting += 1
+            try:
+                return await self._open(arguments, context)
+            finally:
+                self._starting -= 1
         return await self._continue(operation, arguments, context)
+
+    async def _open(
+        self, arguments: dict[str, Any], context: CallContext
+    ) -> dict[str, Any]:
+        kind = arguments.get("kind", "config")
+        expected = arguments.get("expected_modified_at")
+        if expected is not None:
+            entry_id = (
+                arguments["handler"]
+                if kind == "options"
+                else arguments["handler"][0]
+                if kind == "subentry"
+                else arguments.get("entry_id")
+            )
+            if entry_id is None:
+                raise UnsupportedOperation(
+                    "config.flow.expected_revision_requires_entry"
+                )
+            current = await self.client.get_config_entry(entry_id)
+            if current.get("modified_at") != expected:
+                raise ToolFailure(
+                    "CONFIG_CONFLICT",
+                    "The config entry changed after its snapshot was read.",
+                    status="not_started",
+                )
+        result: dict[str, Any] = await self._start(kind, arguments)
+        self._record(result, kind, context)
+        return result
 
     async def _continue(
         self, operation: str, arguments: dict[str, Any], context: CallContext
@@ -165,6 +199,13 @@ class RemoteFlows:
         return result
 
     async def stop(self) -> None:
+        if self._stop_task is None:
+            self._closing = True
+            self._stop_task = asyncio.create_task(self._close_owned())
+        await await_owned_io(self._stop_task)
+
+    async def _close_owned(self) -> None:
+        await self._idle.wait()
         owned = list(self.owned.items())
         # Forget issued aborts before yielding so repeated shutdown cannot replay them.
         self.owned.clear()

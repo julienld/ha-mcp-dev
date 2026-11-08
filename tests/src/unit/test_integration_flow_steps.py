@@ -535,6 +535,64 @@ async def test_a_server_error_on_re_reading_a_setup_flow_is_not_reported_as_appl
 # --- settle -------------------------------------------------------------------
 
 
+@pytest.mark.parametrize("continued", [False, True], ids=["start", "submit"])
+@pytest.mark.parametrize(
+    "target,terminal",
+    [
+        (SETUP, {"type": "abort", "reason": "already_configured"}),
+        (SETUP, {"type": "external", "step_id": "auth"}),
+        (RECONFIGURE, CREATED),
+        (SETUP, {"type": "abort", "reason": "reauth_successful"}),
+    ],
+    ids=["abort", "external", "reconfigure-created", "setup-updated"],
+)
+async def test_refused_terminal_flow_does_not_retain_its_open_binding(
+    opened_flows, target, terminal, continued
+):
+    client = _client(_request=AsyncMock(return_value=_form("user", _field("host"))))
+    client.submit_config_flow_step.return_value = terminal
+    with pytest.raises(ToolError):
+        await _drive(
+            client,
+            target,
+            flow_id="f1" if continued else None,
+            config={"host": "h"} if continued else None,
+            start=_start({"flow_id": "f1", **terminal}),
+        )
+    assert "f1" not in opened_flows
+
+
+async def test_timed_out_progress_keeps_its_binding_for_continuation(
+    opened_flows, monkeypatch
+):
+    wait = AsyncMock(side_effect=ToolFailure("TIMEOUT", "Flow remains open"))
+    monkeypatch.setattr(
+        integration_flow_steps,
+        "_wait_for_progress",
+        wait,
+    )
+    with pytest.raises(ToolError):
+        await _drive(
+            client=_client(), start=_start({"flow_id": "f1", "type": "progress"})
+        )
+    wait.assert_awaited_once()
+    assert opened_flows == {"f1": SETUP.anchor}
+
+
+@pytest.mark.parametrize("status", [500, 404], ids=["uncertain", "already-gone"])
+async def test_external_abort_retains_only_a_possibly_open_binding(
+    opened_flows, status
+):
+    client = _client(
+        abort_config_flow=AsyncMock(
+            side_effect=HomeAssistantAPIError("abort failed", status_code=status)
+        )
+    )
+    with pytest.raises(ToolError):
+        await _drive(client, start=_start({"flow_id": "f1", "type": "external"}))
+    assert opened_flows == ({"f1": SETUP.anchor} if status == 500 else {})
+
+
 async def test_an_external_step_is_refused_and_its_flow_aborted():
     client = _client()
     with pytest.raises(ToolError) as exc_info:

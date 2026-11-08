@@ -19,6 +19,7 @@ from __future__ import annotations
 import contextlib
 import logging
 from dataclasses import dataclass
+from functools import partial
 from typing import Any, NoReturn, cast
 
 from ha_mcp.errors import ErrorCode, HomeAssistantAPIError, create_error_response
@@ -311,6 +312,17 @@ async def abort_step_flow(
     }
 
 
+async def _abort_opened_flow(client: Any, target: FlowTarget, flow_id: str) -> None:
+    try:
+        await target.abort_fn(client)(flow_id)
+    except HomeAssistantAPIError as error:
+        if error.status_code == 404:
+            _opened_flows.pop(flow_id, None)
+        raise
+    else:
+        _opened_flows.pop(flow_id, None)
+
+
 async def settle(
     client: Any, target: FlowTarget, flow_id: str, step: dict[str, Any]
 ) -> dict[str, Any]:
@@ -330,16 +342,20 @@ async def settle(
     step_type = step.get("type")
     # A reconfigure flow commits only on its success abort: nothing was applied.
     failed = {"status": ReconfigureStatus.APPLY_FAILED} if is_reconfigure else {}
+    if step_type in ("abort", "create_entry"):
+        _opened_flows.pop(flow_id, None)
     if step_type in EXTERNAL_STEP_TYPES:
         await shielded_abort(
-            target.abort_fn(client), flow_id, failure="abort of an external step"
+            partial(_abort_opened_flow, client, target),
+            flow_id,
+            failure="abort of an external step",
         )
         raise_tool_error(
             create_error_response(
                 ErrorCode.SERVICE_CALL_FAILED,
                 f"The flow reached an {step_type!r} step (browser or OAuth "
                 "authorization), which an MCP client cannot complete; the flow "
-                "was aborted",
+                "was refused and an abort was requested",
                 suggestions=[
                     "Complete this flow in the Home Assistant UI "
                     "(Settings > Devices & Services)."
