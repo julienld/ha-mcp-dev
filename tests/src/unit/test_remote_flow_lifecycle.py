@@ -106,7 +106,7 @@ async def test_shutdown_drains_admitted_flow_operations_before_cleanup(operation
 
 
 @pytest.mark.parametrize("operation", ["config.flow.start", "config.flow.abort"])
-async def test_cancelled_flow_io_finishes_before_shutdown_without_abort_replay(
+async def test_cancelled_remote_flow_request_propagates_without_replay(
     operation,
 ):
     entered, release = asyncio.Event(), asyncio.Event()
@@ -127,7 +127,6 @@ async def test_cancelled_flow_io_finishes_before_shutdown_without_abort_replay(
     task = asyncio.create_task(
         backend.execute(operation, {"handler": "demo", "flow_id": "owned"}, actor)
     )
-    stop = None
     try:
         async with asyncio.timeout(2):
             await entered.wait()
@@ -135,18 +134,17 @@ async def test_cancelled_flow_io_finishes_before_shutdown_without_abort_replay(
             await asyncio.sleep(0)
             task.cancel()
             await asyncio.sleep(0)
-            assert not task.done()
-            stop = asyncio.create_task(backend.stop())
-            await asyncio.sleep(0)
-            assert not stop.done()
-            release.set()
+            assert task.done()
             with pytest.raises(asyncio.CancelledError):
-                await task
-            await stop
+                await asyncio.gather(task)
+            await backend.stop()
+            await backend.stop()
         assert not backend.owned
-        client.abort_config_flow.assert_awaited_once_with("owned")
+        if operation == "config.flow.abort":
+            client.abort_config_flow.assert_awaited_once_with("owned")
+        else:
+            client.start_config_flow.assert_awaited_once_with("demo")
+            client.abort_config_flow.assert_not_awaited()
     finally:
         release.set()
-        await asyncio.gather(
-            *(item for item in [task, stop] if item is not None), return_exceptions=True
-        )
+        await asyncio.gather(task, return_exceptions=True)

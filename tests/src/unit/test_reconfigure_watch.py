@@ -72,7 +72,7 @@ async def test_cancelled_watch_close_finishes_owned_io_before_propagating():
             assert not task.done() and not finished.is_set()
             release.set()
             with pytest.raises(asyncio.CancelledError):
-                await task
+                await asyncio.gather(task)
             assert finished.is_set()
     finally:
         release.set()

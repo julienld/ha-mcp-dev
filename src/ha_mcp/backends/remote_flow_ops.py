@@ -106,7 +106,9 @@ class RemoteFlows:
         self._active += 1
         self._idle.clear()
         try:
-            return await await_owned_io(self._execute(operation, arguments, context))
+            # Network requests stay cancellable, including bounded probe aborts.
+            # Shutdown waits for admitted calls to finish or unwind below.
+            return await self._execute(operation, arguments, context)
         finally:
             self._active -= 1
             if not self._active:
