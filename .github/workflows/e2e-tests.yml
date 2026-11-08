@@ -9,6 +9,7 @@ on:
         - stable
         - stable-blocked
         - client
+        - client-stable
         default: dev
       product_sha:
         type: string
@@ -65,7 +66,7 @@ jobs:
       if: ${{ inputs.install_ha }}
       run: uv run -s tooling/.qa/prepare_ha.py --input qa-simple-zip-result.json --output "$RUNNER_TEMP/simple-zip-ha"
     - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      if: ${{ inputs.install_ha || inputs.phase == 'client' }}
+      if: ${{ inputs.install_ha || startsWith(inputs.phase, 'client') }}
       with:
         repository: julienld/ha-mcp-simple-release-qa-20261108
         ref: ${{ steps.release.outputs.source_tag }}
@@ -74,7 +75,7 @@ jobs:
         submodules: true
         persist-credentials: false
     - name: Install existing test dependencies
-      if: ${{ inputs.install_ha || inputs.phase == 'client' }}
+      if: ${{ inputs.install_ha || startsWith(inputs.phase, 'client') }}
       working-directory: source
       run: uv sync --all-extras --dev
     - name: Pull the actual Core image
@@ -100,17 +101,17 @@ jobs:
       env:
         QA_HA_OUTCOME: ${{ steps.ha.outcome }}
     - name: Install isolated UI test driver
-      if: ${{ inputs.phase == 'client' }}
+      if: ${{ startsWith(inputs.phase, 'client') }}
       working-directory: source
       run: uv pip install --python .venv/bin/python playwright==1.56.0
     - name: Pull the client compatibility Core
-      if: ${{ inputs.phase == 'client' }}
+      if: ${{ startsWith(inputs.phase, 'client') }}
       run: docker pull "ghcr.io/home-assistant/home-assistant:$CORE"
       env:
         CORE: ${{ inputs.client_core }}
     - name: Observe the actual installer UI
       id: client
-      if: ${{ inputs.phase == 'client' }}
+      if: ${{ startsWith(inputs.phase, 'client') }}
       working-directory: source/tests
       run: uv run --no-sync pytest "$GITHUB_WORKSPACE/tooling/.qa/test_client_selection.py" -o addopts= -o log_cli=false --timeout-method=thread
         --tb=short -q
@@ -121,7 +122,7 @@ jobs:
         QA_CLIENT_REPO: ${{ inputs.client_repo }}
         QA_CLIENT_OUTPUT: ${{ runner.temp }}/simple-zip-client
     - name: Report client exploration
-      if: ${{ always() && inputs.phase == 'client' && steps.release.outcome == 'success' }}
+      if: ${{ always() && startsWith(inputs.phase, 'client') && steps.release.outcome == 'success' }}
       run: uv run -s tooling/.qa/report_client.py
       env:
         QA_CLIENT_OUTCOME: ${{ steps.client.outcome }}

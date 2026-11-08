@@ -234,7 +234,9 @@ def verify_once(phase: str, product: str, producer: str) -> dict | None:
 
 
 def verify_blocked_once(product: str, producer: str) -> dict | None:
-    assert contents(SOURCE, ".qa/product-origin.json", producer)["product_sha"] == product
+    assert (
+        contents(SOURCE, ".qa/product-origin.json", producer)["product_sha"] == product
+    )
     runs = api(SOURCE, "actions/workflows/release-publish.yml/runs?per_page=20")
     for run in runs["workflow_runs"]:
         if run["head_sha"] != producer or run["status"] != "completed":
@@ -284,9 +286,29 @@ def verify_blocked_once(product: str, producer: str) -> dict | None:
     return None
 
 
+def client_stable_reference(product: str) -> dict:
+    tag = "v9.2.0"
+    assert release(SOURCE, tag) and release(MIRROR, tag)
+    assert contents(SOURCE, ".qa/product-origin.json", tag)["product_sha"] == product
+    ref = api(SOURCE, "git/ref/tags/" + tag)["object"]
+    if ref["type"] == "tag":
+        ref = api(SOURCE, "git/tags/" + ref["sha"])["object"]
+    return {
+        "passed": True,
+        "phase": "client-stable",
+        "product_sha": product,
+        "source_tag": tag,
+        "mirror_tag": tag,
+        "source_commit": ref["sha"],
+        "version": "9.2.0",
+    }
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("phase", choices=("dev", "stable", "stable-blocked"))
+    parser.add_argument(
+        "phase", choices=("dev", "stable", "stable-blocked", "client-stable")
+    )
     parser.add_argument("--product-sha", required=True)
     parser.add_argument("--producer-sha", required=True)
     parser.add_argument("--pr", type=int, default=14)
@@ -307,7 +329,9 @@ def main() -> None:
         while time.monotonic() < deadline:
             try:
                 value = (
-                    verify_blocked_once(args.product_sha, args.producer_sha)
+                    client_stable_reference(args.product_sha)
+                    if args.phase == "client-stable"
+                    else verify_blocked_once(args.product_sha, args.producer_sha)
                     if args.phase == "stable-blocked"
                     else verify_once(args.phase, args.product_sha, args.producer_sha)
                 )
@@ -351,7 +375,11 @@ def main() -> None:
             FORK,
             f"issues/{args.pr}/comments",
             {
-                "body": f"[Agent] Simple ZIP real {args.phase} workflow chain: **{state}**. Tested `{args.product_sha}`. [Run and receipts]({url}). QA Python index/images; no production PyPI or MCP publication.",
+                "body": (
+                    f"[Agent] Client setup against the existing stable QA reference: **{state}**. Installer assertions are reported separately. [Run]({url})."
+                    if args.phase == "client-stable"
+                    else f"[Agent] Simple ZIP real {args.phase} workflow chain: **{state}**. Tested `{args.product_sha}`. [Run and receipts]({url}). QA Python index/images; no production PyPI or MCP publication."
+                ),
             },
         )
 
