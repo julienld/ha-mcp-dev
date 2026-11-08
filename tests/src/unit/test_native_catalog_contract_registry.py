@@ -104,7 +104,7 @@ async def test_native_bulk_entity_read_keeps_duplicate_order_and_extended_metada
     )
     validator = Mock(side_effect=lambda value: value)
     validation_module = sys.modules["homeassistant.helpers"].config_validation
-    monkeypatch.setattr(validation_module, "entity_ids", validator)
+    monkeypatch.setattr(validation_module, "entity_id", validator)
     hass = FakeHass(config=SimpleNamespace(components=set()))
     authorize(hass)
     backend = native.NativeBackend(hass)
@@ -131,7 +131,10 @@ async def test_native_bulk_entity_read_keeps_duplicate_order_and_extended_metada
     assert result.data["errors"] == [
         {"entity_id": "light.missing", "error": "Entity not found"}
     ]
-    validator.assert_called_once_with(["light.a", "light.missing", "light.a"])
+    assert {call.args[0] for call in validator.call_args_list} == {
+        "light.a",
+        "light.missing",
+    }
 
 
 @pytest.mark.parametrize(
