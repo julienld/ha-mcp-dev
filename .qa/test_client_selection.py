@@ -10,6 +10,7 @@ import re
 import shutil
 import sys
 import tempfile
+import time
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -105,6 +106,19 @@ def test_client_selection() -> None:
             headers={"Authorization": "Bearer " + TEST_TOKEN},
             timeout=20,
         ).json()["version"]
+        deadline = time.monotonic() + 180
+        while True:
+            api_config = requests.get(
+                base + "/api/config",
+                headers={"Authorization": "Bearer " + TEST_TOKEN},
+                timeout=20,
+            ).json()
+            if domain in api_config["components"]:
+                break
+            if time.monotonic() >= deadline:
+                result["loaded_components"] = api_config["components"]
+                raise AssertionError(f"{domain} never completed HA setup")
+            time.sleep(2)
         playwright = sync_playwright().start()
         if playwright is not None:
             executable = shutil.which("google-chrome") or shutil.which(
