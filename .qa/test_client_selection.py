@@ -17,7 +17,6 @@ from types import SimpleNamespace
 
 import requests
 import verify
-import yaml
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import expect, sync_playwright
 from testcontainers.core.container import DockerContainer
@@ -76,14 +75,6 @@ def test_client_selection() -> None:
     ):
         (config / name).unlink(missing_ok=True)
     assert not (config / "custom_components/ha_mcp_tools").exists()
-    configuration_file = config / "configuration.yaml"
-    configuration = configuration_file.read_text()
-    assert all(key.value != "logger" for key, _ in yaml.compose(configuration).value)
-    configuration_file.write_text(
-        configuration
-        + "\nlogger:\n  default: warning\n  logs:\n    custom_components.hacs: debug\n",
-        encoding="utf-8",
-    )
     repository = verify.SOURCE if args.repo == "source" else verify.MIRROR
     domain = "hacs" if args.core == "2026.8.0" else "marketplace"
     result = {
