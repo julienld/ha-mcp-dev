@@ -89,7 +89,7 @@ async def _edit_file(
             if isinstance(error, PermissionError)
             else os_error_text(error, path)
         )
-        raise_failure(
+        return raise_failure(
             create_error_response(
                 ErrorCode.SERVICE_CALL_FAILED, message, context={"path": path}
             ),

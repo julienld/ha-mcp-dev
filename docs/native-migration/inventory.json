@@ -2843,24 +2843,24 @@
       ],
       "client_call_candidates": [
         {
-          "line": 98,
+          "line": 93,
           "call": "client.get_services",
           "wire_literals": []
         },
         {
-          "line": 142,
+          "line": 137,
           "call": "get_websocket_client",
           "wire_literals": []
         },
         {
-          "line": 190,
+          "line": 185,
           "call": "client.send_websocket_message",
           "wire_literals": [
             "frontend/get_translations"
           ]
         },
         {
-          "line": 238,
+          "line": 233,
           "call": "client.get_config",
           "wire_literals": []
         }

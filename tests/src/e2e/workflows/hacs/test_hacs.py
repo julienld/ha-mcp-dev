@@ -312,10 +312,10 @@ class TestHacsSearch:
             "Category filter should be lovelace"
         )
 
-        # Search presents the established user-facing category on both stores.
+        # The input alias does not rename the provider's category in returned rows.
         for result_item in data["results"]:
-            assert result_item["category"] == "lovelace", (
-                "Result category should be lovelace"
+            assert result_item["category"] == "plugin", (
+                "Result category should retain the store's plugin value"
             )
 
         logger.info(f"Search 'card' in lovelace: {data['total_matches']} matches")

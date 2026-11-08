@@ -14,6 +14,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from ha_mcp.tools.hacs_backend import HACS_API
+
 # Arbitrary repo slug for the waiter to watch; the value itself is not
 # meaningful to the helper (any owner/repo string works).
 WATCHED_REPO = "homeassistant-ai/ha-mcp-integration"
@@ -490,7 +492,9 @@ class TestResolveHacsRepoIdUsesWait:
         ws_client = MagicMock()
         ws_client.subscribe_command = AsyncMock()  # must not be called
 
-        numeric_id, display_name = await _resolve_hacs_repo_id(ws_client, "441028036")
+        numeric_id, display_name = await _resolve_hacs_repo_id(
+            ws_client, HACS_API, "441028036"
+        )
 
         assert numeric_id == "441028036"
         assert display_name == "441028036"
@@ -519,7 +523,7 @@ class TestResolveHacsRepoIdUsesWait:
         ws_client.unsubscribe_command = AsyncMock()
 
         numeric_id, display_name = await _resolve_hacs_repo_id(
-            ws_client, "piitaya/lovelace-mushroom"
+            ws_client, HACS_API, "piitaya/lovelace-mushroom"
         )
 
         assert numeric_id == "12345"

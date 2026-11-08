@@ -4,10 +4,12 @@ import itertools
 import json
 import logging
 import os
+import ssl
 import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -506,7 +508,14 @@ def _bringup_haos_out_of_process_server(
     return addon_mcp_url, embedded_webhook_url
 
 
-def _dump_haos_session_logs(base_url: str, token: str, inaddon: bool) -> None:
+def _dump_haos_session_logs(
+    base_url: str,
+    token: str,
+    inaddon: bool,
+    *,
+    verify_ssl: bool = True,
+    extra_apps: tuple[str, ...] = (),
+) -> None:
     """Pull HA Core + Supervisor (+ addon) logs before QEMU shutdown."""
     # Pull HA Core's runtime log + Supervisor's own log via the
     # Supervisor /core/logs and /supervisor/logs endpoints before
@@ -564,6 +573,17 @@ def _dump_haos_session_logs(base_url: str, token: str, inaddon: bool) -> None:
             f"{HA_MCP_WEBHOOK_PROXY_ADDON_SLUG}/logs?lines=20000",
         ),
     )
+    for index, slug in enumerate(extra_apps):
+        log_endpoints.append(
+            (
+                f"app-{index}-runtime.log",
+                f"{base_url}/api/hassio/addons/{urllib.parse.quote(slug, safe='')}/logs?lines=20000",
+            )
+        )
+    # Only the disposable TLS scenario opts out for its staged self-signed cert.
+    tls_options = (
+        {"context": ssl._create_unverified_context()} if not verify_ssl else {}
+    )
     # Narrow except: any non-network error (NameError, KeyError
     # from a future refactor) should propagate instead of being
     # misreported as "Failed to dump". Per-endpoint network
@@ -574,7 +594,7 @@ def _dump_haos_session_logs(base_url: str, token: str, inaddon: bool) -> None:
                 url,
                 headers={"Authorization": f"Bearer {token}"},
             )
-            with urllib.request.urlopen(req, timeout=60) as resp:
+            with urllib.request.urlopen(req, timeout=60, **tls_options) as resp:
                 (log_dest / name).write_bytes(resp.read())
             logger.info("Dumped %s via supervisor", name)
         except (

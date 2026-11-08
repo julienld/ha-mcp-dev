@@ -442,24 +442,6 @@ def _process_service_fields(
     return processed
 
 
-_SIMPLE_SELECTOR_TYPES: dict[str, str] = {
-    "boolean": "boolean",
-    "text": "text",
-    "target": "target (entity/area/device)",
-    "time": "time",
-    "date": "date",
-    "datetime": "datetime",
-    "color_temp": "color_temp_kelvin",
-    "color_temp_kelvin": "color_temp_kelvin",
-    "color_rgb": "color_rgb",
-    "object": "object",
-    "template": "template",
-    "area": "area",
-    "device": "device",
-    "duration": "duration",
-}
-
-
 def _translation(translations: Mapping[str, Any], key: str) -> str | None:
     """Return a flat translation string, or None when Core has no entry."""
     value = translations.get(key)

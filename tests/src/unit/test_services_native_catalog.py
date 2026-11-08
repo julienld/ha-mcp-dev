@@ -18,8 +18,8 @@ from typing import Any
 import pytest
 
 from ha_mcp.client.rest_client import HomeAssistantAPIError
+from ha_mcp.runtime.services import _process_services
 from ha_mcp.tools import component_api
-from ha_mcp.tools.tools_services import _process_services
 
 from .test_ha_list_services_component_routing import _build_list_services
 

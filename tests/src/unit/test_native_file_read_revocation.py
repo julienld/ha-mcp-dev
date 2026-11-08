@@ -19,8 +19,8 @@ async def test_native_read_rechecks_the_path_permission_after_io(
     owner.hass.data["ha_mcp_tools"]["allowed_paths"] = ["extra"]
     read = module._read_file_sync
 
-    def revoke(path):
-        result = read(path)
+    def revoke(path, keep_line_endings=False):
+        result = read(path, keep_line_endings)
         owner.hass.data["ha_mcp_tools"]["allowed_paths"] = []
         return result
 

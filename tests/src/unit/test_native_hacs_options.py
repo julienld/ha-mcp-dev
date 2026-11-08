@@ -64,7 +64,7 @@ async def test_release_failure_is_warning_beside_cached_repository(release_reads
     )
     result = await call(release_reads, "info", repository_id="1", include_releases=True)
     assert not result.is_error, result.data
-    assert result.data["data"]["data"]["id"] == "1"
+    assert result.data["data"]["id"] == "1"
     assert "GitHub unavailable" in " ".join(result.data["warnings"])
     assert "warnings" not in result.data["data"]
 

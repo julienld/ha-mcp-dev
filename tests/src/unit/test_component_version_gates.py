@@ -9,8 +9,8 @@ from ha_mcp.tools.tools_filesystem import (
     MIN_COMPONENT_VERSION,
     _assert_caps_version_ok,
     _fetch_caller_token,
-    assert_extra_yaml_keys_supported,
 )
+from ha_mcp.tools.yaml_extra_keys import assert_extra_yaml_keys_supported
 
 from .test_caller_token_auth import _make_client_with_token
 from .test_caller_token_auth import (

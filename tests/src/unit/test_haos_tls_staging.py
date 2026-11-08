@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import json
 import ssl
+import sys
+from types import SimpleNamespace
 from typing import Any
+from unittest.mock import Mock
 
 import pytest
 from websockets.datastructures import Headers
@@ -12,6 +15,118 @@ from websockets.exceptions import InvalidStatus, InvalidURI
 from websockets.http11 import Response
 
 from tests.src import haos_runtime
+
+
+async def test_tls_scenario_never_uses_mcp_while_core_is_still_starting(monkeypatch):
+    monkeypatch.setitem(sys.modules, "haos_runtime", haos_runtime)
+    from tests.src.e2e.haos_only import test_zz_manage_app_tls as scenario
+
+    monkeypatch.setattr(scenario, "_require_tls_ca_path", lambda: "fixture-ca")
+    monkeypatch.setattr(
+        scenario,
+        "get_home_assistant_http_config",
+        lambda *args, **kwargs: {
+            "stable": {"server_port": 8123},
+            "pending": None,
+            "active_config_type": "stable",
+        },
+    )
+    monkeypatch.setattr(
+        scenario, "configure_home_assistant_http", lambda *args, **kwargs: True
+    )
+    monkeypatch.setattr(scenario, "_wait_http_ok", lambda *args, **kwargs: None)
+    monkeypatch.setattr(
+        scenario, "_wait_for_embedded_webhook_ready", lambda *args, **kwargs: True
+    )
+    monkeypatch.setattr(
+        scenario, "promote_home_assistant_http_config", lambda *args, **kwargs: None
+    )
+    monkeypatch.setattr(scenario, "_dump_haos_session_logs", Mock(), raising=False)
+
+    def readiness(origin, *args, **kwargs):
+        # Cleanup can restore HTTP, but a live HTTPS listener and MCP webhook
+        # do not establish that Core completed its initial TLS restart.
+        return (
+            (False, 0, "STARTING", 0, 0, True, "")
+            if origin.startswith("https:")
+            else (True, 0, "RUNNING", 0, 0, True, "")
+        )
+
+    monkeypatch.setattr(
+        scenario, "_wait_for_core_state_running", readiness, raising=False
+    )
+    client = Mock(side_effect=AssertionError("MCP used before Core finished starting"))
+    monkeypatch.setattr(scenario, "Client", client)
+    with pytest.raises(
+        AssertionError, match="Core did not finish its TLS restart: STARTING"
+    ):
+        await scenario.test_manage_app_reproduces_legacy_tls_failure_then_uses_fix(
+            {
+                "backend": "haos_embedded",
+                "base_url": "http://127.0.0.1:18123",
+                "token": "fixture-token",
+            },
+            monkeypatch,
+        )
+    client.assert_not_called()
+
+
+def test_core_readiness_waits_for_running_over_the_staged_tls_endpoint(monkeypatch):
+    from tests.src.e2e import _conftest_readiness as readiness
+
+    clock = _FakeClock()
+    monkeypatch.setattr(readiness, "time", clock)
+    states = iter(["STARTING", "RUNNING"])
+    requests = []
+
+    def get(url, **kwargs):
+        requests.append((url, kwargs))
+        data = {"state": next(states)} if url.endswith("/api/core/state") else []
+        return SimpleNamespace(status_code=200, json=lambda: data)
+
+    monkeypatch.setattr(readiness.requests, "get", get)
+    result = readiness._wait_for_core_state_running(
+        "https://127.0.0.1:18123",
+        {"Authorization": "Bearer fixture-token"},
+        30,
+        verify_ssl=False,
+    )
+    assert result[0] is True and result[2] == "RUNNING"
+    assert clock.sleeps == [1]
+    assert len(requests) == 3
+    assert all(options.get("verify", True) is False for _url, options in requests)
+
+
+def test_tls_diagnostics_retain_the_actual_worker_and_requested_app_logs(
+    tmp_path, monkeypatch
+):
+    import io
+
+    from tests.src.e2e import _conftest_haos as haos
+
+    monkeypatch.setenv("PYTEST_XDIST_WORKER", "gw0")
+    monkeypatch.setattr(haos, "Path", lambda _path: tmp_path)
+    requests = []
+
+    def urlopen(request, **kwargs):
+        requests.append((request.full_url, kwargs))
+        return io.BytesIO(b"disposable runtime log")
+
+    monkeypatch.setattr(haos.urllib.request, "urlopen", urlopen)
+    haos._dump_haos_session_logs(
+        "https://127.0.0.1:18123",
+        "fixture-token",
+        False,
+        verify_ssl=False,
+        extra_apps=("fixture_nodered",),
+    )
+    assert any("/addons/fixture_nodered/logs" in url for url, _kwargs in requests)
+    assert all(
+        kwargs["context"].verify_mode == ssl.CERT_NONE for _url, kwargs in requests
+    )
+    assert (
+        tmp_path / "gw0" / "app-0-runtime.log"
+    ).read_bytes() == b"disposable runtime log"
 
 
 def test_build_home_assistant_tls_config_preserves_runtime_settings() -> None:

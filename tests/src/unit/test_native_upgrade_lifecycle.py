@@ -155,16 +155,19 @@ def test_running_manager_does_not_imply_ready_webhook_and_authentication(
     )
     cfg = {"webhook_id": "w", "auth_mode": mode}
     hass = SimpleNamespace(
+        is_running=False,
         data={
             "ha_mcp_tools": {"webhook": cfg},
             "webhook": {"w": {"domain": "ha_mcp_tools"}},
-        }
+        },
     )
     assert not endpoint_ready(hass, entry)
     entry.state = "loaded"
     if provider:
         assert not endpoint_ready(hass, entry)
         cfg[provider] = object()
+    assert not endpoint_ready(hass, entry)
+    hass.is_running = True
     assert endpoint_ready(hass, entry)
     hass.data["webhook"].clear()
     assert not endpoint_ready(hass, entry)

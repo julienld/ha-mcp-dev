@@ -14,10 +14,15 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from custom_components.ha_mcp_tools import store_records
-from custom_components.ha_mcp_tools.const import DOMAIN, ISSUE_STORE_RECORDS_CONFLICT
+from ._embedded_stubs import install
 
-from . import _embedded_stubs  # noqa: F401 -- install Core import fixtures before the component
+install()
+
+from custom_components.ha_mcp_tools import store_records  # noqa: E402 -- Core fixtures must exist before importing the component
+from custom_components.ha_mcp_tools.const import (  # noqa: E402
+    DOMAIN,
+    ISSUE_STORE_RECORDS_CONFLICT,
+)
 
 
 def _repository(full_name, installed):

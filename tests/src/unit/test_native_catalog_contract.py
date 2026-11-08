@@ -336,7 +336,7 @@ def test_native_migration_keeps_preexisting_mcp_call_contracts(
     )
     changes = {}
     shared = _shared_annotation_overrides()
-    assert set(shared) == {"ha_remove_todo_item"}
+    assert set(shared) == {"ha_remove_todo_item", "ha_write_file"}
     for old in baseline["tools"]:
         name = old["name"]
         if name not in registered:
@@ -404,6 +404,7 @@ def test_native_engine_advertises_the_existing_contract_of_each_migrated_tool() 
     )
     assert set(overrides) == {
         "ha_remove_todo_item",
+        "ha_write_file",
         "ha_config_list_helpers",
         "ha_get_integration",
         "ha_config_list_dashboard_resources",
