@@ -130,7 +130,32 @@ def _legacy_schema(schema: Any) -> dict[str, Any]:
         # Arbitrary Python predicates are opaque. Do not infer their validation
         # from annotations (which may describe a TypedDict with extra fields).
         if inspect.isroutine(node):
-            return {}
+            from homeassistant.helpers import config_validation as cv
+
+            described = cv.custom_serializer(node)
+            if isinstance(described, dict):
+                kind = described.get("type")
+                if (
+                    set(described) == {"type"}
+                    and isinstance(kind, str)
+                    and kind
+                    in {
+                        "string",
+                        "boolean",
+                        "integer",
+                        "number",
+                        "array",
+                        "object",
+                        "null",
+                    }
+                ):
+                    return {"type": kind}
+                raise ValueError(
+                    "Core field-list description needs field serialization"
+                )
+            # The codec otherwise inserts a default string type for an empty
+            # property schema; allOf keeps this genuinely unconstrained.
+            return {"allOf": [{}]}
         return _OPENAPI_UNSUPPORTED
 
     def convert(node: Any) -> dict[str, Any]:

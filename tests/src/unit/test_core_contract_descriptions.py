@@ -118,6 +118,47 @@ def test_legacy_history_description_keeps_fields_and_defaults_with_honest_warnin
     assert result["description_complete"] is False and result["warnings"]
 
 
+@pytest.mark.parametrize(
+    "field_type", ["string", "boolean", "positive_time_period_dict", "opaque"]
+)
+def test_legacy_core_routine_descriptions_keep_their_serialization_dialect(
+    legacy_contract, monkeypatch, field_type
+):
+    from homeassistant.helpers import config_validation as cv
+
+    def routine(_value):
+        raise AssertionError("Describing a schema must not invoke its validators")
+
+    monkeypatch.setattr(
+        cv,
+        "custom_serializer",
+        lambda node: (
+            {"type": field_type}
+            if node is routine and field_type != "opaque"
+            else object()
+        ),
+    )
+    schema = vol.Schema({vol.Required("value"): routine})
+    field_list = [{"name": "value", "type": field_type, "required": True}]
+    fallback = Mock(return_value=field_list)
+    monkeypatch.setattr(legacy_contract, "_convert", fallback)
+    hass = FakeHass()
+    hass.data["websocket_api"] = {"demo/describe": (Mock(), schema)}
+    result = legacy_contract.integration_commands(hass, {"domain": "demo"})
+    description = result["commands"][0]
+    if field_type in {"string", "boolean"}:
+        assert description["schema"]["properties"]["value"]["type"] == field_type
+        fallback.assert_not_called()
+    elif field_type == "opaque":
+        assert "type" not in description["schema"]["properties"]["value"]
+        fallback.assert_not_called()
+    else:
+        assert "schema" not in description
+        assert description["fields"] == field_list
+        fallback.assert_called_once_with(schema)
+    assert description["description_complete"] is False and description["warnings"]
+
+
 def test_successful_strict_description_has_no_loss_warning(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
