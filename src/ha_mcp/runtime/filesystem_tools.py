@@ -243,13 +243,14 @@ class FilesystemTools:
                     context={"path": path},
                 )
             )
-        return await self.filesystem.write_file(
+        result: dict[str, Any] = await self.filesystem.write_file(
             path=path,
             content=content,
             overwrite=overwrite,
             create_dirs=create_dirs,
             edits=edits,
         )
+        return result
 
     async def ha_delete_file(
         self,
