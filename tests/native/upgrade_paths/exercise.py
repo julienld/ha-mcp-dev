@@ -61,6 +61,8 @@ async def ready(
                     raise UpgradeFailure("installed_artifacts_changed")
                 return proof
         except httpx.TransportError:
+            # Core restarts can briefly refuse these read-only readiness probes.
+            # Retry only this observation until the deadline; never replay MCP writes.
             pass
         await asyncio.sleep(1)
     raise UpgradeFailure("runtime_startup_timeout")
