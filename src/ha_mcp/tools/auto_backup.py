@@ -256,7 +256,7 @@ def automation_backup_target(kw: dict[str, Any]) -> str:
     # doubled domain segment in the snapshot filename
     # ("automation.automation.<slug>.<ts>.yaml") is purely cosmetic and is
     # exactly what the remove path (id_param="entity_id") already produces.
-    return _resolve_str(kw.get("entity_id") or kw.get("identifier"))
+    return _resolve_str(kw.get("entity_id"))
 
 
 def with_auto_backup(
