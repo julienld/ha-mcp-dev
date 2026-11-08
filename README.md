@@ -33,7 +33,7 @@
 
 ## 🚀 Get Started
 
-The recommended way to run ha-mcp is the **HA-MCP — Manage Home Assistant with AI**. Its native runtime uses Home Assistant's existing HTTP server and calls Core directly. The same tools are available through MCP and Home Assistant's LLM API for Assist. Setup selects an administrator owner; it does not require an internal Home Assistant access token or a separate server port.
+The recommended way to run ha-mcp is the **HA-MCP — Manage Home Assistant with AI integration**. On Home Assistant 2026.10+, its Native runtime uses Home Assistant's existing HTTP server and calls Core directly. The same tools are available through MCP and Home Assistant's LLM API for Assist. Native setup selects an administrator owner and requires no internal Home Assistant access token or separate server port. Home Assistant 2026.8 and 2026.9 use the [Legacy runtime and credential setup](docs/in-process-server.md#requirements).
 
 **Add it to Home Assistant via HACS or, on Home Assistant 2026.11+, the Marketplace (the preferred install):**
 
@@ -48,7 +48,7 @@ Existing server entries keep their selected runtime and connection settings when
    Already installed from the earlier `homeassistant-ai/ha-mcp-integration` repository? It keeps receiving the same releases. On the Marketplace, keep GitHub connected for its background checks on that custom repository.
    Older installed releases may still appear as **HA-MCP Custom Component**; searching for **HA-MCP** matches both names.
 2. **Restart Home Assistant.**
-3. Go to **Settings → Devices & Services → Add Integration**, search for **HA-MCP — Manage Home Assistant with AI** and choose **HA-MCP Server**. Select an active administrator as its owner.
+3. Go to **Settings → Devices & Services → Add Integration**, search for **HA-MCP — Manage Home Assistant with AI** and choose **HA-MCP Server**. On Core 2026.10+, select an active administrator as its Native owner.
 4. Choose the access you need: enable MCP access through Home Assistant, the LLM API export for Assist, or both. These are explicit choices; a new entry enables neither automatically.
    On Core 2026.8 and 2026.9, setup creates a [Legacy entry](docs/in-process-server.md#existing-legacy-entries) and asks for administrator credentials (an access token or dedicated-account login); Native owner selection requires Core 2026.10 or newer.
 5. For MCP, copy the connection URL from the entry's **Configure** screen and add it to your client. Home Assistant sign-in and the compatible secret-URL/legacy OAuth modes remain available.

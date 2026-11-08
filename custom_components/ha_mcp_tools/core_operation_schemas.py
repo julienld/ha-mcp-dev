@@ -56,7 +56,7 @@ def registries_parameters(vol: Any) -> dict[Any, Any]:
 def services_list_parameters(vol: Any) -> dict[Any, Any]:
     return {
         vol.Optional("domain"): vol.Any(str, None),
-        vol.Optional("language", default="en"): str,
+        vol.Optional("language"): str,
     }
 
 

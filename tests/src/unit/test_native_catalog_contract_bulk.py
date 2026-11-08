@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from .test_native_catalog_contract import (
     _ANNOTATIONS,
     _changed_inputs,
+    _shared_annotation_overrides,
     _structural_schema,
 )
 from .test_native_engine_backend import native as native
@@ -69,7 +70,11 @@ def test_composed_bulk_keeps_schemas_tags_and_annotations(native: object) -> Non
         assert _structural_schema(old.get("outputSchema")) == _structural_schema(
             definition.output_schema
         )
+        expected_annotations = {
+            **old["annotations"],
+            **_shared_annotation_overrides().get(name, {}).get("annotations", {}),
+        }
         assert {key: definition.annotations.get(key) for key in _ANNOTATIONS} == {
-            key: old["annotations"].get(key) for key in _ANNOTATIONS
+            key: expected_annotations.get(key) for key in _ANNOTATIONS
         }
         assert definition.tags == frozenset(old["_meta"]["fastmcp"]["tags"])

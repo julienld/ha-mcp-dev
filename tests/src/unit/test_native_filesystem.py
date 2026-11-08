@@ -61,10 +61,117 @@ async def test_native_write_captures_exact_text_before_any_change(filesystem):
     assert store.read_snapshot(rows[0]["name"])["config"] == "# untouched\r\nbefore\r\n"
 
 
+async def test_native_edits_keep_exact_bytes_and_capture_before_image(filesystem):
+    service, manager, _owner, target = filesystem
+    target.write_bytes(b"before\r\nsecond\r\n")
+    result = await service.write_file(
+        "www/notes.txt", edits=[{"old": "before", "new": "after"}]
+    )
+    assert result["success"] and result["edits_applied"] == 1
+    assert target.read_bytes() == b"after\r\nsecond\r\n"
+    store = manager.snapshots._store()
+    rows = store.list_snapshots(domain="file")
+    assert len(rows) == 1
+    assert store.read_snapshot(rows[0]["name"])["config"] == "before\r\nsecond\r\n"
+
+
+async def test_native_edit_refusal_preserves_reason_without_writing(filesystem):
+    service, _manager, _owner, target = filesystem
+    with pytest.raises(ToolFailure) as raised:
+        await service.write_file(
+            "www/notes.txt", edits=[{"old": "absent", "new": "after"}]
+        )
+    assert raised.value.status == "not_started"
+    assert raised.value.data["reason"] == "old_not_found"
+    assert target.read_text() == "before"
+
+
+async def test_native_edit_after_effect_failure_is_unknown_without_replay(
+    filesystem, monkeypatch
+):
+    service, _manager, _owner, target = filesystem
+    from custom_components.ha_mcp_tools import file_ops
+
+    calls = []
+
+    def fail_after_effect(path, data):
+        calls.append(path)
+        path.write_bytes(data)
+        raise OSError("lost completion")
+
+    monkeypatch.setattr(file_ops, "_replace_contents", fail_after_effect)
+    with pytest.raises(ToolFailure) as raised:
+        await service.write_file(
+            "www/notes.txt", edits=[{"old": "before", "new": "after"}]
+        )
+    assert raised.value.status == "outcome_unknown"
+    assert target.read_text() == "after" and len(calls) == 1
+
+
+async def test_native_edit_visibility_refusal_precedes_backup_and_write(filesystem):
+    service, manager, _owner, target = filesystem
+    manager.visibility = SimpleNamespace(
+        guard_file_definition=AsyncMock(
+            side_effect=ToolFailure(
+                "ENTITY_VISIBILITY_ENFORCED", "hidden", status="not_started"
+            )
+        )
+    )
+    with pytest.raises(ToolFailure, match="hidden"):
+        await service.write_file(
+            "www/notes.txt", edits=[{"old": "before", "new": "after"}]
+        )
+    assert target.read_text() == "before"
+    assert manager.snapshots._store().list_snapshots(domain="file") == []
+
+
+@pytest.mark.parametrize("point", ["before", "after"])
+async def test_native_edit_io_failure_keeps_dispatch_boundary(
+    filesystem, monkeypatch, point
+):
+    service, _manager, _owner, target = filesystem
+    from custom_components.ha_mcp_tools import file_edit_access
+
+    def fail(path, _edits, _volume, **kwargs):
+        if point == "after":
+            kwargs["before_commit"]()
+            path.write_text("after")
+        raise PermissionError("refused I/O")
+
+    monkeypatch.setattr(file_edit_access, "edit_file_sync", fail)
+    with pytest.raises(ToolFailure) as raised:
+        await service.write_file(
+            "www/notes.txt", edits=[{"old": "before", "new": "after"}]
+        )
+    assert raised.value.status == (
+        "not_started" if point == "before" else "outcome_unknown"
+    )
+    assert target.read_text() == ("before" if point == "before" else "after")
+
+
+async def test_native_file_activation_keeps_the_actor_context(filesystem, monkeypatch):
+    service, _manager, owner, target = filesystem
+    from custom_components.ha_mcp_tools.native_operations import (
+        filesystem as native_files,
+    )
+
+    monkeypatch.setattr(native_files, "Context", SimpleNamespace)
+    theme = target.parent.parent / "themes" / "native.yaml"
+    theme.parent.mkdir()
+    theme.write_text("before")
+    owner.hass.services.async_call = AsyncMock()
+    result = await service.write_file("themes/native.yaml", "after", overwrite=True)
+    assert result["post_action"] == "reload_performed"
+    call = owner.hass.services.async_call.call_args
+    assert call.args[:2] == ("frontend", "reload_themes")
+    assert call.kwargs["context"].user_id == "owner"
+
+
+@pytest.mark.parametrize("mode", ["content", "edits"])
 @pytest.mark.parametrize(
     "change", ["entry", "backup", "permissions", "target", "actor"]
 )
-async def test_native_write_revalidates_after_awaited_capture(filesystem, change):
+async def test_native_write_revalidates_after_awaited_capture(filesystem, change, mode):
     service, manager, owner, target = filesystem
     if change == "permissions":
         target.parent.rename(target.parent.with_name("extra"))
@@ -90,7 +197,14 @@ async def test_native_write_revalidates_after_awaited_capture(filesystem, change
     manager.snapshots.file_backup = after_capture
     path = f"{target.parent.name}/{target.name}"
     with pytest.raises(ToolFailure) as raised:
-        await service.write_file(path, "requested", overwrite=True)
+        await service.write_file(
+            path,
+            **(
+                {"content": "requested", "overwrite": True}
+                if mode == "content"
+                else {"edits": [{"old": "before", "new": "requested"}]}
+            ),
+        )
     assert raised.value.status == "not_started" and captured == [True]
     assert target.read_text() == ("external" if change == "target" else "before")
 
@@ -151,7 +265,10 @@ def test_file_projection_matches_the_frozen_public_contract(filesystem):
     import json
     from pathlib import Path
 
-    from .test_native_catalog_contract import _changed_inputs
+    from .test_native_catalog_contract import (
+        _changed_inputs,
+        _shared_annotation_overrides,
+    )
 
     baseline = json.loads(
         (
@@ -167,7 +284,24 @@ def test_file_projection_matches_the_frozen_public_contract(filesystem):
     for definition in definitions:
         expected = by_name[definition.name]
         assert not _changed_inputs(expected["inputSchema"], definition.input_schema)
-        assert definition.annotations == expected["annotations"]
+        expected_annotations = {
+            **expected["annotations"],
+            **_shared_annotation_overrides()
+            .get(definition.name, {})
+            .get("annotations", {}),
+        }
+        assert definition.annotations == expected_annotations
+        if definition.name == "ha_write_file":
+            receipt = json.loads(
+                (
+                    Path(__file__).resolve().parents[3]
+                    / "docs/native-migration/upstream-file-edits-6eed2ee5.json"
+                ).read_text()
+            )
+            assert " ".join(definition.description.split()) == " ".join(
+                receipt["tools"][definition.name]["description"].split()
+            )
+            continue
         # Upstream removed /backup from the offered volume roots; other wording stays frozen.
         assert " ".join(
             definition.description.replace(

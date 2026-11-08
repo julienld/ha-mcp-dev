@@ -73,7 +73,7 @@ def project_service_catalog(
 
 
 async def load_service_descriptions(
-    hass: HomeAssistant, language: str = "en"
+    hass: HomeAssistant, language: str | None = None
 ) -> dict[str, Any]:
     """Async pre-step for ``services_list``: load descriptions + translations off-loop.
 
@@ -82,7 +82,9 @@ async def load_service_descriptions(
     the prep via the seam wrappers below and :func:`_do_services_list` stays a pure
     reshape/filter.
     """
-    language = language or "en"
+    language = (
+        language or getattr(getattr(hass, "config", None), "language", None) or "en"
+    )
     descriptions = await _fetch_service_descriptions(hass)
     translations = await _fetch_service_translations(hass, language)
     return {"descriptions": descriptions, "translations": translations}
@@ -205,7 +207,7 @@ def reference_data(
 
 
 async def services_catalog(
-    hass: HomeAssistant, domain: str | None = None, language: str = "en"
+    hass: HomeAssistant, domain: str | None = None, language: str | None = None
 ) -> dict[str, Any]:
     """Read the real Core descriptions and translations as one catalog."""
     details = await load_service_descriptions(hass, language)

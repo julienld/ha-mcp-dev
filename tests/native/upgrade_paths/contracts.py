@@ -14,6 +14,12 @@ from tests.native.catalog_contract import structural_schema
 class UpgradeFailure(AssertionError):
     """A fixed failure category safe to retain in a public report."""
 
+    def __init__(self, category: str, *, http_status: int | None = None):
+        super().__init__(category)
+        self.diagnostic: dict[str, Any] = {}
+        if type(http_status) is int and 100 <= http_status <= 599:
+            self.diagnostic["http_status"] = http_status
+
 
 @dataclass(frozen=True)
 class Profile:

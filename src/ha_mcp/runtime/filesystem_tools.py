@@ -6,6 +6,12 @@ from typing import Annotated, Any
 
 from pydantic import Field
 
+from ha_mcp.errors import ErrorCode, create_error_response
+from ha_mcp.tools.coercion import JSON_STRING_COERCION
+
+from .errors import raise_failure
+from .resource_edits import MAX_EDITS, ResourceEdit
+
 
 class FilesystemTools:
     def __init__(self, filesystem: Any) -> None:
@@ -145,16 +151,23 @@ class FilesystemTools:
             ),
         ],
         content: Annotated[
-            str,
+            str | None,
             Field(
-                description="The content to write to the file.",
+                default=None,
+                description=(
+                    "The whole content to write to the file. Exactly one of "
+                    "content and edits is required."
+                ),
             ),
-        ],
+        ] = None,
         overwrite: Annotated[
             bool,
             Field(
                 default=False,
-                description=("Whether to overwrite if the file exists."),
+                description=(
+                    "Whether content may overwrite an existing file. Not needed "
+                    "with edits."
+                ),
             ),
         ] = False,
         create_dirs: Annotated[
@@ -166,19 +179,38 @@ class FilesystemTools:
                 ),
             ),
         ] = True,
+        edits: Annotated[
+            # Bounds on the list, not the union: there they render as
+            # minItems/maxItems instead of string-only minLength/maxLength.
+            Annotated[list[ResourceEdit], Field(min_length=1, max_length=MAX_EDITS)]
+            | None,
+            JSON_STRING_COERCION,
+            Field(
+                default=None,
+                description=(
+                    "Search/replace edits for an existing text file, applied in "
+                    "order; prefer them over content for a small change to a "
+                    "large file."
+                ),
+            ),
+        ] = None,
     ) -> dict[str, Any]:
         """Write a file to allowed directories in the Home Assistant config.
 
         Creates or updates files (custom CSS/JS for dashboards, Jinja2 macro
         templates, theme YAML) in restricted directories only.
 
+        Not for configuration: use ha_config_set_yaml for configuration.yaml and
+        packages, and ha_config_set_automation, ha_config_set_script,
+        ha_config_set_scene or ha_config_set_dashboard for storage-mode items.
+
         **Allowed Write Directories:**
         - `www/` - Web assets for dashboards
         - `themes/` - Theme YAML files
         - `custom_templates/` - Jinja2 template files
         - `dashboards/` - YAML-mode dashboard files
-        - Plus any custom directories OR HAOS sibling volumes (`/share`,
-          `/media`, `/ssl`) configured in the ha-mcp settings UI
+        - Plus custom directories OR HAOS sibling volumes (`/share`, `/media`, `/ssl`)
+          from the ha-mcp settings UI; `/ssl` is read-only on HAOS and Supervised
         Configuration files (configuration.yaml, etc.) cannot be written; path
         traversal (../) is blocked.
 
@@ -187,15 +219,37 @@ class FilesystemTools:
         auto-backup (only modifications/deletions of text files are
         snapshotted); the skip is logged, the write is not blocked.
 
+        With edits, nothing is saved unless every edit applies, and the rest of
+        the file, line endings included, stays as it is. ha_read_file shows a
+        CRLF file with LF; edits to it match either way. In a file that mixes
+        CRLF and LF, a multi-line 'old' matches only lines stored with the line
+        ending it uses.
+
+        After a write, the response says what Home Assistant needs before it
+        uses the file: a theme or custom template is reloaded (post_action,
+        reload_service), a custom template Home Assistant cannot load (not
+        *.jinja, or over its size limit) gets a warning, and a dashboards/ file
+        lists the YAML dashboards that name it as their file (dashboards); they
+        reread it when next opened. A file a dashboard !includes is not checked.
+
         EXAMPLE: ha_write_file(path="custom_templates/formatters.jinja", content="{% macro shout(text) %}{{ text | upper }}{% endmacro %}")
+        EXAMPLE: ha_write_file(path="www/card.js", edits=[{"old": "const REFRESH = 30000;", "new": "const REFRESH = 10000;"}])
         """
-        result: dict[str, Any] = await self.filesystem.write_file(
+        if (content is None) == (edits is None):
+            raise_failure(
+                create_error_response(
+                    ErrorCode.VALIDATION_INVALID_PARAMETER,
+                    "Provide exactly one of content and edits.",
+                    context={"path": path},
+                )
+            )
+        return await self.filesystem.write_file(
             path=path,
             content=content,
             overwrite=overwrite,
             create_dirs=create_dirs,
+            edits=edits,
         )
-        return result
 
     async def ha_delete_file(
         self,

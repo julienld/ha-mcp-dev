@@ -25,11 +25,12 @@ package.__path__ = [str(Path.cwd() / 'custom_components' / 'ha_mcp_tools')]
 sys.modules[package.__name__] = package
 sys.modules['homeassistant.helpers.json'] = SimpleNamespace(json_bytes=lambda value: json.dumps(value).encode())
 from custom_components.ha_mcp_tools.native_filesystem_tools import filesystem_definitions
+from custom_components.ha_mcp_tools.file_edit_access import edit_file
 from custom_components.ha_mcp_tools.native_yaml_tools import yaml_definitions
 from custom_components.ha_mcp_tools.native_operations.file_restore import NativeFileRestore
 from custom_components.ha_mcp_tools.legacy_backup_files import read_legacy_backup
 from ha_mcp.runtime.yaml_lookup import YamlLookup
-assert filesystem_definitions and yaml_definitions and NativeFileRestore and YamlLookup and read_legacy_backup
+assert filesystem_definitions and yaml_definitions and NativeFileRestore and YamlLookup and read_legacy_backup and edit_file
 """
     result = subprocess.run(
         [sys.executable, "-c", code],

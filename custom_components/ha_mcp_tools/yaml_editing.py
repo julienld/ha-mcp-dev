@@ -28,6 +28,7 @@ from .const import (
 from .file_access import BeforeWrite, FileAccess, Guard, _current_extra_yaml_keys
 from .file_io import FileImage, FileWriteState, _replace_file_sync, read_file_image
 from .file_paths import _path_in_package_dir, _resolves_within, _violates_deny_floor
+from .file_post_action import reload_after_edit
 from .package_dirs import _detect_package_dirs
 from .yaml_edit_values import (
     _apply_edit_action,
@@ -467,29 +468,9 @@ async def _resolve_post_action(
     if kind == "lovelace_dashboard":
         post_info = {"post_action": "restart_required"}
     elif kind == "theme":
-        # Trigger frontend.reload_themes to load the theme change
-        try:
-            await hass.services.async_call(
-                "frontend",
-                "reload_themes",
-                {},
-                blocking=True,
-                context=context,
-            )
-            post_info = {
-                "post_action": "reload_performed",
-                "reload_service": "frontend.reload_themes",
-            }
-        except Exception as reload_err:  # noqa: BLE001
-            post_info = {
-                "post_action": "reload_available",
-                "reload_service": "frontend.reload_themes",
-                "reload_error": str(reload_err),
-            }
-            _LOGGER.warning(
-                "frontend.reload_themes failed after theme edit: %s",
-                reload_err,
-            )
+        post_info = await reload_after_edit(
+            hass, "frontend", "reload_themes", context=context
+        )
     else:
         post_info = YAML_KEY_POST_ACTIONS.get(
             path_parts[0], YAML_KEY_DEFAULT_POST_ACTION
@@ -657,6 +638,7 @@ class YamlEditor:
             partial(self._locked_edit, dict(options), before_write, context),
             guard,
             writes=False,
+            serialize_writes=True,
         )
 
     async def _locked_edit(

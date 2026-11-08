@@ -73,6 +73,7 @@ from .file_access import (
 from .file_access import (
     DATA_FILE_ACCESS,
     FileAccess,
+    _write_denied,
     service_file_access,
 )
 from .file_access import (
@@ -105,6 +106,7 @@ from .file_io import (
 from .file_io import (
     _write_file_sync as _write_file_sync,
 )
+from .file_ops import SERVICE_EDIT_FILE, register_edit_file
 from .file_paths import (
     ALLOWED_READ_FILES as ALLOWED_READ_FILES,
 )
@@ -415,6 +417,7 @@ SERVICE_READ_FILE_SCHEMA = vol.Schema(
         # under ``parsed`` (ha_config_get_yaml's include_parsed, #1788). HA tags
         # are rendered to source form, never resolved.
         vol.Optional("include_parsed", default=False): cv.boolean,
+        vol.Optional("keep_line_endings", default=False): cv.boolean,
         vol.Optional(CALLER_TOKEN_FIELD): cv.string,
     }
 )
@@ -948,6 +951,7 @@ def _build_read_file_handler(
                 tail_lines=call.data.get("tail_lines"),
                 yaml_path=call.data.get("yaml_path"),
                 include_parsed=bool(call.data.get("include_parsed", False)),
+                keep_line_endings=bool(call.data.get("keep_line_endings", False)),
             )
         except ToolFailure as error:
             return error.data
@@ -1350,6 +1354,13 @@ async def _async_setup_tools_entry(hass: HomeAssistant, entry: ConfigEntry) -> b
                 err,
             )
     register_find_yaml_key(hass, _caller_token_ok, _unauthorized_response)
+    register_edit_file(
+        hass,
+        caller_token_ok=_caller_token_ok,
+        unauthorized_response=_unauthorized_response,
+        write_denied=_write_denied,
+        volume_root_for=_volume_root_for,
+    )
     # Register all services with response support
     for service, schema, build_handler in (
         (
@@ -1438,6 +1449,7 @@ async def _async_unload_tools_entry(hass: HomeAssistant, entry: ConfigEntry) -> 
     hass.services.async_remove(DOMAIN, SERVICE_LIST_FILES)
     hass.services.async_remove(DOMAIN, SERVICE_FIND_YAML_KEY)
     hass.services.async_remove(DOMAIN, SERVICE_READ_FILE)
+    hass.services.async_remove(DOMAIN, SERVICE_EDIT_FILE)
     hass.services.async_remove(DOMAIN, SERVICE_WRITE_FILE)
     hass.services.async_remove(DOMAIN, SERVICE_DELETE_FILE)
     hass.services.async_remove(DOMAIN, SERVICE_GET_CALLER_TOKEN)

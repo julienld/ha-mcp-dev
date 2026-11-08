@@ -10,12 +10,27 @@ import httpx
 
 from tests.native.protocol_comparison.wire import (
     MAX_BYTES,
+    WireError,
     loopback_url,
     modern_request,
     parse_reply,
 )
 
-from .contracts import UpgradeFailure
+from .contracts import PROTOCOLS, UpgradeFailure
+
+_METHODS = {"initialize", "server/discover", "tools/list", "tools/call"}
+_WIRE_CODES = {
+    "body_limit",
+    "unexpected_content_type",
+    "malformed_payload",
+    "invalid_rpc_envelope",
+    "server_request_not_supported",
+    "reply_id_mismatch",
+    "invalid_terminal_reply",
+    "missing_or_duplicate_terminal_reply",
+    "event_limit",
+    "truncated_sse_event",
+}
 
 
 class Client:
@@ -39,6 +54,29 @@ class Client:
         return result
 
     async def rpc(self, method: str, params: dict[str, Any] | None = None) -> Any:
+        try:
+            return await self._rpc(method, params)
+        except (UpgradeFailure, WireError, httpx.TransportError, TimeoutError) as error:
+            failure = (
+                error
+                if isinstance(error, UpgradeFailure)
+                else UpgradeFailure(
+                    "mcp_wire_invalid"
+                    if isinstance(error, WireError)
+                    else "mcp_transport_failed"
+                )
+            )
+            if method in _METHODS:
+                failure.diagnostic["operation"] = method
+            if self.protocol in PROTOCOLS:
+                failure.diagnostic["protocol"] = self.protocol
+            if isinstance(error, WireError) and str(error) in _WIRE_CODES:
+                failure.diagnostic["parser_code"] = str(error)
+            if failure is error:
+                raise
+            raise failure from error
+
+    async def _rpc(self, method: str, params: dict[str, Any] | None = None) -> Any:
         request_id = next(self.ids)
         headers = self._headers()
         if self.protocol == "2026-07-28":
@@ -59,7 +97,9 @@ class Client:
             self.http.stream("POST", self.url, headers=headers, json=body) as response,
         ):
             if response.status_code != 200:
-                raise UpgradeFailure("mcp_http_refused")
+                raise UpgradeFailure(
+                    "mcp_http_refused", http_status=response.status_code
+                )
             if response.headers.get("Mcp-Session-Id"):
                 self.session = response.headers["Mcp-Session-Id"]
             async for chunk in response.aiter_bytes():

@@ -178,6 +178,32 @@ class NativeVisibility:
             ),
         )
 
+    async def guard_file_definition(
+        self, name: str, path: str, content: str | None
+    ) -> None:
+        """An edit refusal must not disclose a hidden definition through text guesses."""
+        from ha_mcp.visibility.config_files import defines_hidden_item, is_yaml_path
+
+        config = await self._config(name)
+        if (
+            config is None
+            or not config.enforce
+            or not is_yaml_path(path)
+            or content is None
+        ):
+            return
+        try:
+            matcher = await self._matcher(config)
+        except VisibilityDataUnavailable:
+            self._deny(name, _FAIL_CLOSED_REASON)
+        aliases = matcher.identifier_aliases
+        if aliases is None:
+            self._deny(name, _FAIL_CLOSED_REASON)
+        if await self.manager.hass.async_add_executor_job(
+            defines_hidden_item, path, content, aliases
+        ):
+            self._deny(name, "The file defines a hidden script, scene or automation.")
+
     async def before(
         self, name: str, arguments: dict[str, Any], context: CallContext
     ) -> None:

@@ -3,6 +3,8 @@
 import json
 from typing import Any
 
+from homeassistant.core import Context
+
 from ha_mcp.errors import ErrorCode, create_error_response
 from ha_mcp.tool_api import ToolFailure
 
@@ -28,20 +30,42 @@ class NativeFilesystem(NativeFileEntry):
     async def write_file(
         self,
         path: str,
-        content: str,
+        content: str | None = None,
         overwrite: bool = False,
         create_dirs: bool = True,
+        edits: list[dict[str, str]] | None = None,
     ) -> dict[str, Any]:
         async def capture(path: str, image: FileImage) -> None:
+            if (
+                edits is not None
+                and (visibility := getattr(self.manager, "visibility", None))
+                is not None
+            ):
+                await visibility.guard_file_definition(
+                    "ha_write_file", path, image.text
+                )
             await self._capture(path, image, "ha_write_file")
 
-        return await (await self._owner(True)).write_file(
+        owner = await self._owner(True)
+        context = Context(user_id=self.actor.user_id)
+        if edits is not None:
+            return await owner.edit_file(
+                path, edits, guard=self.guard, before_write=capture, context=context
+            )
+        if content is None:
+            raise ToolFailure(
+                "VALIDATION_INVALID_PARAMETER",
+                "Provide exactly one of content and edits.",
+                status="not_started",
+            )
+        return await owner.write_file(
             path,
             content,
             overwrite,
             create_dirs,
             guard=self.guard,
             before_write=capture,
+            context=context,
         )
 
     async def delete_file(self, path: str, confirm: bool = False) -> dict[str, Any]:

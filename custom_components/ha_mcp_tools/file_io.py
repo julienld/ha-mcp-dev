@@ -123,14 +123,18 @@ def _list_files_sync(
     return {"files": files}
 
 
-def _read_file_sync(target_file: Path) -> dict[str, Any]:
+def _read_file_sync(
+    target_file: Path, keep_line_endings: bool = False
+) -> dict[str, Any]:
     """Bundle read_file blocking I/O for a single executor offload."""
     if not target_file.exists():
         return {"_error": "not_found"}
     if not target_file.is_file():
         return {"_error": "not_a_file"}
     stat = target_file.stat()
-    content = target_file.read_text(encoding="utf-8")
+    content = target_file.read_text(
+        encoding="utf-8", newline="" if keep_line_endings else None
+    )
     return {"content": content, "size": stat.st_size, "mtime": stat.st_mtime}
 
 
@@ -217,7 +221,7 @@ def _write_file_sync(
         }
     if state is not None:
         state.started = True
-    target_file.write_text(content, encoding="utf-8")
+    target_file.write_bytes(content.encode("utf-8"))
     if state is not None:
         state.committed = True
     stat = target_file.stat()

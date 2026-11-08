@@ -38,6 +38,13 @@ image digest and host ports survive the following sequence:
 3. Select Native and its human owner through HA's real options flow, then restart.
 4. Restart the candidate again with the same configuration and client.
 
+The distribution replacement starts a fresh candidate container with the retained
+HA configuration. Its first install is qualified against a cold Core dependency
+baseline. The Native switch and final restart reuse that candidate container,
+including its installed Python environment; each boot records completed Core
+manifest setup before the client exercises it. This does not qualify replacing
+the library inside Main's existing Python environment.
+
 Every phase checks MCP revisions `2025-06-18`, `2025-11-25` and `2026-07-28`, tool
 names/input schemas/safety annotations, reads, service effects and the persisted
 state. OAuth refresh must use the cached original endpoint and existing grant;

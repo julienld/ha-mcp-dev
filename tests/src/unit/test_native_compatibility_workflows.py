@@ -1,6 +1,9 @@
 """Installation contracts and optional full E2E consume the same Core window."""
 
+import os
 import re
+import subprocess
+import sys
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -14,7 +17,31 @@ from .test_core_window import workflow
 def _run_preflight(step: dict[str, Any]) -> None:
     """Run the actual workflow's checkout-free Python preflight on Windows too."""
     script = step["run"].split("<<'PY'\n", 1)[1].split("\nPY", 1)[0]
-    exec(compile(script, "<workflow-preflight>", "exec"), {})
+    subprocess.run(
+        [sys.executable, "-c", script],
+        env=dict(os.environ),
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+
+def _manual_fork_allowed(condition: str, repository: str, event: str) -> bool:
+    """Interpret only the two comparisons used by the workflow's admission gate."""
+    expression = condition.removeprefix("${{").removesuffix("}}")
+    values = {"github.repository": repository, "github.event_name": event}
+    clauses = []
+    for clause in expression.strip().split("&&"):
+        match = re.fullmatch(
+            r"\s*(github\.(?:repository|event_name))\s*(==|!=)\s*'([^']*)'\s*", clause
+        )
+        assert match is not None, "Unsupported workflow admission expression"
+        key, operator, wanted = match.groups()
+        clauses.append(
+            (values[key] == wanted) if operator == "==" else (values[key] != wanted)
+        )
+    return all(clauses)
 
 
 def test_full_e2e_uses_the_core_matrix_and_an_independent_supported_test_python():
@@ -93,7 +120,7 @@ def test_manual_qualification_rejects_ambiguous_modes(
     }.items():
         monkeypatch.setenv(key, value)
     if route is None:
-        with pytest.raises(SystemExit):
+        with pytest.raises(subprocess.CalledProcessError):
             _run_preflight(step)
         assert not output.exists(), "Invalid requests must not admit any bench"
         return
@@ -154,11 +181,14 @@ def test_invalid_live_request_cannot_start_another_qualification(
     }
     for key, value in values.items():
         monkeypatch.setenv(key, value)
-    with pytest.raises(SystemExit) as error:
+    with pytest.raises(subprocess.CalledProcessError) as error:
         _run_preflight(step)
     assert not output.exists()
     captured = capsys.readouterr()
-    assert "PUBLIC_KEY_SENTINEL" not in f"{error.value}{captured.out}{captured.err}"
+    assert (
+        "PUBLIC_KEY_SENTINEL"
+        not in f"{error.value.stdout}{error.value.stderr}{captured.out}{captured.err}"
+    )
 
 
 @pytest.mark.parametrize(
@@ -262,12 +292,7 @@ def test_reusable_live_job_only_admits_manual_fork_runs(
     repository: str, event: str, allowed: bool
 ) -> None:
     condition = workflow("dev-ha-env.yml")["jobs"]["env"]["if"]
-    expression = condition.removeprefix("${{").removesuffix("}}")
-    expression = expression.replace("github.repository", repr(repository))
-    expression = expression.replace("github.event_name", repr(event))
-    assert (
-        eval(expression.replace("&&", " and ").strip(), {"__builtins__": {}}) is allowed
-    )
+    assert _manual_fork_allowed(condition, repository, event) is allowed
 
 
 @pytest.mark.parametrize(
@@ -304,7 +329,7 @@ def test_callable_dev_inputs_fail_before_checkout_or_boot(
     if valid:
         _run_preflight(step)
     else:
-        with pytest.raises(SystemExit):
+        with pytest.raises(subprocess.CalledProcessError):
             _run_preflight(step)
 
 
@@ -382,7 +407,7 @@ def test_live_runtime_selection_is_validated_before_checkout(
     if valid:
         _run_preflight(step)
     else:
-        with pytest.raises(SystemExit):
+        with pytest.raises(subprocess.CalledProcessError):
             _run_preflight(step)
 
 
@@ -423,10 +448,9 @@ def test_native_live_refuses_a_source_without_the_host_or_staging_fixture(
     )
     assert checkout < steps.index(guard) < boot
     monkeypatch.chdir(tmp_path)
-    with pytest.raises(
-        SystemExit, match="Native live requires the host and staging fixture"
-    ):
+    with pytest.raises(subprocess.CalledProcessError) as error:
         _run_preflight(guard)
+    assert "Native live requires the host and staging fixture" in error.value.stderr
     monkeypatch.chdir(Path(__file__).resolve().parents[3])
     _run_preflight(guard)
 
@@ -457,3 +481,24 @@ def test_installation_runs_the_inspected_image_id_and_preserves_receipt() -> Non
     assert install["env"]["IMAGE_ID"] == "${{ steps.image.outputs.id }}"
     assert '--entrypoint python "$IMAGE_ID"' in install["run"]
     assert "--image-receipt" in install["run"]
+
+
+@pytest.mark.parametrize(
+    "event,allowed",
+    [("workflow_dispatch", True), ("push", False), ("pull_request", False)],
+)
+def test_upgrade_job_accepts_manual_sibling_forks(event, allowed):
+    condition = workflow("native-upgrade-paths.yml")["jobs"]["qualify"]["if"]
+    assert _manual_fork_allowed(condition, "example/independent-fork", event) is allowed
+
+
+@pytest.mark.parametrize("gate", ["upgrade", "native"])
+def test_upgrade_gates_reject_skipped_qualification_even_with_passing_output(
+    gate, monkeypatch
+):
+    step = workflow("native-upgrade-paths.yml")["jobs"][gate]["steps"][0]
+    monkeypatch.setenv("QUALIFICATION_RESULT", "skipped")
+    monkeypatch.setenv("PASSED", "true")
+    with pytest.raises(subprocess.CalledProcessError) as error:
+        _run_preflight(step)
+    assert "qualification did not succeed" in error.value.stderr

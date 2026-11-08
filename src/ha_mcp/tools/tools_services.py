@@ -6,6 +6,7 @@ allowing AI to explore available Home Assistant services/actions.
 """
 
 import logging
+from collections.abc import Mapping
 from typing import Any
 
 from ha_mcp._vendor.fastmcp.tools import tool
@@ -20,6 +21,11 @@ from ..client.rest_client import (
 )
 from ..client.websocket_client import get_websocket_client
 from ..runtime.services import ServiceDiscoveryTools as SharedServiceDiscoveryTools
+from ..runtime.services import _apply_placeholders as _apply_placeholders
+from ..runtime.services import _build_service_entry as _build_service_entry
+from ..runtime.services import _process_service_fields as _process_service_fields
+from ..runtime.services import _process_services as _process_services
+from ..runtime.services import _translation as _translation
 from .component_api import (
     component_supports,
     get_component_caps,
@@ -34,9 +40,7 @@ from .tool_hints import read_only_hints
 
 logger = logging.getLogger(__name__)
 
-# WS command name for the component's coarse-filtered service catalog read
-# (see ``component_api`` module docstring for the capability-negotiation pattern
-# this consumer follows).
+# WS command name for the component's domain-scoped Core service catalog read.
 WS_SERVICES_LIST = "ha_mcp_tools/services_list"
 
 
@@ -81,13 +85,18 @@ async def _fetch_catalog_and_translations(
 
     Tries the component (``domain``-scoped, one frame) first; falls back to the
     legacy REST ``get_services()`` + WS ``frontend/get_translations`` pair on any
-    capability miss or fallback-eligible error.
+    capability miss or fallback-eligible error. Both sources are Core's own
+    ``async_get_all_descriptions`` output, so the server's shaping runs unchanged
+    over either.
     """
     component_payload = await _fetch_services_list_via_component(client, domain=domain)
     if component_payload is not None:
         return component_payload["services"], component_payload["translations"]
+    language, language_warning = await _configured_language(client)
+    if language_warning and warnings is not None:
+        warnings.append(language_warning)
     rest_services = await client.get_services()
-    translations = await _get_service_translations(client, warnings)
+    translations = await _get_service_translations(client, language, warnings)
     return rest_services, translations
 
 
@@ -99,19 +108,16 @@ async def _fetch_services_list_via_component(
     Returns ``{"services": [...], "translations": {...}}`` — ``services`` is the
     REST ``/api/services`` list shape and ``translations`` the same flat
     ``frontend/get_translations`` resources map ``_get_service_translations``
-    returns — so ``_process_services`` consumes either source unchanged. Only
-    ``domain`` is threaded to the component (an exact match, identical semantics
-    on both sides); ``query`` is deliberately NOT forwarded, even though the
-    component also accepts a coarse ``query`` filter, because that coarse pass
-    can drop a domain from the payload ENTIRELY when nothing under it matches
-    anywhere (name/description/translation) — but ``_process_services``'s
-    ``domains`` field is populated purely from ``domain_filter`` (every domain
-    that passes it, independent of ``query_filter``), so a query-trimmed payload
-    would silently omit domains legacy still lists. Skipping ``query`` on the
-    wire keeps ``_process_services`` doing 100% of the query filtering over an
-    identical (domain-filtered only) catalog either way, so the output — the
-    ``domains`` field included — is byte-identical to legacy in every case, not
-    just when a query happens not to trigger the drop. ``None`` on capability
+    returns — so ``_process_services`` consumes either source unchanged.
+
+    The command accepts only ``domain`` and an optional ``language``. This
+    consumer threads ``domain`` alone (an exact match, identical semantics on
+    both sides). ``query`` is not a command parameter: the exact
+    concatenation-based filter stays here in ``_process_services``, applied to
+    the full domain-scoped catalog, so ``domains`` still lists every domain that
+    passes ``domain_filter``. ``language`` is not sent either — the component
+    resolves ``hass.config.language`` itself, and an explicit wire value would
+    override the instance's configured language. ``None`` on capability
     miss, downgrade (``unknown_command`` → invalidate the cached caps), or
     command error/timeout (logged) — the caller falls back to the legacy REST +
     WS translations fetch.
@@ -129,7 +135,7 @@ async def _fetch_services_list_via_component(
     caps = await get_component_caps(client)
     if not component_supports(caps, "services_list"):
         return None
-    kwargs: dict[str, Any] = {"language": "en"}
+    kwargs: dict[str, Any] = {}
     if domain is not None:
         kwargs["domain"] = domain
     try:
@@ -172,19 +178,19 @@ async def _fetch_services_list_via_component(
 
 
 async def _get_service_translations(
-    client: Any, warnings: list[str] | None = None
+    client: Any, language: str, warnings: list[str] | None = None
 ) -> dict[str, Any]:
     """
     Get service translations from Home Assistant via WebSocket.
 
     Uses the frontend/get_translations command to retrieve
-    human-readable service names and descriptions.
+    human-readable service names and descriptions in Core's configured language.
     """
     try:
         response = await client.send_websocket_message(
             {
                 "type": "frontend/get_translations",
-                "language": "en",
+                "language": language,
                 "category": "services",
             }
         )
@@ -219,3 +225,25 @@ async def _get_service_translations(
 __all__ = [
     "register_services_tools",
 ]
+
+
+async def _configured_language(client: Any) -> tuple[str, str | None]:
+    """Core's configured language, plus a warning when it could not be read.
+
+    ``frontend/get_translations`` requires a language. Core serves the configured
+    one in ``/api/config``; falling back to English keeps the catalog usable when
+    that read is unavailable, but the caller is told the text may be untranslated.
+    """
+    try:
+        config = await client.get_config()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not read the configured language: %r", exc)
+        return (
+            "en",
+            f"service descriptions may be untranslated: language unavailable: {exc}",
+        )
+    language = config.get("language") if isinstance(config, Mapping) else None
+    if isinstance(language, str) and language:
+        return language, None
+    logger.warning("Home Assistant config carries no usable language: %r", config)
+    return "en", "service descriptions may be untranslated: language unavailable"

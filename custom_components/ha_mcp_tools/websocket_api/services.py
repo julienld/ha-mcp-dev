@@ -16,7 +16,7 @@ from ..core_services import (
 async def _services_list_prep(
     hass: HomeAssistant, msg: dict[str, Any]
 ) -> dict[str, Any]:
-    return await load_service_descriptions(hass, msg.get("language") or "en")
+    return await load_service_descriptions(hass, msg.get("language"))
 
 
 def _do_services_list(

@@ -7,6 +7,8 @@ from typing import Any
 from aiohttp import web
 from homeassistant.components.http import HomeAssistantView
 
+from .readiness import endpoint_ready
+
 
 class UpgradeView(HomeAssistantView):
     url = "/api/upgrade_fixture"
@@ -26,6 +28,8 @@ class UpgradeView(HomeAssistantView):
         if manager is None or not manager.is_running:
             return web.json_response({"running": False})
         entry = _manager_entry(hass, manager)
+        if not endpoint_ready(hass, entry):
+            return web.json_response({"running": False})
         keys = (
             "webhook_id",
             "secret_path",

@@ -101,6 +101,12 @@
         "idempotentHint": false
       },
       "reason": "Both runtimes retain the existing remove_completed predicate. An identical retry can delete items completed after the first request, so discovery must not advertise safe replay. Inputs, outputs and deletion behavior are unchanged; the historical baseline stays immutable."
+    },
+    "ha_write_file": {
+      "annotations": {
+        "idempotentHint": false
+      },
+      "reason": "Upstream6eed2ee5 adds ordered exact-match edits to ha_write_file. Retrying an edit whose new text contains its old text can apply it twice, so both runtimes adopt the current upstream non-idempotent hint. Whole-content calls remain accepted; the historical baseline is not rewritten."
     }
   },
   "native_annotation_overrides": {

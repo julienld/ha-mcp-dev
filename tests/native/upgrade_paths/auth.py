@@ -19,7 +19,9 @@ CALLBACK = "http://127.0.0.1:31999/upgrade-callback"
 
 def checked(response: httpx.Response, status: int = 200) -> dict[str, Any]:
     if response.status_code != status:
-        raise UpgradeFailure("authentication_http_refused")
+        raise UpgradeFailure(
+            "authentication_http_refused", http_status=response.status_code
+        )
     return response.json()
 
 
@@ -83,7 +85,9 @@ async def enroll(
         code = await _core_login(http, origin, response, challenge, actor)
     else:
         if response.status_code != 200:
-            raise UpgradeFailure("legacy_consent_unavailable")
+            raise UpgradeFailure(
+                "legacy_consent_unavailable", http_status=response.status_code
+            )
         consent = await http.post(authorization, data={**params, "action": "approve"})
         if consent.status_code != 302:
             raise UpgradeFailure("legacy_consent_refused")

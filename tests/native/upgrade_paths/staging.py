@@ -9,8 +9,6 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-import bcrypt
-
 from tests.native.protocol_comparison.evidence import build_receipt, write_json
 from tests.native.protocol_comparison.launch import (
     command,
@@ -41,6 +39,7 @@ def build_assets(baseline: Path, candidate: Path, private: Path) -> tuple[Path, 
 def seed_profile(
     harness: Path, source: Path, wheel: Path, config: Path, profile: Profile
 ) -> tuple[dict[str, str], dict[str, str]]:
+    import bcrypt
     from e2e._conftest_embedded import _install_embedded_server
     from e2e._conftest_seed import _install_custom_component, pair_component_library
 
@@ -125,6 +124,10 @@ def seed_profile(
         Path(__file__).with_name("fixture"),
         config / "custom_components/upgrade_fixture",
         ignore=shutil.ignore_patterns("__pycache__", "*.pyc"),
+    )
+    shutil.copyfile(
+        Path(__file__).with_name("readiness.py"),
+        config / "custom_components/upgrade_fixture/readiness.py",
     )
     return actor, legacy
 

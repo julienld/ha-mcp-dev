@@ -243,6 +243,36 @@ async def call(hacs, action, **kwargs):
     return await hacs.engine.call(name, {"action": action, **kwargs}, hacs.actor)
 
 
+async def test_own_repository_download_updates_installed_mirror_instead_of_adding_main(
+    hacs,
+):
+    hacs.repo.data.full_name = "homeassistant-ai/ha-mcp-integration"
+    result = await call(
+        hacs,
+        "download",
+        repository_id="homeassistant-ai/ha-mcp",
+        version="v9.1.0.dev12",
+    )
+    assert not result.is_error, result.data
+    hacs.repo.async_download_repository.assert_awaited_once_with(ref="v9.1.0-dev.12")
+    hacs.owner.async_register_repository.assert_not_awaited()
+    assert "rerouted" in " ".join(result.data["warnings"])
+
+
+async def test_old_unmappable_mirror_release_is_refused_before_any_native_download(
+    hacs,
+):
+    hacs.repo.data.full_name = "homeassistant-ai/ha-mcp-integration"
+    result = await call(
+        hacs, "download", repository_id="homeassistant-ai/ha-mcp", version="v8.6.0"
+    )
+    assert result.is_error and result.status == "not_started", result.data
+    assert result.data["error"]["code"] == "VALIDATION_INVALID_PARAMETER"
+    assert "cannot be mapped" in result.data["error"]["message"]
+    hacs.repo.async_download_repository.assert_not_awaited()
+    hacs.owner.async_register_repository.assert_not_awaited()
+
+
 async def test_info_refreshes_once_and_clears_new_like_the_store(hacs):
     hacs.repo.data.last_fetched = None
     hacs.repo.additional_info = None
@@ -278,7 +308,8 @@ async def test_search_keeps_scoring_pagination_and_metadata_without_network(hacs
     data = result.data["data"]
     assert data["count"] == 1 and data["results"][0]["score"] > 0
     assert (
-        data["results"][0]["pending_update"] and data["cache"]["source"] == "hacs_cache"
+        data["results"][0]["pending_upgrade"]
+        and data["cache"]["source"] == "hacs_cache"
     )
     assert result.data["metadata"]["home_assistant_timezone"] == "UTC"
     assert data["store"]["api"] == "hacs"

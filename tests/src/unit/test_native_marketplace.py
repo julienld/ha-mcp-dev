@@ -130,9 +130,9 @@ async def test_marketplace_info_preserves_core_fields_with_normal_refresh(
     result = await call(marketplace, "info", repository_id="1")
     assert not result.is_error, result.data
     data = result.data["data"]
-    assert data["data"]["can_install"] is True
-    assert data["data"]["future_core_field"] == {"kept": True}
-    assert data["data"]["integration_categories"] == ["hub"]
+    assert data["can_install"] is True
+    assert data["future_core_field"] == {"kept": True}
+    assert data["integration_categories"] == ["hub"]
     assert data["cache"]["source"] == "marketplace_cache"
     assert data["cache"]["refreshed_from_github"]
     assert not marketplace.repo.data.new

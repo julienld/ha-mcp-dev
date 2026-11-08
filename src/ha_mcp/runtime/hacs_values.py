@@ -90,30 +90,10 @@ def _filter_and_score_repos(
         else:
             score = 0
 
-        # Map HACS internal category back to user-friendly name
-        repo_category = repo.get("category", "")
-        display_category = CATEGORY_DISPLAY.get(repo_category, repo_category)
-        entry: dict[str, Any] = {
-            **repo,
-            "name": repo.get("name"),
-            "full_name": repo.get("full_name"),
-            "description": repo.get("description"),
-            "category": display_category,
-            "id": repo.get("id"),
-            "stars": repo.get("stars", 0),
-            "downloads": repo.get("downloads", 0),
-            "authors": authors_list,
-            "installed": repo.get("installed", False),
-            "installed_version": repo.get("installed_version")
-            if repo.get("installed")
-            else None,
-            "available_version": repo.get("available_version"),
-        }
+        # The store's own row, so fields it adds reach the caller.
+        entry = dict(repo)
         if query_lower:
             entry["score"] = score
-        if repo.get("installed"):
-            entry["pending_update"] = repo.get("pending_upgrade", False)
-            entry["domain"] = repo.get("domain")
         matches.append(entry)
 
     # Sort by score (descending) when searching, by name when listing

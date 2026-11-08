@@ -95,10 +95,10 @@ async def test_two_cancelled_waiters_and_failed_unload_keep_file_io_owned(
     entered, release = threading.Event(), threading.Event()
     original = module._read_file_sync
 
-    def blocked(path):
+    def blocked(path, keep_line_endings=False):
         entered.set()
         assert release.wait(5)
-        return original(path)
+        return original(path, keep_line_endings)
 
     monkeypatch.setattr(module, "_read_file_sync", blocked)
     pending = asyncio.create_task(owner.read_file("www/notes.txt"))

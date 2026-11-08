@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   qualify:
-    if: github.repository == 'julienld/ha-mcp-dev'
+    if: github.event_name == 'workflow_dispatch' && github.repository != 'homeassistant-ai/ha-mcp'
     name: Persisted clients across Main, upgrade, Native and restart
     runs-on: ubuntu-24.04
     timeout-minutes: 100
@@ -131,7 +131,15 @@ jobs:
       - name: Require every existing client and grant to survive
         env:
           PASSED: ${{ needs.qualify.outputs.upgrade }}
-        run: test "$PASSED" = true
+          QUALIFICATION_RESULT: ${{ needs.qualify.result }}
+        run: |
+          python3 - <<'PY'
+          import os
+          if os.environ['QUALIFICATION_RESULT'] != 'success':
+              raise SystemExit('Upgrade qualification did not succeed; inspect the qualification job result')
+          if os.environ['PASSED'] != 'true':
+              raise SystemExit('Existing Legacy clients did not pass every upgrade scenario')
+          PY
 
   native:
     name: Explicit Native switch retains the same clients
@@ -143,4 +151,12 @@ jobs:
       - name: Require unchanged connections through Native and restart
         env:
           PASSED: ${{ needs.qualify.outputs.native }}
-        run: test "$PASSED" = true
+          QUALIFICATION_RESULT: ${{ needs.qualify.result }}
+        run: |
+          python3 - <<'PY'
+          import os
+          if os.environ['QUALIFICATION_RESULT'] != 'success':
+              raise SystemExit('Native qualification did not succeed; inspect the qualification job result')
+          if os.environ['PASSED'] != 'true':
+              raise SystemExit('Existing clients did not pass every Native switch and restart scenario')
+          PY

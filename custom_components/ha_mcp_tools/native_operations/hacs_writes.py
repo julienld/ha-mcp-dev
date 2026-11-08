@@ -7,6 +7,7 @@ import logging
 from importlib import import_module
 from typing import Any
 
+from ha_mcp.runtime.hacs_ownership import route_installed_own_repository
 from ha_mcp.runtime.hacs_results import (
     added_data,
     download_data,
@@ -121,6 +122,19 @@ class NativeHacs(HacsReads):
         identifier = validate_identifier_not_empty(identifier, "repository_id")
         async with registry_update_lock("hacs", "repositories"):
             access = await self.access(writes=True)
+            routing_note = None
+            if action == "download":
+                installed = [
+                    {"full_name": item.data.full_name, "installed": True}
+                    for item in access.repositories.list_all
+                    if item.data.installed
+                ]
+                identifier, version, routing_note = route_installed_own_repository(
+                    identifier,
+                    version,
+                    installed,
+                    is_marketplace=access.domain == "marketplace",
+                )
             repo = access.find(identifier)
             access.guard(action, repo)
             if action == "remove" and not repo.data.installed:
@@ -194,7 +208,7 @@ class NativeHacs(HacsReads):
                         status="not_started",
                     ) from error
             before = repository_image(repo)
-            return await await_owned_io(
+            result = await await_owned_io(
                 self._commit(
                     access,
                     repo,
@@ -207,6 +221,9 @@ class NativeHacs(HacsReads):
                     prepared,
                 )
             )
+            if routing_note:
+                result.setdefault("warnings", []).append(routing_note)
+            return result
 
     async def _commit(
         self,

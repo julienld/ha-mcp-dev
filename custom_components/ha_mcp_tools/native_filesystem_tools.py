@@ -18,7 +18,7 @@ def filesystem_definitions(manager: Any) -> list[ToolDefinition]:
         (
             "ha_write_file",
             write_hints(
-                "Write File", destructive=True, idempotent=True, open_world=False
+                "Write File", destructive=True, idempotent=False, open_world=False
             ),
         ),
         (

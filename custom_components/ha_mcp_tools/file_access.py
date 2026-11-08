@@ -6,6 +6,7 @@ import asyncio
 import logging
 import os
 from collections.abc import Awaitable, Callable
+from contextlib import nullcontext
 from datetime import datetime
 from functools import partial
 from pathlib import Path
@@ -28,11 +29,13 @@ from .file_io import (
     _write_file_sync,
     read_file_image,
 )
+from .file_ops import file_lock
 from .file_paths import (
     ALLOWED_READ_FILES,
     _is_path_allowed_for_dir,
     _is_path_allowed_for_read,
 )
+from .file_post_action import after_file_write
 from .file_views import _shape_read_file_response
 from .package_dirs import _detect_package_dirs
 from .runtime_generation import capture_component_generation
@@ -112,33 +115,37 @@ class FileAccess:
         guard: Guard | None,
         *,
         writes: bool,
+        serialize_writes: bool = False,
         verify: Callable[[Guard | None], Awaitable[None]] | None = None,
     ) -> dict[str, Any]:
         state = FileWriteState()
 
         async def run() -> dict[str, Any]:
-            try:
-                await self._authorize(guard, writes)
-                result: dict[str, Any] = await invoke(guard=guard, state=state)
-                await self._authorize(guard, False)
-                if not result.get("success", False):
-                    raise ToolFailure(
-                        "SERVICE_CALL_FAILED",
-                        str(result.get("error", "File operation failed")),
-                        data=result,
-                        status="not_started",
-                    )
-                if verify is not None:
-                    await verify(guard)
-                return result
-            except asyncio.CancelledError as error:
-                if state.started:
-                    raise self._unknown(state) from error
-                raise
-            except Exception as error:
-                if state.started:
-                    raise self._unknown(state) from error
-                raise
+            async with (
+                file_lock(self.hass) if writes or serialize_writes else nullcontext()
+            ):
+                try:
+                    await self._authorize(guard, writes)
+                    result: dict[str, Any] = await invoke(guard=guard, state=state)
+                    await self._authorize(guard, False)
+                    if not result.get("success", False):
+                        raise ToolFailure(
+                            "SERVICE_CALL_FAILED",
+                            str(result.get("error", "File operation failed")),
+                            data=result,
+                            status="not_started",
+                        )
+                    if verify is not None:
+                        await verify(guard)
+                    return result
+                except asyncio.CancelledError as error:
+                    if state.started:
+                        raise self._unknown(state) from error
+                    raise
+                except Exception as error:
+                    if state.started:
+                        raise self._unknown(state) from error
+                    raise
 
         task = asyncio.create_task(run(), name="ha-mcp file operation")
         self.pending.add(task)
@@ -193,9 +200,17 @@ class FileAccess:
         include_parsed: bool = False,
         *,
         guard: Guard | None = None,
+        keep_line_endings: bool = False,
     ) -> dict[str, Any]:
         return await self.run_owned(
-            partial(self._read_file, path, tail_lines, yaml_path, include_parsed),
+            partial(
+                self._read_file,
+                path,
+                tail_lines,
+                yaml_path,
+                include_parsed,
+                keep_line_endings=keep_line_endings,
+            ),
             guard,
             writes=False,
             verify=partial(self._verify_read_path, path),
@@ -210,16 +225,39 @@ class FileAccess:
         *,
         guard: Guard | None = None,
         before_write: BeforeWrite | None = None,
+        context: Any = None,
     ) -> dict[str, Any]:
         return await self.run_owned(
             partial(
                 self._mutate_file,
                 path,
-                partial(self._write_file, path, content, overwrite, create_dirs),
+                partial(
+                    self._write_file,
+                    path,
+                    content,
+                    overwrite,
+                    create_dirs,
+                    context=context,
+                ),
                 before_write,
             ),
             guard,
             writes=True,
+        )
+
+    async def edit_file(
+        self,
+        path: str,
+        edits: list[dict[str, str]],
+        *,
+        guard: Guard | None = None,
+        before_write: BeforeWrite | None = None,
+        context: Any = None,
+    ) -> dict[str, Any]:
+        from .file_edit_access import edit_file
+
+        return await edit_file(
+            self, path, edits, guard=guard, before_write=before_write, context=context
         )
 
     async def delete_file(
@@ -455,6 +493,7 @@ class FileAccess:
         yaml_path: str | None,
         include_parsed: bool,
         *,
+        keep_line_endings: bool = False,
         guard: Guard | None,
         state: FileWriteState,
     ) -> dict[str, Any]:
@@ -496,7 +535,9 @@ class FileAccess:
                     tail_lines if tail_lines else DEFAULT_LOG_TAIL_LINES,
                 )
             else:
-                result = await self._io(guard, False, _read_file_sync, target_file)
+                result = await self._io(
+                    guard, False, _read_file_sync, target_file, keep_line_endings
+                )
         except PermissionError:
             _LOGGER.error("Permission denied reading: %s", rel_path)
             return {
@@ -547,6 +588,7 @@ class FileAccess:
         guard: Guard | None,
         state: FileWriteState,
         before_write: BeforeWrite | None,
+        context: Any = None,
     ) -> dict[str, Any]:
         extra_dirs = _current_extra_dirs(self.hass)
         if not await self._io(
@@ -609,6 +651,7 @@ class FileAccess:
 
         _LOGGER.info("Wrote file: %s (%d bytes)", rel_path, size)
 
+        await self._authorize(guard, True)
         return {
             "success": True,
             "path": rel_path,
@@ -616,6 +659,7 @@ class FileAccess:
             "modified": modified_dt.isoformat(),
             "created": is_new,
             "message": f"File {'created' if is_new else 'updated'} successfully",
+            **(await after_file_write(self.hass, rel_path, size, context=context)),
         }
 
     async def _delete_file(
@@ -686,3 +730,15 @@ class FileAccess:
             "deleted_size": size,
             "message": f"File deleted successfully: {rel_path}",
         }
+
+
+def _write_denied(hass: Any, rel_path: str) -> str | None:
+    """Use the live component allowlist for the Core edit-file service."""
+    extra_dirs = _current_extra_dirs(hass)
+    if _is_path_allowed_for_dir(
+        Path(hass.config.config_dir), rel_path, ALLOWED_WRITE_DIRS, extra_dirs
+    ):
+        return None
+    return (
+        f"Write not allowed. Must be in: {', '.join(ALLOWED_WRITE_DIRS + extra_dirs)}"
+    )

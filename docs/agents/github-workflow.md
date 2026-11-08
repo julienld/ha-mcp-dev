@@ -237,7 +237,7 @@ missing required live-testing evidence blocks merging, not requesting review.
 | Workflow | Trigger | Purpose |
 |---|---|---|
 | `legacy-core.yml` | Native candidate qualification or manual | Paired constrained install and Legacy restart/transport contracts on Core 2026.8/9, amd64/aarch64. |
-| `native-upgrade-paths.yml` | Manual or `native-migration.yml` with `target=upgrade_paths`, personal fork only | Main-to-candidate embedded HTTP upgrade with five persisted auth profiles; separate Legacy-upgrade and explicit-Native gates. Scope and known failures: [upgrade qualification](../../tests/native/upgrade_paths/README.md). |
+| `native-upgrade-paths.yml` | Manual fork run or `native-migration.yml` with `target=upgrade_paths` | Main-to-candidate embedded HTTP upgrade with five persisted auth profiles; separate Legacy-upgrade and explicit-Native gates. Scope and known failures: [upgrade qualification](../../tests/native/upgrade_paths/README.md). |
 | `pr.yml` | Pull request or manual | Fast checks and validation orchestration. |
 | `renovate.yml` | Hourly, human dashboard/PR checkbox edit, or manual | Refresh dependency discovery and process eligible updates. |
 | `renovate-validation.yml` | Relevant pull request or manual | Validate configuration with the scanner’s pinned Renovate engine, without credentials. |

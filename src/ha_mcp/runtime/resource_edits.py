@@ -13,7 +13,7 @@ MAX_EDITS = 100
 
 
 class ResourceEdit(TypedDict):
-    """One exact-match replacement in an inline resource."""
+    """One exact-match replacement."""
 
     old: Annotated[
         str,

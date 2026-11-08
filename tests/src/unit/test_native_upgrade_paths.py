@@ -373,9 +373,43 @@ async def test_lost_write_response_is_not_replayed():
         client = Client(
             http, {"url": "http://127.0.0.1:8123/secret", "protocol": "2025-06-18"}, ""
         )
-        with pytest.raises(httpx.ReadError):
+        with pytest.raises(UpgradeFailure, match="mcp_transport_failed") as error:
             await client.call("ha_call_service", {"service": "toggle"})
     assert len(calls) == 1
+    assert error.value.diagnostic == {
+        "operation": "tools/call",
+        "protocol": "2025-06-18",
+    }
+
+
+@pytest.mark.parametrize(
+    "status,body,kind",
+    [
+        (403, b"secret-body", "mcp_http_refused"),
+        (200, b"secret-body", "mcp_wire_invalid"),
+    ],
+)
+async def test_rpc_diagnostics_locate_failure_without_exporting_endpoint_token_or_body(
+    status, body, kind
+):
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _: httpx.Response(status, content=body))
+    ) as http:
+        client = Client(
+            http,
+            {"url": "http://127.0.0.1:8123/secret-path", "protocol": "2025-11-25"},
+            "secret-token",
+        )
+        with pytest.raises(UpgradeFailure, match=kind) as error:
+            await client.rpc("tools/list")
+    diagnostic = error.value.diagnostic
+    assert diagnostic["operation"] == "tools/list"
+    assert diagnostic["protocol"] == "2025-11-25"
+    assert diagnostic.get("http_status") == (403 if status == 403 else None)
+    assert diagnostic.get("parser_code") == (
+        "unexpected_content_type" if status == 200 else None
+    )
+    assert "secret" not in str(error.value) + json.dumps(diagnostic)
 
 
 @pytest.mark.asyncio

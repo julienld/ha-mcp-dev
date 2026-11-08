@@ -91,15 +91,25 @@ def reclaim(directory: Path, image: str, nonce: str) -> None:
     )
 
 
-def stop(container: Any, config: Path, image: str, nonce: str) -> None:
+def stop(
+    container: Any, config: Path, image: str, nonce: str, *, remove: bool = True
+) -> None:
     wrapped = container.get_wrapped_container()
     wrapped.stop(timeout=45)
     wrapped.reload()
     state = wrapped.attrs["State"]
     if state["OOMKilled"] or state["ExitCode"] not in {0, 143}:
         raise UpgradeFailure("core_did_not_stop_cleanly")
-    container.stop()
+    if remove:
+        container.stop()
     reclaim(config, image, nonce)
+
+
+def capture_setup(container: Any) -> None:
+    """Observe actual completed manifest setup before any candidate restart."""
+    from e2e._conftest_native_runtime import capture_native_dependencies
+
+    capture_native_dependencies(container, "after_core_setup")
 
 
 def start(
@@ -136,7 +146,7 @@ def start(
     return container
 
 
-async def profile_run(  # noqa: C901 -- keep the four ordered upgrade phases and their cleanup together
+async def profile_run(  # noqa: C901, PLR0915 -- keep the four ordered upgrade phases and their cleanup together
     args: argparse.Namespace,
     private: Path,
     profile: Profile,
@@ -171,10 +181,10 @@ async def profile_run(  # noqa: C901 -- keep the four ordered upgrade phases and
     )
     connection_hash, grant, baseline, catalogues = "", {}, None, {}
     try:
-        async with httpx.AsyncClient(
-            timeout=45, trust_env=False, follow_redirects=False
-        ) as http:
-            for index, active_phase in enumerate(PHASES):
+        for index, active_phase in enumerate(PHASES):
+            async with httpx.AsyncClient(
+                timeout=45, trust_env=False, follow_redirects=False
+            ) as http:
                 if active_phase == "upgraded":
                     wheel = install_candidate(REPOSITORY, assets[1], config)
                     expected = receipt(
@@ -185,16 +195,21 @@ async def profile_run(  # noqa: C901 -- keep the four ordered upgrade phases and
                         image,
                         nonce,
                     )
-                container = start(
-                    config,
-                    wheel,
-                    image,
-                    nonce,
-                    network + f"-{index}",
-                    network,
-                    ports,
-                    candidate=index > 0,
-                )
+                if container is None:
+                    container = start(
+                        config,
+                        wheel,
+                        image,
+                        nonce,
+                        network + f"-{index}",
+                        network,
+                        ports,
+                        candidate=index > 0,
+                    )
+                else:
+                    # Core 2026.11 installs into the container's Python environment,
+                    # not config/deps. Retain that installation for restart proofs.
+                    container.get_wrapped_container().start()
                 proof = await ready(
                     http,
                     origin,
@@ -202,6 +217,8 @@ async def profile_run(  # noqa: C901 -- keep the four ordered upgrade phases and
                     expected,
                     "legacy" if index < 2 else "native",
                 )
+                if index > 0:
+                    await asyncio.to_thread(capture_setup, container)
                 if active_phase == "main":
                     connection_hash, grant = await enroll_main(
                         http, origin, url, profile.auth, actor, legacy, path
@@ -241,8 +258,10 @@ async def profile_run(  # noqa: C901 -- keep the four ordered upgrade phases and
                         proof["entry_id"],
                         actor["user_id"],
                     )
-                stop(container, config, image, nonce)
-                container = None
+                remove = active_phase in {"main", "restarted"}
+                stop(container, config, image, nonce, remove=remove)
+                if remove:
+                    container = None
     except Exception as error:  # noqa: BLE001 -- never export arbitrary URLs, HTTP bodies or credentials
         category = (
             str(error) if isinstance(error, UpgradeFailure) else type(error).__name__
@@ -250,6 +269,8 @@ async def profile_run(  # noqa: C901 -- keep the four ordered upgrade phases and
         if not re.fullmatch(r"[A-Za-z_]{1,80}", category):
             category = "upgrade_failed"
         result["phases"][active_phase] = {"passed": False, "failure": category}
+        if isinstance(error, UpgradeFailure) and error.diagnostic:
+            result["phases"][active_phase]["diagnostic"] = error.diagnostic
     finally:
         if container is not None:
             try:
@@ -273,6 +294,7 @@ async def run(args: argparse.Namespace) -> int:  # noqa: C901 -- one serial qual
         "profiles": [],
         "scope": "component embedded HTTP on one immutable Core image",
         "not_qualified": [
+            "in-place library upgrade in Main's existing Python environment",
             "stdio",
             "external server",
             "Home Assistant app (add-on) upgrade on HAOS",
@@ -372,7 +394,11 @@ def main() -> int:
     # Builders and Docker helpers inherit only the established disposable-run
     # allowlist, never household/proxy settings or Actions credentials.
     environment = private_environment()
-    environment["GITHUB_REPOSITORY"] = "julienld/ha-mcp-dev"
+    repository = os.environ.get("GITHUB_REPOSITORY")
+    if repository is not None:
+        if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
+            parser.error("invalid GitHub repository identity")
+        environment["GITHUB_REPOSITORY"] = repository
     os.environ.clear()
     os.environ.update(environment)
     if args.command == "preflight":
