@@ -12,6 +12,8 @@ from ..runtime.config_reference_rules import (
 from ..runtime.config_reference_rules import _warnings as _warnings
 from .component_config_reads import fetch_config_references_via_component
 
+__all__ = ["_warnings", "validate_config_references"]
+
 
 async def validate_config_references(
     client: Any, config: dict[str, Any], kind: ConfigKind
