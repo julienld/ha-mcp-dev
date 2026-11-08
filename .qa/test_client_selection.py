@@ -187,7 +187,9 @@ def test_client_selection() -> None:
             )
             if download.count():
                 download.first.click()
-                scope.get_by_role("dialog").wait_for(timeout=20000)
+                page.wait_for_timeout(1000)
+                result["host_after_click"] = page.locator("body").aria_snapshot()
+                result["frame_after_click"] = scope.locator("body").aria_snapshot()
                 result["download_dialog"] = scope.locator("body").aria_snapshot()
                 page.screenshot(
                     path=str(args.output / "download-dialog.png"), full_page=True
