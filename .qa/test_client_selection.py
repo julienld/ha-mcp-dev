@@ -81,6 +81,8 @@ def test_client_selection() -> None:
     }
     container = DockerContainer(f"ghcr.io/home-assistant/home-assistant:{args.core}")
     page = None
+    playwright = None
+    browser = None
     container.with_exposed_ports(8123).with_volume_mapping(str(config), "/config", "rw")
     for name, value in {
         "PIP_INDEX_URL": verify.INDEX + "/simple/",
@@ -100,7 +102,8 @@ def test_client_selection() -> None:
             headers={"Authorization": "Bearer " + TEST_TOKEN},
             timeout=20,
         ).json()["version"]
-        with sync_playwright() as playwright:
+        playwright = sync_playwright().start()
+        if playwright is not None:
             executable = shutil.which("google-chrome") or shutil.which(
                 "google-chrome-stable"
             )
@@ -118,16 +121,7 @@ def test_client_selection() -> None:
             page.locator('input[name="username"]').fill(TEST_USER, timeout=90000)
             page.locator('input[name="password"]').fill(TEST_PASSWORD)
             page.get_by_role("button", name="Log in", exact=True).click()
-            page.locator("home-assistant").wait_for(timeout=90000)
-            page.goto(base + "/" + domain, wait_until="domcontentloaded")
-            page.get_by_role("button").first.wait_for(timeout=60000)
-            page.screenshot(path=str(args.output / "store-initial.png"), full_page=True)
-            scope = (
-                page.frame_locator("iframe").first
-                if page.locator("iframe").count()
-                else page
-            )
-            result["initial_ui"] = scope.locator("body").aria_snapshot()
+            page.locator("ha-sidebar").wait_for(timeout=90000)
             repository_id = str(verify.api(repository, "")["id"])
             ws(
                 base,
@@ -169,6 +163,8 @@ def test_client_selection() -> None:
                 base + "/" + domain + "/repository/" + repository_id,
                 wait_until="domcontentloaded",
             )
+            if domain == "hacs":
+                page.locator("iframe").first.wait_for(timeout=60000)
             page.screenshot(
                 path=str(args.output / "repository-loading.png"), full_page=True
             )
@@ -195,12 +191,15 @@ def test_client_selection() -> None:
                     path=str(args.output / "download-dialog.png"), full_page=True
                 )
             result["observed"] = True
-            browser.close()
     except Exception as error:
         result["error"] = str(error)
         if page is not None:
             try:
                 result["last_ui"] = page.locator("body").aria_snapshot()
+                result["frames"] = [
+                    {"url": frame.url, "ui": frame.locator("body").aria_snapshot()}
+                    for frame in page.frames
+                ]
                 result["buttons"] = page.get_by_role("button").all_text_contents()
                 page.screenshot(
                     path=str(args.output / "client-error.png"), full_page=True
@@ -212,5 +211,9 @@ def test_client_selection() -> None:
         (args.output / "client-observed.json").write_text(
             json.dumps(result, indent=2) + "\n", encoding="utf-8"
         )
+        if browser is not None:
+            browser.close()
+        if playwright is not None:
+            playwright.stop()
         container.stop()
         shutil.rmtree(temp_dir, ignore_errors=True)
