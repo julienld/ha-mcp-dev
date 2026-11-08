@@ -893,7 +893,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         from .embedded_entry import async_setup_server_entry
 
         return await async_setup_server_entry(hass, entry)
-    return await _async_setup_tools_entry(hass, entry)
+    from .file_entry_setup import setup_file_entry
+
+    return await setup_file_entry(hass, entry, _async_setup_tools_entry)
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -1282,16 +1284,6 @@ async def _async_setup_tools_entry(hass: HomeAssistant, entry: ConfigEntry) -> b
     hass.data.setdefault(DOMAIN, {})[
         _HASS_DATA_EXTRA_YAML_KEYS_KEY
     ] = await _load_extra_yaml_keys(hass)
-
-    file_access = FileAccess(hass, entry=entry)
-    hass.data[DOMAIN][DATA_FILE_ACCESS] = file_access
-
-    async def stop_file_access(_event: Any) -> None:
-        await file_access.async_stop()
-
-    entry.async_on_unload(
-        hass.bus.async_listen_once("homeassistant_stop", stop_file_access)
-    )
 
     # One-time migration of pre-fix YAML backups out of the publicly-served
     # www/ directory (GHSA-g39v-cvjh-8fpf). Wrapped so a migration failure
