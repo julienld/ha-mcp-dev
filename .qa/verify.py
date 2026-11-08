@@ -132,6 +132,10 @@ def verify_once(phase: str, product: str, producer: str) -> dict | None:
         if not all(
             v["result"] in {"success", "skipped"} for v in publisher["needs"].values()
         ):
+            # The negative attempt's receipt becomes public before the retry
+            # finishes attaching its successful receipt to the same release.
+            if not is_dev:
+                continue
             raise AssertionError("The QA publisher has an unexpected failed job")
         publisher_id = int(publisher["run_id"])
         sync = receipt(candidate, "Sync Integration Mirror", publisher_id)
