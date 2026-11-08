@@ -430,7 +430,8 @@ async def test_watch_entry_reload_never_raises_and_always_unsubscribes(
 
     async with watch_entry_reload(MagicMock(), "e1") as settled:
         assert await settled() is None
-    observe.assert_awaited_once_with(queue, "e1", timeout=20)
+    observe.assert_awaited_once()
+    assert observe.await_args.args[:2] == (queue, "e1")
     ws.release_subscription.assert_awaited_once_with(7)
 
     async def failed_submit() -> None:

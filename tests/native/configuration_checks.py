@@ -114,7 +114,7 @@ async def exercise_configuration(
     )
     await expect_state(checks, "input_boolean.native_light", "on")
     identifier = automation["automation_id"]
-    read = await checks.call("ha_config_get_automation", {"identifier": identifier})
+    read = await checks.call("ha_config_get_automation", {"entity_id": identifier})
     assert read["config"]["alias"] == "Native contract automation", read
     checks.passed("native_automation_authoring_and_correlated_reload_before_run")
 
@@ -123,7 +123,7 @@ async def exercise_configuration(
     for tool, arguments in (
         ("ha_config_remove_script", {"script_id": "native_contract"}),
         ("ha_config_remove_scene", {"scene_id": "native_contract"}),
-        ("ha_config_remove_automation", {"identifier": identifier}),
+        ("ha_config_remove_automation", {"entity_id": identifier}),
     ):
         deleted = await checks.call(tool, arguments)
         assert deleted["success"], deleted
