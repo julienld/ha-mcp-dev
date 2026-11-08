@@ -128,6 +128,10 @@ async def _set_front_door(
 
 @pytest.mark.haos_tls
 @pytest.mark.timeout(2400)
+# This scenario deliberately uses its run-local DNS-only certificate via the IP.
+@pytest.mark.filterwarnings(
+    r"ignore:Unverified HTTPS request is being made to host '127\.0\.0\.1'\.:urllib3.exceptions.InsecureRequestWarning"
+)
 async def test_manage_app_reproduces_legacy_tls_failure_then_uses_fix(  # noqa: PLR0915
     ha_container_with_fresh_config: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
