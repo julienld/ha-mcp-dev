@@ -1,6 +1,7 @@
 """Finite read, category and skill operations used by config write families."""
 
 import copy
+from collections.abc import Mapping
 from typing import Any, Literal
 
 from ha_mcp.tool_api import BackendTools, ToolFailure
@@ -8,13 +9,7 @@ from ha_mcp.utils.config_hash import json_values_equal
 
 from .actions import ServiceCallTools
 from .blueprint_substitute import rendered_blueprint
-from .config_reference_rules import (
-    _TARGET_ID_KEYS,
-    build_entity_set,
-    build_service_index,
-    check_refs,
-    extract_refs,
-)
+from .config_reference_rules import ConfigKind, reference_validation_meta
 from .registry_references import validate_registry_ids
 from .skill_content import apply_skill_content
 
@@ -185,57 +180,13 @@ class ConfigWriteContext(BackendTools):
         )
         return rendered_blueprint(domain, path, result)
 
-    async def _validate_references(self, config: dict[str, Any]) -> dict[str, Any]:
-        walked = extract_refs(config)
-        output: dict[str, Any] = {
-            "warnings": [],
-            "unvalidated_templates": walked["unvalidated_templates"],
-            "blueprint_skipped": walked["blueprint_skipped"],
-        }
-        if walked["blueprint_skipped"] or not walked["refs"]:
-            return output
-        try:
-            data = await self.backend.execute(
-                "config.references.snapshot", {"include_targets": True}, self.context
-            )
-        except ToolFailure as error:
-            if error.code in {
-                "AUTHENTICATION_FAILED",
-                "AUTH_INVALID_TOKEN",
-                "READ_ONLY",
-                "PERMISSION_DENIED",
-                "FORBIDDEN",
-            }:
-                raise
-            output.update(
-                references_unchecked=True,
-                warnings=[f"Reference catalogs unavailable: {error}"],
-            )
-            return output
-        targets = {
-            kind: set(data[key])
-            for kind, key in _TARGET_ID_KEYS.items()
-            if isinstance(data.get(key), list)
-        }
-        sentinels = frozenset(data.get("match_sentinels") or [])
-        output["warnings"] = check_refs(
-            walked["refs"],
-            build_service_index(data["services"]),
-            build_entity_set([{"entity_id": eid} for eid in data["entity_ids"]]),
-            targets,
-            sentinels,
+    async def _validate_references(
+        self, config: dict[str, Any], kind: ConfigKind
+    ) -> dict[str, Any]:
+        answer = await self.backend.execute(
+            "config.references.check", {"kind": kind, "config": config}, self.context
         )
-        unchecked = sorted(
-            {
-                ref["kind"]
-                for ref in walked["refs"]
-                if ref["kind"] not in {"service", "entity"}
-                and ref["kind"] not in targets
-            }
-        )
-        if unchecked:
-            output["unchecked_target_kinds"] = unchecked
-        return output
+        return dict(reference_validation_meta(answer))
 
     async def _resolve_written_entity(
         self, storage_key: str, domain: Literal["scene", "script"], **options: Any
@@ -319,29 +270,21 @@ def attach_error_guidance(error_dict: dict[str, Any]) -> None:
 
 
 def merge_validation_meta(
-    result: dict[str, Any], validation_meta: dict[str, Any]
+    result: dict[str, Any], validation_meta: Mapping[str, Any]
 ) -> None:
     """Attach reference-validator output to a set-tool success ``result``.
 
-    Produces a single nested ``validation`` field when there's anything
-    worth reporting - warnings, skipped templates, a blueprint
-    short-circuit, target kinds left unchecked, or a failed registry fetch.
-    Keeps the happy-path response unchanged.
+    Produces a single nested ``validation`` field when there's anything worth
+    reporting: Core's warnings, or why the references went unchecked. Keeps the
+    happy-path response unchanged.
 
-    Shared between ``ha_config_set_automation`` and
-    ``ha_config_set_script``; see
-    :mod:`ha_mcp.tools.reference_validator` for the validator itself
-    and #940 for background.
+    Shared between ``ha_config_set_automation``, ``ha_config_set_script`` and
+    ``ha_config_set_scene``; see :mod:`ha_mcp.tools.reference_validator`.
     """
-    entry: dict[str, Any] = {}
-    if validation_meta.get("warnings"):
-        entry["warnings"] = validation_meta["warnings"]
-    if validation_meta.get("unvalidated_templates"):
-        entry["unvalidated_templates"] = validation_meta["unvalidated_templates"]
-    if validation_meta.get("blueprint_skipped"):
-        entry["blueprint_skipped"] = True
-    for key in ("unchecked_target_kinds", "references_unchecked"):
-        if validation_meta.get(key):
-            entry[key] = validation_meta[key]
+    entry = {
+        key: validation_meta[key]
+        for key in ("warnings", "references_unchecked")
+        if validation_meta.get(key)
+    }
     if entry:
         result["validation"] = entry

@@ -200,7 +200,7 @@ root keys and `service` while validating a write and refuses both spellings of
 the same key. Tests must distinguish the selected read view from actual stored
 keys; `python_transform` and writes must preserve the verified raw image.
 
-An automation the registry knows but Core's config API answers "Resource not found" for (defined in YAML or a package) is CONFIG_NOT_FOUND on get, set and remove. The component's lookup reports `loaded`; while Core has not loaded the automation, `references` is None and the get tool warns. With `reference_data_targets`, `reference_data` carries Core's match sentinels (`none`/`all`), which the reference validator skips; without the target ids it reports `validation.unchecked_target_kinds`.
+An automation the registry knows but Core's config API answers "Resource not found" for (defined in YAML or a package) is CONFIG_NOT_FOUND on get, set and remove. The component's lookup reports `loaded`; while Core has not loaded the automation, `references` is None and the get tool warns. The reference validator reads Core's verdict from the component's `config_references`; without the component it reports `validation.references_unchecked`.
 
 **Poll after creating entities.** After creating an entity (automation, script, helper, etc.), HA needs time to register it. Never search/query immediately — use polling helpers from `tests/src/e2e/utilities/wait_helpers.py`:
 ```python

@@ -9,7 +9,7 @@ from ha_mcp.tool_api import UnsupportedOperation
 CONFIG_FINALIZE_OPERATIONS = frozenset(
     {
         "blueprints.render",
-        "config.references.snapshot",
+        "config.references.check",
         "config.entity_id.after_write",
         "entities.registration.wait",
         "entities.category.write",
@@ -40,25 +40,14 @@ async def execute_config_finalize(
         return await client.send_websocket_message(
             {"type": "blueprint/substitute", **arguments}
         )
-    if operation == "config.references.snapshot":
+    if operation == "config.references.check":
         from ha_mcp.tools.component_config_reads import (
-            fetch_reference_data_via_component,
+            fetch_config_references_via_component,
         )
 
-        result = await fetch_reference_data_via_component(client)
-        if result is not None:
-            return result
-        services, states = await asyncio.gather(
-            client.get_services(), client.get_states()
+        return await fetch_config_references_via_component(
+            client, arguments["kind"], arguments["config"]
         )
-        return {
-            "services": services,
-            "entity_ids": [
-                row["entity_id"]
-                for row in states
-                if isinstance(row, dict) and isinstance(row.get("entity_id"), str)
-            ],
-        }
     if operation == "config.entity_id.after_write":
         if arguments["domain"] == "automation":
             from ha_mcp.tools.ws_waiters import wait_for_automation_entity_by_unique_id
@@ -76,7 +65,7 @@ async def execute_config_finalize(
     if operation == "entities.category.write":
         from ha_mcp.tools.config_write_helpers import apply_entity_category
 
-        result = {}
+        result: dict[str, Any] = {}
         await apply_entity_category(
             client,
             arguments["entity_id"],

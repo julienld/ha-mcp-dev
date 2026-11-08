@@ -105,6 +105,58 @@ def authorize(hass: Any) -> Any:
     return user
 
 
+@pytest.mark.parametrize("kind", ["automation", "script", "scene"])
+async def test_native_core_reference_verdict_reaches_shared_writers(
+    native: Any, monkeypatch: pytest.MonkeyPatch, kind: str
+) -> None:
+    from custom_components.ha_mcp_tools import config_references
+    from ha_mcp.runtime.config_write_context import ConfigWriteContext
+
+    hass = SimpleNamespace()
+    authorize(hass)
+    config = {"variables": {"action": "payload.not_a_service"}}
+    verdict = {
+        "status": "ok",
+        "missing": [],
+        "mismatches": [
+            {
+                "path": "actions[0]",
+                "name": "select.select_option",
+                "entity_id": "input_select.mode",
+                "offered": ["input_select.select_option"],
+            }
+        ],
+    }
+    owner = AsyncMock(return_value=verdict)
+    monkeypatch.setattr(config_references, "async_config_references", owner)
+    tools = ConfigWriteContext(native.NativeBackend(hass), CallContext("actor"))
+    result = await tools._validate_references(config, kind)
+    assert result["warnings"][0]["offered"] == ["input_select.select_option"]
+    assert result["warnings"][0]["value"] == "input_select.mode"
+    owner.assert_awaited_once_with(hass, {"kind": kind, "config": config})
+
+
+async def test_native_core_reference_read_refuses_revoked_actor_after_await(
+    native: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from custom_components.ha_mcp_tools import config_references
+
+    hass = SimpleNamespace()
+    user = authorize(hass)
+
+    async def revoke(_hass: Any, _arguments: Any) -> dict[str, Any]:
+        user.is_admin = False
+        return {"status": "ok", "missing": [], "mismatches": []}
+
+    monkeypatch.setattr(config_references, "async_config_references", revoke)
+    with pytest.raises(PermissionError):
+        await native.NativeBackend(hass).execute(
+            "config.references.check",
+            {"kind": "automation", "config": {}},
+            CallContext("actor"),
+        )
+
+
 async def test_native_state_and_service_call_do_not_consult_the_wire_surface(
     native: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:

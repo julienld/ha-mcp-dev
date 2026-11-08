@@ -723,3 +723,28 @@ Migration tests restore old entry/options data and OAuth grants, retain webhook
 and LLM API IDs, and test rollback of both code and stored state. HACS packaging
 and startup must work without the tools entry, without opening another listener,
 creating a server thread or initiating a Core loopback REST/WebSocket connection.
+
+
+## Upstream Core reference checks, 7 November 2026
+
+The integration target is upstream `dddfd793a9a6a0d8c52bc487a91a08d4a98fff0b`
+(including the Core reference-check change in #2992). Automation, script and
+scene configuration writes, including Python transforms, consult Core before
+dispatch. Native calls the same in-process component owner directly; Legacy
+uses the advertised `config_references` capability. No server-side reference
+walker or registry-catalog fallback replaces Core's verdict. Without a usable
+component verdict, `validation.references_unchecked` reports the reason.
+
+Core's missing references and target mismatches become soft warnings, including
+its offered actions for a mismatched entity target. Existing write authority,
+before-images, conflict checks, snapshots and unknown-outcome/no-replay behavior
+remain in effect. Native rechecks the actor after the awaited Core read. The
+old `reference_data` WebSocket read remains available to older consumers; it is
+not the new validator's fallback.
+
+The comparison runner for source `bce7bd0113d6ec8658940f30acb2635a7edd1258`
+reached runtime attestation and refused the differing private FastMCP versions
+(immutable U2 baseline 4.1.2, candidate 4.1.4). Its cleanup completed; no paired
+600-read result was established. The failed run remains historical evidence.
+A baseline/SDK comparison decision is required before another protocol run;
+this integration does not weaken the attestation or substitute release artifacts.

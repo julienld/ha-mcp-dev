@@ -460,6 +460,7 @@ class ScriptWriteTools(ScriptConfigTools):
         # ``script_id`` stays the caller id (the fetched config already
         # carries an alias here, so the default is a no-op, but keep the
         # contract consistent — #1935).
+        references = await self._validate_references(transformed_config, "script")
         result = await self._upsert_script(
             transformed_config, script_id, resolved_id=resolved_id
         )
@@ -489,6 +490,7 @@ class ScriptWriteTools(ScriptConfigTools):
             canonical_files=_SCRIPT_SKILL_FILES,
             referenced_files=bp_warnings.referenced_files,
         )
+        merge_validation_meta(response, references)
         return response
 
     async def _commit_script_config(
@@ -506,7 +508,7 @@ class ScriptWriteTools(ScriptConfigTools):
         # Cross-check literal service and entity references against
         # the live registries. Soft warnings only — the write still
         # happens, even when references don't resolve (#940).
-        validation_meta = await self._validate_references(config_dict)
+        validation_meta = await self._validate_references(config_dict, "script")
 
         result = await self._upsert_script(config_dict, script_id, resolved_key)
 

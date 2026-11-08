@@ -445,6 +445,7 @@ class SceneWriteTools(SceneConfigTools):
         # stays the caller id so a missing ``name`` defaults caller-facing
         # rather than to the storage key (#1935).
         # Scene writes reload every scene; activation has to follow that reload.
+        references = await self._validate_references(transformed_config, "scene")
         async with self._config_reload_waiter(enabled=activate) as wait_for_reload:
             result = await self._upsert_scene(
                 transformed_config, scene_id, resolved_id=resolved_id
@@ -518,6 +519,7 @@ class SceneWriteTools(SceneConfigTools):
             canonical_files=_SCENE_SKILL_FILES,
             referenced_files=None,
         )
+        merge_validation_meta(response, references)
         return response
 
     async def _run_scene_config_replace(
@@ -601,7 +603,7 @@ class SceneWriteTools(SceneConfigTools):
 
         # Cross-check literal service and entity references against the
         # live registries. Soft warnings only.
-        validation_meta = await self._validate_references(config_dict)
+        validation_meta = await self._validate_references(config_dict, "scene")
 
         # ``resolved_id`` is already the storage key (from the hash-verify
         # fetch or the resolve above) — pass it as the write target to skip

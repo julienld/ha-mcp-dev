@@ -64,7 +64,6 @@ from .helpers import (
     raise_tool_error,
     register_tool_methods,
 )
-from .reference_validator import validate_config_references
 from .tool_hints import read_only_hints, write_hints
 from .util_helpers import list_visible_registry_ids
 from .ws_waiters import (
@@ -214,9 +213,6 @@ class AutomationConfigTools(LegacyBackendTools, AutomationWriteTools):
         self, error: dict[str, Any], bp_warnings: Any
     ) -> None:
         augment_error_dict_with_skill_content(error, bp_warnings)
-
-    async def _validate_references(self, config: dict[str, Any]) -> dict[str, Any]:
-        return await validate_config_references(self._client, config)
 
     async def _apply_category(
         self,

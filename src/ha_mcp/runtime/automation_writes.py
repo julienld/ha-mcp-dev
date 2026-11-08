@@ -367,7 +367,7 @@ class AutomationWriteTools(AutomationRuntimeTools):
                 resolved_id = verified[1] if verified is not None else None
             bp_warnings = _check_best_practices(config_dict)
             await self._validate_core_automation(config_dict, identifier, bp_warnings)
-            validation_meta = await self._validate_references(config_dict)
+            validation_meta = await self._validate_references(config_dict, "automation")
             await self._validate_categories({"automation": effective_category})
             return await self._run_config_update(
                 config_dict,
@@ -467,6 +467,7 @@ class AutomationWriteTools(AutomationRuntimeTools):
             transformed_config, identifier, source="python_transform"
         )
         bp_warnings = _check_best_practices(transformed_config)
+        references = await self._validate_references(transformed_config, "automation")
         await self._validate_core_automation(
             transformed_config, identifier, bp_warnings
         )
@@ -542,6 +543,7 @@ class AutomationWriteTools(AutomationRuntimeTools):
             canonical_files=_AUTOMATION_SKILL_FILES,
             referenced_files=bp_warnings.referenced_files,
         )
+        merge_validation_meta(response, references)
         return response, bp_warnings
 
     async def _read_back_config_hash(

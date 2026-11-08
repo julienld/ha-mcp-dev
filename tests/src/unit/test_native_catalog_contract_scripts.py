@@ -467,10 +467,24 @@ async def test_native_script_categories_validate_before_write_and_recheck_after(
         registry.async_update_entity.assert_not_called()
 
 
+@pytest.mark.parametrize("mode", ["config", "transform"])
 async def test_native_script_reference_warnings_and_skill_content_survive_the_port(
-    native: Any, monkeypatch: pytest.MonkeyPatch
+    native: Any, monkeypatch: pytest.MonkeyPatch, mode: str
 ) -> None:
-    engine, _, _, _, writes, tasks = _setup_script(native, monkeypatch)
+    from custom_components.ha_mcp_tools import config_references
+
+    from .test_component_ws_config_references import _fake_core
+
+    engine, owner, _, _, writes, tasks = _setup_script(native, monkeypatch)
+    core = _fake_core()
+    validate = core.validate_script
+
+    async def validate_before_write(*args: Any, **kwargs: Any) -> Any:
+        assert not writes
+        return await validate(*args, **kwargs)
+
+    core.validate_script = validate_before_write
+    monkeypatch.setattr(config_references, "_core", lambda: core)
     requested = []
 
     def read(references: list[str], *, enabled: bool) -> dict:
@@ -482,22 +496,20 @@ async def test_native_script_reference_warnings_and_skill_content_survive_the_po
         }
 
     monkeypatch.setattr(native, "read_skill_files", read)
-    result = await engine.call(
-        "ha_config_set_script",
-        {
-            "script_id": "renamed",
-            "config": {
-                "sequence": [
-                    {
-                        "action": "notify.missing",
-                        "target": {"entity_id": "light.missing"},
-                    }
-                ]
-            },
-            "wait": False,
-        },
-        CallContext("actor"),
-    )
+    config = {
+        "sequence": [
+            {"action": "notify.missing", "target": {"entity_id": "light.missing"}}
+        ]
+    }
+    arguments = {"script_id": "renamed", "wait": False}
+    if mode == "config":
+        arguments["config"] = config
+    else:
+        arguments.update(
+            python_transform=f"config['sequence'] = {config['sequence']!r}",
+            config_hash=compute_config_hash(owner.current["uid"]),
+        )
+    result = await engine.call("ha_config_set_script", arguments, CallContext("actor"))
     await asyncio.gather(*tasks)
     assert not result.is_error, result.data
     assert len(writes) == 1

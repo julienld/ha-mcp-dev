@@ -230,6 +230,12 @@ class NativeBackend:
     async def _execute_owned_operation(
         self, operation: str, arguments: dict[str, Any], context: CallContext
     ) -> Any:
+        if operation == "config.references.check":
+            from .config_references import async_config_references
+
+            result = await async_config_references(self.hass, arguments)
+            await self.authorize(context)
+            return json.loads(json_bytes(result))
         if operation == "integrations.command.execute":
             return await self._integration_command(arguments, context)
         if operation in {"config.entries.watch", "config.entries.observe"}:

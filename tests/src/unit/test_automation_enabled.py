@@ -82,7 +82,6 @@ async def _update(
         None,
         wait,
         tools_config_automations.BestPracticeCheckResult(),
-        {},
         False,
         resolved_id=resolved_id,
         verified=(dict(config or _MORNING), resolved_id)
