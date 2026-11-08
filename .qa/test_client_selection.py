@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 import re
@@ -17,27 +16,22 @@ import verify
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
 from testcontainers.core.container import DockerContainer
-from websockets.asyncio.client import connect
-
-
-async def command(url: str, token: str, message: dict) -> object:
-    uri = url.replace("http://", "ws://") + "/api/websocket"
-    async with connect(uri, open_timeout=15) as websocket:
-        assert json.loads(await websocket.recv())["type"] == "auth_required"
-        await websocket.send(json.dumps({"type": "auth", "access_token": token}))
-        assert json.loads(await websocket.recv())["type"] == "auth_ok"
-        await websocket.send(json.dumps({"id": 1, **message}))
-        async with asyncio.timeout(180):
-            while True:
-                reply = json.loads(await websocket.recv())
-                if reply.get("id") == 1 and reply.get("type") == "result":
-                    if not reply.get("success"):
-                        raise RuntimeError(json.dumps(reply.get("error")))
-                    return reply.get("result")
+from websockets.sync.client import connect
 
 
 def ws(url: str, token: str, message: dict) -> object:
-    return asyncio.run(command(url, token, message))
+    uri = url.replace("http://", "ws://") + "/api/websocket"
+    with connect(uri, open_timeout=15) as websocket:
+        assert json.loads(websocket.recv(timeout=15))["type"] == "auth_required"
+        websocket.send(json.dumps({"type": "auth", "access_token": token}))
+        assert json.loads(websocket.recv(timeout=15))["type"] == "auth_ok"
+        websocket.send(json.dumps({"id": 1, **message}))
+        while True:
+            reply = json.loads(websocket.recv(timeout=180))
+            if reply.get("id") == 1 and reply.get("type") == "result":
+                if not reply.get("success"):
+                    raise RuntimeError(json.dumps(reply.get("error")))
+                return reply.get("result")
 
 
 def test_client_selection() -> None:
@@ -128,23 +122,76 @@ def test_client_selection() -> None:
             page.goto(base + "/" + domain, wait_until="domcontentloaded")
             page.get_by_role("button").first.wait_for(timeout=60000)
             page.screenshot(path=str(args.output / "store-initial.png"), full_page=True)
-            result["initial_ui"] = page.locator("body").aria_snapshot()
+            scope = (
+                page.frame_locator("iframe").first
+                if page.locator("iframe").count()
+                else page
+            )
+            result["initial_ui"] = scope.locator("body").aria_snapshot()
             repository_id = str(verify.api(repository, "")["id"])
-            ws(base, TEST_TOKEN, {"type": domain + "/repositories/add", "repository": repository, "category": "integration"})
-            ws(base, TEST_TOKEN, {"type": domain + "/repository/beta", "repository": repository_id, "show_beta": True})
-            info = ws(base, TEST_TOKEN, {"type": domain + "/repository/info", "repository_id": repository_id})
-            result["repository_before"] = {key: info.get(key) for key in ("full_name", "available_version", "installed", "ref", "file_name", "beta", "releases")}
+            ws(
+                base,
+                TEST_TOKEN,
+                {
+                    "type": domain + "/repositories/add",
+                    "repository": repository,
+                    "category": "integration",
+                },
+            )
+            ws(
+                base,
+                TEST_TOKEN,
+                {
+                    "type": domain + "/repository/beta",
+                    "repository": repository_id,
+                    "show_beta": True,
+                },
+            )
+            info = ws(
+                base,
+                TEST_TOKEN,
+                {"type": domain + "/repository/info", "repository_id": repository_id},
+            )
+            result["repository_before"] = {
+                key: info.get(key)
+                for key in (
+                    "full_name",
+                    "available_version",
+                    "installed",
+                    "ref",
+                    "file_name",
+                    "beta",
+                    "releases",
+                )
+            }
             assert info["full_name"] == repository and not info["installed"]
-            page.goto(base + "/" + domain + "/repository/" + repository_id, wait_until="domcontentloaded")
-            page.get_by_text("Manage Home Assistant with AI", exact=False).first.wait_for(timeout=60000)
-            result["repository_ui"] = page.locator("body").aria_snapshot()
+            page.goto(
+                base + "/" + domain + "/repository/" + repository_id,
+                wait_until="domcontentloaded",
+            )
+            page.screenshot(
+                path=str(args.output / "repository-loading.png"), full_page=True
+            )
+            scope = (
+                page.frame_locator("iframe").first
+                if page.locator("iframe").count()
+                else page
+            )
+            scope.get_by_text(
+                "Manage Home Assistant with AI", exact=False
+            ).first.wait_for(timeout=60000)
+            result["repository_ui"] = scope.locator("body").aria_snapshot()
             page.screenshot(path=str(args.output / "repository.png"), full_page=True)
-            download = page.get_by_role("button", name=re.compile("Télécharger|Download", re.IGNORECASE))
+            download = scope.get_by_role(
+                "button", name=re.compile("Télécharger|Download", re.IGNORECASE)
+            )
             if download.count():
                 download.first.click()
-                page.get_by_role("dialog").wait_for(timeout=20000)
-                result["download_dialog"] = page.locator("body").aria_snapshot()
-                page.screenshot(path=str(args.output / "download-dialog.png"), full_page=True)
+                scope.get_by_role("dialog").wait_for(timeout=20000)
+                result["download_dialog"] = scope.locator("body").aria_snapshot()
+                page.screenshot(
+                    path=str(args.output / "download-dialog.png"), full_page=True
+                )
             result["observed"] = True
             browser.close()
     except Exception as error:
