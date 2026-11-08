@@ -229,9 +229,60 @@ def verify_once(phase: str, product: str, producer: str) -> dict | None:
     return None
 
 
+def verify_blocked_once(product: str, producer: str) -> dict | None:
+    assert contents(SOURCE, ".qa/product-origin.json", producer)["product_sha"] == product
+    runs = api(SOURCE, "actions/workflows/release-publish.yml/runs?per_page=20")
+    for run in runs["workflow_runs"]:
+        if run["head_sha"] != producer or run["status"] != "completed":
+            continue
+        jobs = api(SOURCE, f"actions/runs/{run['id']}/jobs?per_page=100")["jobs"]
+        publish = next(
+            (job for job in jobs if job["name"] == "Publish PyPI package"), None
+        )
+        if publish is None:
+            continue
+        steps = {step["name"]: step["conclusion"] for step in publish["steps"]}
+        if steps.get("Wait for the build on PyPI") != "failure":
+            continue
+        assert run["event"] == "workflow_run"
+        assert steps["Publish package to the isolated QA index"] == "success"
+        assert steps["Publish GitHub release"] == "skipped"
+        docker = next(job for job in jobs if job["name"] == "Publish Docker image")
+        assert docker["conclusion"] == "skipped"
+        manifest = contents(
+            SOURCE, "custom_components/ha_mcp_tools/manifest.json", "stable"
+        )
+        tag = "v" + manifest["version"]
+        assert release(SOURCE, tag) is None and release(MIRROR, tag) is None
+        assert contents(SOURCE, "hacs.json", tag)["zip_release"]
+        unavailable = f"{INDEX}/not-published/pypi/ha-mcp/{manifest['version']}/json"
+        try:
+            download(unavailable)
+        except urllib.error.HTTPError as error:
+            assert error.code == 404
+        else:
+            raise AssertionError(
+                "The negative-test metadata unexpectedly became public"
+            )
+        return {
+            "passed": True,
+            "phase": "stable-blocked",
+            "product_sha": product,
+            "producer_sha": producer,
+            "source_tag": tag,
+            "publisher_run": run["id"],
+            "publish_steps": steps,
+            "docker_conclusion": docker["conclusion"],
+            "unavailable_url": unavailable,
+            "public_source_and_mirror_release_absent": True,
+            "owner_draft_state_still_to_verify": True,
+        }
+    return None
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("phase", choices=("dev", "stable"))
+    parser.add_argument("phase", choices=("dev", "stable", "stable-blocked"))
     parser.add_argument("--product-sha", required=True)
     parser.add_argument("--producer-sha", required=True)
     parser.add_argument("--pr", type=int, default=14)
@@ -251,7 +302,11 @@ def main() -> None:
         deadline = time.monotonic() + 900
         while time.monotonic() < deadline:
             try:
-                value = verify_once(args.phase, args.product_sha, args.producer_sha)
+                value = (
+                    verify_blocked_once(args.product_sha, args.producer_sha)
+                    if args.phase == "stable-blocked"
+                    else verify_once(args.phase, args.product_sha, args.producer_sha)
+                )
             except urllib.error.HTTPError as error:
                 if error.code not in {404, 502, 503, 504}:
                     raise
@@ -268,6 +323,7 @@ def main() -> None:
                 output.writelines(
                     f"{key}={result[key]}\n"
                     for key in ("source_tag", "source_commit", "version", "mirror_tag")
+                    if key in result
                 )
     except Exception as error:
         result["error"] = str(error)
