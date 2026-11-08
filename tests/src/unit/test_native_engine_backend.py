@@ -13,7 +13,12 @@ import pytest
 
 from ha_mcp.runtime import Engine
 from ha_mcp.runtime.catalog import build_initial_catalog
-from ha_mcp.tool_api import CallContext, ToolFailure, UnsupportedOperation
+from ha_mcp.tool_api import (
+    CallContext,
+    ToolDefinition,
+    ToolFailure,
+    UnsupportedOperation,
+)
 
 from .test_component_helper_collections import (
     FakeCollection,
@@ -296,10 +301,13 @@ async def test_native_confirmation_registers_before_dispatch(native: Any) -> Non
     assert len(services.calls) == 1 and bus.listeners == []
 
 
-async def test_mutate_then_raise_is_not_reissued(native: Any) -> None:
+@pytest.mark.parametrize("failure_type", [ValueError, _REAL_VOL.Invalid])
+async def test_mutate_then_raise_is_not_reissued(
+    native: Any, failure_type: Any
+) -> None:
     bus = EventBus()
     services = _FakeCallServices(
-        known={("switch", "toggle")}, raises=ValueError("listener failed after write")
+        known={("switch", "toggle")}, raises=failure_type("listener failed after write")
     )
     hass = _call_hass([], services, bus)
     authorize(hass)
@@ -311,6 +319,47 @@ async def test_mutate_then_raise_is_not_reissued(native: Any) -> None:
     )
     assert result.is_error and result.status == "outcome_unknown"
     assert len(services.calls) == 1 and bus.listeners == []
+
+
+async def test_engine_owned_invalid_core_payload_is_a_definite_rejection(
+    native: Any,
+) -> None:
+    services = _FakeCallServices(known={("light", "turn_on")})
+    bus = EventBus()
+    hass = _call_hass([], services, bus)
+    authorize(hass)
+    backend = native.NativeBackend(hass)
+
+    async def invoke(arguments: Any, context: CallContext) -> Any:
+        return await backend.execute("services.call_observe", arguments, context)
+
+    tool = ToolDefinition("core_write", "Core write", {"type": "object"}, invoke)
+    result = await Engine(backend, [tool]).call(
+        "core_write",
+        {"domain": "light", "service": "turn_on", "service_data": []},
+        CallContext("actor"),
+    )
+    assert result.is_error and result.status == "not_started"
+    assert result.data["error"]["code"] == "VALIDATION_FAILED"
+    assert services.calls == [] and bus.listeners == []
+
+
+async def test_core_schema_implementation_failure_is_not_remapped(
+    native: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    hass = _hass(FakeCollection())
+    authorize(hass)
+    failure = RuntimeError("validator implementation failed")
+
+    def broken(_schema: Any) -> Any:
+        raise failure
+
+    monkeypatch.setitem(native._CORE_PARAMETERS, "services.call_observe", broken)
+    with pytest.raises(RuntimeError) as caught:
+        await native.NativeBackend(hass).execute(
+            "services.call_observe", {}, CallContext("actor")
+        )
+    assert caught.value is failure
 
 
 async def test_idempotent_noop_keeps_confirmed_state_result(native: Any) -> None:

@@ -11,6 +11,7 @@ import voluptuous as vol
 from homeassistant.core import Context, HomeAssistant
 from homeassistant.helpers.json import json_bytes
 
+from ha_mcp.errors import create_validation_error
 from ha_mcp.runtime.mutation_guard import check_mutation_admission
 from ha_mcp.runtime.service_policy import check_service_policy
 from ha_mcp.runtime.skill_files import read_skill_files
@@ -402,7 +403,16 @@ class NativeBackend:
             if operation == "services.call_observe"
             else False
         )
-        values = vol.Schema(_CORE_PARAMETERS[operation](vol))(payload)
+        try:
+            values = vol.Schema(_CORE_PARAMETERS[operation](vol))(payload)
+        except vol.Invalid as error:
+            data = create_validation_error(str(error))
+            raise ToolFailure(
+                data["error"]["code"],
+                data["error"]["message"],
+                data=data,
+                status="not_started",
+            ) from error
         if operation == "helpers.storage.write":
             from .native_operations.helper_mutations import NativeHelperMutations
 
