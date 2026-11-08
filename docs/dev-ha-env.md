@@ -115,12 +115,16 @@ Run it **from your fork only**. The job refuses to run in
 5. Iterate the way you would update ha-mcp on any Home Assistant. The run
    stays on the commit it started from; the standalone and embedded servers
    run in developer mode:
-   - Embedded server: push, then call
+   - Embedded server (Legacy): push, then call
      `ha_dev_manage_server(action="update_source",
      pip_spec="ha-mcp @ git+https://github.com/<you>/ha-mcp@<commit>")`.
      The server reinstalls and comes back within a few minutes;
      `ha_dev_manage_server(action="info")` shows the spec it runs. The run
      starts from a wheel built from your branch's checkout.
+   - Embedded server (Native): finish and stop the previous disposable run,
+     then start a new run with `server=embedded`, `embedded_runtime=native`
+     and `track_ref` set to the updated commit or branch. Native stages an
+     immutable paired component/library; `update_source` is unavailable.
    - Component: add your fork to HACS once with
      `ha_manage_hacs(action="add_repository", repository="<you>/ha-mcp",
      category="integration")`, redownload your branch with

@@ -1,14 +1,13 @@
 # Port an existing tool to both backends
 
-Implementation guide, 22 October 2026. These are working interfaces, not a claim
+Implementation guide. These are working interfaces, not a claim
 that the full catalog has native parity. The immutable catalogs and
 [compatibility contract](compatibility.md) remain the review references.
 
 ## Target architecture: native first
 
-Julien clarified the direction during implementation on 22 October: the custom
-component is the canonical production path. Tools should call Core relatively
-directly. The external server's REST/WebSocket implementation becomes a
+The custom component is the canonical production path. Tools should call Core
+owners directly. The external server's REST/WebSocket implementation is a
 compatibility mode that can eventually be deprecated. That deprecation has not
 been activated.
 

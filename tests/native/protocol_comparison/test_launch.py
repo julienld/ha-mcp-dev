@@ -479,6 +479,18 @@ def test_overlay_imports_real_helpers_from_the_immutable_legacy_baseline(
     tmp_path: Path,
 ) -> None:
     repository = Path(__file__).resolve().parents[3]
+    baseline = subprocess.run(
+        ["git", "cat-file", "-e", f"{launch.BASELINE}^{{commit}}"],
+        check=False,
+        cwd=repository,
+        capture_output=True,
+        timeout=20,
+    )
+    if baseline.returncode:
+        pytest.skip(
+            "Pinned Legacy baseline commit is unavailable in the harness checkout; "
+            f"fetch {launch.BASELINE} to run the archive/preflight regression"
+        )
     archive = subprocess.check_output(
         [
             "git",
@@ -495,6 +507,29 @@ def test_overlay_imports_real_helpers_from_the_immutable_legacy_baseline(
         files.extractall(source)
     launch.overlay_continuity(repository, source)
     _locked_cli_preflight(source)
+
+
+def test_missing_legacy_object_reports_the_prerequisite_before_archiving(
+    tmp_path, monkeypatch
+):
+    repository = tmp_path / "shallow-harness"
+    subprocess.run(
+        ["git", "init", "--bare", str(repository)],
+        check=True,
+        capture_output=True,
+        timeout=20,
+    )
+    monkeypatch.setattr(
+        sys.modules[__name__],
+        "__file__",
+        str(repository / "tests/native/protocol_comparison/test_launch.py"),
+    )
+    with pytest.raises(
+        pytest.skip.Exception, match="Pinned Legacy baseline commit is unavailable"
+    ):
+        test_overlay_imports_real_helpers_from_the_immutable_legacy_baseline(
+            tmp_path / "archive"
+        )
 
 
 def _locked_cli_preflight(source: Path) -> None:

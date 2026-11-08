@@ -19,6 +19,8 @@ from typing import Any
 import pytest
 import yaml
 
+from ._workflow_shell import bash_executable, bash_fixture_environment
+
 _REPO_ROOT = Path(__file__).resolve().parents[3]
 _WORKFLOWS = _REPO_ROOT / ".github" / "workflows"
 _MIRROR = _WORKFLOWS / "sync-integration-mirror.yml"
@@ -160,7 +162,7 @@ class TestMirrorSyncShape:
         )
         output = tmp_path / "out"
         result = subprocess.run(
-            ["bash", "-e", "-c", resolve["run"]],
+            [bash_executable(), "-e", "-c", resolve["run"]],
             cwd=repo,
             env={
                 "PATH": "/usr/bin:/bin",
@@ -305,9 +307,12 @@ class TestDevVersionScript:
         git("reset", "-q", "--hard", "HEAD~1")
 
         result = subprocess.run(
-            ["bash", str(_DEV_VERSION)],
+            [bash_executable(), str(_DEV_VERSION)],
             cwd=repo,
-            env={"PATH": f"{bin_dir}:/usr/bin:/bin", "GITHUB_EVENT_NAME": event},
+            env={
+                **bash_fixture_environment(tmp_path, bin_dir),
+                "GITHUB_EVENT_NAME": event,
+            },
             capture_output=True,
             text=True,
             check=False,
@@ -349,10 +354,10 @@ class TestDevVersionScript:
         git("checkout", "-q", "-b", "feature")
 
         result = subprocess.run(
-            ["bash", str(_DEV_VERSION)],
+            [bash_executable(), str(_DEV_VERSION)],
             cwd=repo,
             env={
-                "PATH": f"{bin_dir}:/usr/bin:/bin",
+                **bash_fixture_environment(tmp_path, bin_dir),
                 "GITHUB_EVENT_NAME": "workflow_dispatch",
             },
             capture_output=True,

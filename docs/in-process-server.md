@@ -58,12 +58,18 @@ installing a release that requires a newer version.
 2. Restart Home Assistant after replacing an already-loaded component.
 3. Open **Settings → Devices & Services → Add Integration**, find
    **HA-MCP — Manage Home Assistant with AI**, and choose **HA-MCP Server**.
-4. Select an active administrator as the owner. Native setup does not ask you
+4. On Core 2026.10+, select an active administrator as the owner. Native setup does not ask you
    to create an administrator account or mint an internal access token.
-5. Enable the access you need: MCP through Home Assistant, LLM API export to
+5. On Core 2026.10+, enable the access you need: MCP through Home Assistant, LLM API export to
    Assist, or both. New entries leave these choices disabled until selected.
 6. For MCP, copy the exact connection URL from the entry's **Configure** screen.
    For Assist, select the exported API in your conversation agent's settings.
+
+On Core 2026.8 and 2026.9, after step 3, provide an administrator's access token
+or the login of a local-only administrator account created for HA-MCP. Select
+the remote access authentication mode and local network binding, then submit
+the Legacy form. Copy the MCP connection URL from **Configure**. To use Assist,
+enable **LLM API export** in Configure before selecting the API in your agent.
 
 For manual installation, extract the selected release's `ha_mcp_tools.zip`
 into `config/custom_components/ha_mcp_tools/`. Preserve its manifest and paired
@@ -272,6 +278,9 @@ recreate the entry as a routine update step.
 - **Home Assistant sign-in (`ha_auth`)** uses the authenticated administrator's
   identity. The component retains upstream's DCR compatibility for clients that
   need registration; Core's CIMD support does not replace DCR.
+  New account registrations and authorization-code sign-ins require Core
+  2026.10.0 or newer. On Core 2026.8 and 2026.9, existing Home Assistant bearer
+  tokens, refresh tokens and revocation remain available.
 - **Secret URL (`none`)** authenticates possession of the URL and executes as the
   selected administrator owner. Anonymous OAuth callbacks remain constrained by
   the configured allowlist unless an administrator explicitly changes that option.

@@ -97,7 +97,8 @@ jobs:
           RESULTS: ${{ toJSON(needs) }}
         run: |
           python3 - <<'PY'
-          import json, os
+          import json, os, sys
           results = json.loads(os.environ["RESULTS"])
-          assert all(job["result"] == "success" for job in results.values()), results
+          if not all(job["result"] == "success" for job in results.values()):
+              sys.exit(f"Legacy Core gate failed: {results}")
           PY

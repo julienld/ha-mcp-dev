@@ -8,8 +8,11 @@ server feature that depends on the component. The HACS component and the
 ## Native and legacy runtimes
 
 The native custom component is the canonical implementation. New server
-entries select `runtime_mode=native`; an existing entry without that option
-keeps the legacy runtime until the administrator changes it. Runtime selection
+entries select `runtime_mode=native` at or above
+`MIN_NATIVE_HOME_ASSISTANT_VERSION` (Core 2026.10.0). Core 2026.8 and 2026.9
+select the Legacy credential and network setup flow. An existing entry without
+`runtime_mode=native` keeps the Legacy runtime until an administrator changes it.
+Runtime selection
 is separate from the webhook authentication modes `none`, `ha_auth` and
 `legacy`. Legacy compatibility has not been deprecated.
 

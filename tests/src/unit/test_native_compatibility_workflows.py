@@ -11,14 +11,15 @@ from typing import Any
 import pytest
 from packaging.specifiers import SpecifierSet
 
+from ._workflow_shell import bash_executable
 from .test_core_window import workflow
 
 
-def _run_preflight(step: dict[str, Any]) -> None:
+def _run_preflight(step: dict[str, Any], *, optimize: bool = False) -> None:
     """Run the actual workflow's checkout-free Python preflight on Windows too."""
     script = step["run"].split("<<'PY'\n", 1)[1].split("\nPY", 1)[0]
     subprocess.run(
-        [sys.executable, "-c", script],
+        [sys.executable, *(["-O"] if optimize else []), "-c", script],
         env=dict(os.environ),
         check=True,
         capture_output=True,
@@ -502,3 +503,105 @@ def test_upgrade_gates_reject_skipped_qualification_even_with_passing_output(
     with pytest.raises(subprocess.CalledProcessError) as error:
         _run_preflight(step)
     assert "qualification did not succeed" in error.value.stderr
+
+
+def _bash_gate(script, tmp_path, environment):
+    child_env = {
+        key: value
+        for key, value in os.environ.items()
+        if key.upper() in {"PATH", "SYSTEMROOT", "WINDIR", "TEMP", "TMP"}
+    }
+    return subprocess.run(
+        [bash_executable(), "--noprofile", "--norc", "-e", "-c", script],
+        check=False,
+        env={**child_env, **environment},
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        timeout=20,
+    )
+
+
+def _kvm_steps():
+    return [
+        (filename + ":" + job_name, step["run"])
+        for filename in ("haos-e2e-tests.yml", "haos-native.yml")
+        for job_name, job in workflow(filename)["jobs"].items()
+        for step in job.get("steps", [])
+        if step.get("name") == "Verify runner resources"
+        and "/dev/kvm" in step.get("run", "")
+    ]
+
+
+@pytest.mark.parametrize(
+    "name,script",
+    [pytest.param(name, script, id=name) for name, script in _kvm_steps()],
+)
+@pytest.mark.parametrize("failed_flag", ["", "-c", "-r", "-w"])
+def test_kvm_preflight_cannot_admit_a_failed_resource_check(
+    name, script, failed_flag, tmp_path
+):
+    commands = "\n".join(
+        line
+        for line in script.splitlines()
+        if line.strip().startswith("test ") and "/dev/kvm" in line
+    )
+    harness = (
+        'test() { if [[ "$1" == "$FAILED_FLAG" ]]; then return 1; fi; return 0; }\n'
+        + commands
+        + '\nprintf "ADMITTED\\n"\n'
+    )
+    result = _bash_gate(harness, tmp_path, {"FAILED_FLAG": failed_flag})
+    assert (result.returncode == 0) is (not failed_flag), (name, result.stderr)
+    assert ("ADMITTED" in result.stdout) is (not failed_flag)
+
+
+@pytest.mark.parametrize("git_failed", [False, True])
+def test_dev_stamp_refuses_a_failed_git_timestamp_lookup(git_failed, tmp_path):
+    commands = next(
+        step["run"]
+        for job in workflow("publish-dev.yml")["jobs"].values()
+        for step in job.get("steps", [])
+        if "GIT_AUTHOR_DATE=" in step.get("run", "")
+    )
+    dates = "\n".join(
+        line
+        for line in commands.splitlines()
+        if line.strip().startswith(("GIT_AUTHOR_DATE=", "export GIT_AUTHOR_DATE"))
+    )
+    harness = (
+        'git() { if [[ "$GIT_FAILED" == "yes" ]]; then return 1; fi; printf "fixture-git-date"; }\n'
+        + dates
+        + '\nprintf "%s" "$GIT_AUTHOR_DATE"\n'
+    )
+    result = _bash_gate(
+        harness,
+        tmp_path,
+        {"GIT_FAILED": "yes" if git_failed else "no", "GITHUB_SHA": "fixture-sha"},
+    )
+    assert (result.returncode != 0) is git_failed
+    if not git_failed:
+        assert result.stdout == "fixture-git-date"
+
+
+@pytest.mark.parametrize(
+    "contract_result", ["success", "failure", "skipped", "cancelled"]
+)
+def test_legacy_gate_still_rejects_failed_contracts_under_python_optimization(
+    contract_result, monkeypatch
+):
+    import json
+
+    step = workflow("legacy-core.yml")["jobs"]["gate"]["steps"][0]
+    monkeypatch.setenv(
+        "RESULTS",
+        json.dumps(
+            {"package": {"result": "success"}, "contract": {"result": contract_result}}
+        ),
+    )
+    if contract_result == "success":
+        _run_preflight(step, optimize=True)
+    else:
+        with pytest.raises(subprocess.CalledProcessError) as error:
+            _run_preflight(step, optimize=True)
+        assert "Legacy Core gate failed" in error.value.stderr

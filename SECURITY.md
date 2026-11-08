@@ -272,12 +272,13 @@ or server thread/subprocess and makes no HA REST/WebSocket loopback calls.
 Native tools invoke Core owners directly or through small domain services,
 under a shared Engine's admission and operation ownership.
 
-New server entries select native execution and start with the webhook disabled.
+New server entries on Core 2026.10+ select native execution and start with the webhook disabled.
 The administrator selects an active human administrator as owner and may enable
 the webhook using one of the three authentication modes below. With the webhook
 disabled, native MCP has no direct-port endpoint; Assist and the administrator
-settings panel can still use the runtime. The legacy runtime keeps its separate
-listener, worker thread and HA client. Existing entries without `runtime_mode`
+settings panel can still use the runtime. Core 2026.8 and 2026.9 select Legacy,
+which uses a separate listener, worker thread and administrator HA credential.
+Existing entries without `runtime_mode`
 retain that runtime and their options until explicitly changed. Migration does
 not enable a disabled webhook or preserve a legacy direct-port URL by opening a
 second listener. HA-hosted webhook/OAuth URLs and entry identities remain stable.

@@ -90,7 +90,9 @@ jobs:
 
       - name: Verify runner resources
         run: |
-          test -c /dev/kvm && test -r /dev/kvm && test -w /dev/kvm
+          test -c /dev/kvm
+          test -r /dev/kvm
+          test -w /dev/kvm
           lscpu
           free -h
           df -h /tmp

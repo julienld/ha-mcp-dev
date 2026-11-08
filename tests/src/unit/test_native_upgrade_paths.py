@@ -211,7 +211,10 @@ async def test_refresh_reuses_old_endpoint_client_and_refresh_token():
 
 
 @pytest.mark.asyncio
-async def test_ha_oauth_enrollment_uses_real_core_login_and_bound_code_exchange():
+@pytest.mark.parametrize("relative", [False, True])
+async def test_ha_oauth_enrollment_uses_real_core_login_and_bound_code_exchange(
+    relative,
+):
     from urllib.parse import urlencode
 
     seen = []
@@ -239,7 +242,7 @@ async def test_ha_oauth_enrollment_uses_real_core_login_and_bound_code_exchange(
             return httpx.Response(
                 302,
                 headers={
-                    "location": origin
+                    "location": ("" if relative else origin)
                     + "/auth/authorize?"
                     + urlencode(
                         {
@@ -286,6 +289,40 @@ async def test_ha_oauth_enrollment_uses_real_core_login_and_bound_code_exchange(
     assert identity == {"client_id": "main-client", "token_endpoint": oauth + "/token"}
     assert grant["refresh_token"] == "main-refresh"
     assert len(seen) == 6
+
+
+@pytest.mark.parametrize("change", ["foreign", "port", "path", "pkce", "callback"])
+async def test_oauth_redirect_is_bound_before_credentials_reach_core(change):
+    from urllib.parse import urlencode
+
+    from tests.native.protocol_comparison.wire import WireError
+    from tests.native.upgrade_paths.auth import CALLBACK, _core_login
+
+    origin = "http://127.0.0.1:8123"
+    endpoint = {
+        "foreign": "//outside.invalid/auth/authorize",
+        "port": "http://127.0.0.1:9999/auth/authorize",
+        "path": "/unexpected",
+    }.get(change, "/auth/authorize")
+    query = urlencode(
+        {
+            "client_id": "fixture-client",
+            "code_challenge": "other" if change == "pkce" else "bound",
+            "redirect_uri": "http://127.0.0.1:9999/wrong"
+            if change == "callback"
+            else CALLBACK,
+        }
+    )
+    http = AsyncMock()
+    with pytest.raises((UpgradeFailure, WireError)):
+        await _core_login(
+            http,
+            origin,
+            httpx.Response(302, headers={"location": endpoint + "?" + query}),
+            "bound",
+            {"username": "fixture-user", "password": "fixture-password"},
+        )
+    assert not http.mock_calls
 
 
 @pytest.mark.asyncio

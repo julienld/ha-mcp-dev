@@ -673,7 +673,8 @@ Full restore honors `safety_backup`: when requested, it requires a completed
 safety archive covering the selected restoration parts, including the database
 only when database restoration is selected. With `safety_backup=false`, no safety
 archive is created and the response says so. The target, manager, reader/writer,
-agent and protection stay pinned through any safety capture and deferred Core handoff. Its reply confirms scheduling only, with
+agent and protection stay pinned through any safety capture and deferred Core
+handoff. Its reply confirms scheduling only, with
 `restore_completed=false`. Hidden-entity enforcement refuses full restore.
 Edit backups reuse the existing store and native domain restorers, checking
 actual content and target identities. Renamed scripts retain their storage key.

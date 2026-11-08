@@ -6,7 +6,7 @@ import base64
 import hashlib
 import secrets
 from typing import Any
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, urljoin, urlsplit
 
 import httpx
 
@@ -126,7 +126,7 @@ async def _core_login(
 ) -> str:
     if response.status_code != 302:
         raise UpgradeFailure("ha_oauth_authorize_refused")
-    target = urlsplit(loopback_url(response.headers["location"]))
+    target = urlsplit(loopback_url(urljoin(origin, response.headers["location"])))
     query = parse_qs(target.query)
     if (
         target.netloc != urlsplit(origin).netloc
