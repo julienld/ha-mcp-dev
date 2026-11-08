@@ -530,15 +530,17 @@ async def test_subentry_reconfigure_preserves_core_handler_and_context(
     backend = flows.NativeFlows(
         SimpleNamespace(config_entries=SimpleNamespace(subentries=owner)), AsyncMock()
     )
-    await backend.execute(
-        "config.flow.start",
-        {"kind": "subentry", "handler": ["entry", "sensor"], "subentry_id": "sub"},
-        CallContext("user"),
-    )
-    owner.async_init.assert_awaited_once_with(
-        ("entry", "sensor"), context={"source": "reconfigure", "subentry_id": "sub"}
-    )
-    await backend.stop()
+    try:
+        await backend.execute(
+            "config.flow.start",
+            {"kind": "subentry", "handler": ["entry", "sensor"], "subentry_id": "sub"},
+            CallContext("user"),
+        )
+        owner.async_init.assert_awaited_once_with(
+            ("entry", "sensor"), context={"source": "reconfigure", "subentry_id": "sub"}
+        )
+    finally:
+        await backend.stop()
 
 
 async def test_failed_flow_stop_keeps_ownership_for_retry(flows: Any) -> None:

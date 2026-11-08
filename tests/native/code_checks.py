@@ -1,6 +1,7 @@
 """Qualify the real conditional Monty owner, persistence and nested policy gates."""
 
 import json
+from contextlib import AsyncExitStack
 from typing import Any
 
 from system_checks import exercise_system_self_reload
@@ -172,11 +173,12 @@ async def _raw_boundaries(checks: Any, base: str) -> None:
     response = await checks.client.get(tools_url)
     response.raise_for_status()
     original = response.json()
-    changed = await checks.client.post(
-        tools_url, json={"states": {"ha_list_services": "disabled"}}
-    )
-    changed.raise_for_status()
-    try:
+    async with AsyncExitStack() as cleanup:
+        cleanup.push_async_callback(_restore_tool_exposure, checks, tools_url, original)
+        changed = await checks.client.post(
+            tools_url, json={"states": {"ha_list_services": "disabled"}}
+        )
+        changed.raise_for_status()
         result = await checks.call(
             "ha_manage_custom_tool",
             {
@@ -185,18 +187,19 @@ async def _raw_boundaries(checks: Any, base: str) -> None:
             },
         )
         assert result["data"]["result"]["error"]["code"] == "TOOL_DISABLED", result
-    finally:
-        restored = await checks.client.post(
-            tools_url,
-            json={
-                "states": original["states"],
-                "llm_api": original["llm_api_overrides"],
-            },
-        )
-        restored.raise_for_status()
     checks.passed(
         "native_code_raw_helpers_preserve_readonly_and_disabled_tool_admission"
     )
+
+
+async def _restore_tool_exposure(
+    checks: Any, url: str, original: dict[str, Any]
+) -> None:
+    restored = await checks.client.post(
+        url,
+        json={"states": original["states"], "llm_api": original["llm_api_overrides"]},
+    )
+    restored.raise_for_status()
 
 
 async def _approval_gate(checks: Any, base: str, script: str) -> None:
@@ -205,23 +208,28 @@ async def _approval_gate(checks: Any, base: str, script: str) -> None:
     features = await checks.client.get(feature_url)
     features.raise_for_status()
     was_enabled = features.json()["flags"]["enable_tool_security_policies"]["value"]
-    enabled = await checks.client.post(
-        feature_url, json={"flags": {"enable_tool_security_policies": True}}
-    )
-    assert enabled.status_code == 200, enabled.text
-    response = await checks.client.get(policy_url)
-    response.raise_for_status()
-    original = response.json()
-    temporary = {
-        **original,
-        "rule_effect": "require_approval",
-        "wait_seconds": 5,
-        "rules": [{"tool_name": "ha_call_service"}],
-    }
-    before = await checks.control("code_probe")
-    saved = await checks.client.put(policy_url, json=temporary)
-    assert saved.status_code == 200, saved.text
-    try:
+    async with AsyncExitStack() as cleanup:
+        cleanup.push_async_callback(
+            _restore_policy_flag, checks, feature_url, was_enabled
+        )
+        enabled = await checks.client.post(
+            feature_url, json={"flags": {"enable_tool_security_policies": True}}
+        )
+        assert enabled.status_code == 200, enabled.text
+        response = await checks.client.get(policy_url)
+        response.raise_for_status()
+        original = response.json()
+        temporary = {
+            **original,
+            "rule_effect": "require_approval",
+            "wait_seconds": 5,
+            "rules": [{"tool_name": "ha_call_service"}],
+        }
+        before = await checks.control("code_probe")
+        # Register before dispatch: a lost reply can follow a committed change.
+        cleanup.push_async_callback(_restore_policy, checks, policy_url, original)
+        saved = await checks.client.put(policy_url, json=temporary)
+        assert saved.status_code == 200, saved.text
         result = await checks.call(
             "ha_manage_custom_tool",
             {
@@ -235,17 +243,22 @@ async def _approval_gate(checks: Any, base: str, script: str) -> None:
         assert "continuation" not in json.dumps(result["data"]["result"]).lower(), (
             result
         )
-    finally:
-        current = await checks.client.get(policy_url)
-        current.raise_for_status()
-        restored = await checks.client.put(
-            policy_url, json={**original, "version": current.json()["version"]}
-        )
-        assert restored.status_code == 200, restored.text
-        restored_flags = await checks.client.post(
-            feature_url, json={"flags": {"enable_tool_security_policies": was_enabled}}
-        )
-        assert restored_flags.status_code == 200, restored_flags.text
     checks.passed(
         "native_code_nested_approval_does_not_dispatch_or_capture_outer_script_for_replay"
     )
+
+
+async def _restore_policy(checks: Any, url: str, original: dict[str, Any]) -> None:
+    current = await checks.client.get(url)
+    current.raise_for_status()
+    restored = await checks.client.put(
+        url, json={**original, "version": current.json()["version"]}
+    )
+    assert restored.status_code == 200, restored.text
+
+
+async def _restore_policy_flag(checks: Any, url: str, was_enabled: bool) -> None:
+    restored = await checks.client.post(
+        url, json={"flags": {"enable_tool_security_policies": was_enabled}}
+    )
+    assert restored.status_code == 200, restored.text
