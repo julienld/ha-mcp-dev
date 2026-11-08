@@ -384,7 +384,11 @@ class NativeBackend:
         if writes:
             check_mutation_admission(context)
         if writes and context.read_only:
-            raise ToolFailure("READ_ONLY", "Writes are disabled for this caller.")
+            raise ToolFailure(
+                "READ_ONLY",
+                "Writes are disabled for this caller.",
+                status="not_started",
+            )
         payload = dict(arguments)
         if operation == "helpers.storage.write":
             from .native_operations.helpers import check_expected_item

@@ -371,15 +371,30 @@ async def test_native_helper_calls_collection_owner_and_reads_back(
     assert hc.collection_owner(hass, "input_number").storage_collection is collection
 
 
-async def test_readonly_and_reserved_envelopes_cannot_reach_owner(native: Any) -> None:
+@pytest.mark.parametrize(
+    "operation", ["helpers.storage.write", "services.call_observe"]
+)
+async def test_readonly_core_write_reports_no_dispatch(
+    native: Any, operation: str
+) -> None:
     collection = FakeCollection()
     hass = _hass(collection)
     authorize(hass)
     backend = native.NativeBackend(hass)
-    with pytest.raises(ToolFailure, match="Writes are disabled"):
-        await backend.execute(
-            "helpers.storage.write", {}, CallContext("actor", read_only=True)
-        )
+    with pytest.raises(ToolFailure, match="Writes are disabled") as caught:
+        await backend.execute(operation, {}, CallContext("actor", read_only=True))
+    assert caught.value.code == "READ_ONLY"
+    assert caught.value.status == "not_started"
+    assert collection.data == {}
+
+
+async def test_reserved_envelopes_and_unsupported_ops_cannot_reach_owner(
+    native: Any,
+) -> None:
+    collection = FakeCollection()
+    hass = _hass(collection)
+    authorize(hass)
+    backend = native.NativeBackend(hass)
     with pytest.raises(ToolFailure, match="Protected"):
         await backend.execute(
             "states.read", {"type": "call_service"}, CallContext("actor")
