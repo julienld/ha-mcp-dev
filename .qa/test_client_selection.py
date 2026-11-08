@@ -77,12 +77,13 @@ def test_client_selection() -> None:
         (config / name).unlink(missing_ok=True)
     assert not (config / "custom_components/ha_mcp_tools").exists()
     configuration_file = config / "configuration.yaml"
-    configuration = yaml.safe_load(configuration_file.read_text())
-    configuration["logger"] = {
-        "default": "warning",
-        "logs": {"custom_components.hacs": "debug"},
-    }
-    configuration_file.write_text(yaml.safe_dump(configuration), encoding="utf-8")
+    configuration = configuration_file.read_text()
+    assert all(key.value != "logger" for key, _ in yaml.compose(configuration).value)
+    configuration_file.write_text(
+        configuration
+        + "\nlogger:\n  default: warning\n  logs:\n    custom_components.hacs: debug\n",
+        encoding="utf-8",
+    )
     repository = verify.SOURCE if args.repo == "source" else verify.MIRROR
     domain = "hacs" if args.core == "2026.8.0" else "marketplace"
     result = {
