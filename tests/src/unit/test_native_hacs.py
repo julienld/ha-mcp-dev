@@ -259,6 +259,47 @@ async def test_own_repository_download_updates_installed_mirror_instead_of_addin
     assert "rerouted" in " ".join(result.data["warnings"])
 
 
+@pytest.mark.parametrize("foreign_count", [1, 2])
+async def test_ha_mcp_download_never_selects_unrelated_installed_repositories(
+    hacs, foreign_count
+):
+    if foreign_count == 2:
+        hacs.repositories["2"] = Repository(hacs.owner, "2", "unrelated/other")
+    target = Repository(hacs.owner, "3", "homeassistant-ai/ha-mcp")
+    target.data.installed = False
+    hacs.repositories["3"] = target
+    hacs.owner.repositories.list_all = list(hacs.repositories.values())
+
+    result = await call(hacs, "download", repository_id=target.data.full_name)
+
+    assert not result.is_error, result.data
+    target.async_download_repository.assert_awaited_once_with(ref=None)
+    for repository in hacs.repositories.values():
+        if repository is not target:
+            repository.async_download_repository.assert_not_awaited()
+    assert not any(
+        "both claim" in warning for warning in result.data.get("warnings", [])
+    )
+
+
+async def test_unrelated_install_does_not_hide_the_existing_ha_mcp_mirror(hacs):
+    hacs.repo.data.full_name = "homeassistant-ai/ha-mcp-integration"
+    foreign = Repository(hacs.owner, "2", "unrelated/other")
+    hacs.repositories["2"] = foreign
+    hacs.owner.repositories.list_all = list(hacs.repositories.values())
+
+    result = await call(
+        hacs,
+        "download",
+        repository_id="homeassistant-ai/ha-mcp",
+        version="v9.1.0.dev12",
+    )
+
+    assert not result.is_error, result.data
+    hacs.repo.async_download_repository.assert_awaited_once_with(ref="v9.1.0-dev.12")
+    foreign.async_download_repository.assert_not_awaited()
+
+
 async def test_old_unmappable_mirror_release_is_refused_before_any_native_download(
     hacs,
 ):
@@ -549,6 +590,23 @@ async def test_add_waits_for_the_owner_and_confirms_actual_registration(hacs):
         repository_full_name="example/new", category="plugin"
     )
     hacs.owner.data.async_write.assert_awaited_once()
+    assert result.data["data"]["message"] == "Successfully added example/new to HACS"
+
+
+async def test_already_registered_hacs_message_names_active_store(hacs):
+    result = await call(
+        hacs,
+        "add_repository",
+        repository=hacs.repo.data.full_name,
+        category="integration",
+    )
+    assert not result.is_error, result.data
+    assert result.data["data"]["already_registered"] is True
+    assert (
+        result.data["data"]["message"]
+        == f"Successfully added {hacs.repo.data.full_name} to HACS"
+    )
+    hacs.owner.async_register_repository.assert_not_awaited()
 
 
 async def test_silent_registration_refusal_cannot_be_reported_as_success(hacs):

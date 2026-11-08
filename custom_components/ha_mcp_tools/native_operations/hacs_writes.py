@@ -7,7 +7,7 @@ import logging
 from importlib import import_module
 from typing import Any
 
-from ha_mcp.runtime.hacs_ownership import route_installed_own_repository
+from ha_mcp.runtime.hacs_ownership import _own_name, route_installed_own_repository
 from ha_mcp.runtime.hacs_results import (
     added_data,
     download_data,
@@ -128,6 +128,7 @@ class NativeHacs(HacsReads):
                     {"full_name": item.data.full_name, "installed": True}
                     for item in access.repositories.list_all
                     if item.data.installed
+                    and _own_name({"full_name": item.data.full_name})
                 ]
                 identifier, version, routing_note = route_installed_own_repository(
                     identifier,
@@ -470,6 +471,9 @@ class NativeHacs(HacsReads):
                             repository,
                             category,
                             access.project(existing),
+                            store_name="Marketplace"
+                            if access.domain == "marketplace"
+                            else "HACS",
                         ),
                         "already_registered": True,
                     }
@@ -554,7 +558,14 @@ class NativeHacs(HacsReads):
             await access.observe(repo, after)
             return self.wrapped(
                 {
-                    **added_data(name, category, access.project(repo)),
+                    **added_data(
+                        name,
+                        category,
+                        access.project(repo),
+                        store_name="Marketplace"
+                        if access.domain == "marketplace"
+                        else "HACS",
+                    ),
                     "store": access.domain,
                 }
             )

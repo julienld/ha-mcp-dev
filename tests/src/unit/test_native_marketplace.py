@@ -11,7 +11,7 @@ import pytest
 from ha_mcp.tool_api import CallContext
 
 from .test_native_engine_backend import native as native
-from .test_native_hacs import call
+from .test_native_hacs import Repository, call
 from .test_native_hacs import hacs as hacs
 
 
@@ -121,6 +121,45 @@ def marketplace(hacs, monkeypatch):
 
     hacs.owner.async_register_repository.side_effect = register
     return hacs
+
+
+async def test_marketplace_mirror_remains_the_owner_with_unrelated_installs(
+    marketplace,
+):
+    marketplace.repo.data.full_name = "homeassistant-ai/ha-mcp-integration"
+    foreign = Repository(marketplace.owner, "2", "unrelated/other")
+    marketplace.repositories["2"] = foreign
+    marketplace.owner.repositories.list_all = list(marketplace.repositories.values())
+
+    result = await call(
+        marketplace,
+        "download",
+        repository_id="homeassistant-ai/ha-mcp",
+        version="v9.1.0.dev12",
+    )
+
+    assert not result.is_error, result.data
+    marketplace.repo.async_install_repository.assert_awaited_once_with(
+        ref="v9.1.0-dev.12"
+    )
+    foreign.async_download_repository.assert_not_awaited()
+
+
+@pytest.mark.parametrize("registered", [False, True])
+async def test_marketplace_registration_message_names_active_store(
+    marketplace, registered
+):
+    name = marketplace.repo.data.full_name if registered else "example/new"
+    result = await call(
+        marketplace, "add_repository", repository=name, category="integration"
+    )
+    assert not result.is_error, result.data
+    assert result.data["data"]["message"] == f"Successfully added {name} to Marketplace"
+    if registered:
+        assert result.data["data"]["already_registered"] is True
+        marketplace.owner.async_register_repository.assert_not_awaited()
+    else:
+        marketplace.owner.async_register_repository.assert_awaited_once()
 
 
 async def test_marketplace_info_preserves_core_fields_with_normal_refresh(

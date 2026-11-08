@@ -75,12 +75,14 @@ def refresh_data(actual_id: str, repo_name: str, result: Any) -> dict[str, Any]:
     }
 
 
-def added_data(repository: str, category: str, repo: dict[str, Any]) -> dict[str, Any]:
+def added_data(
+    repository: str, category: str, repo: dict[str, Any], *, store_name: str
+) -> dict[str, Any]:
     repo_id = repo.get("id")
     return {
         "repository": repository,
         "category": category,
         "repository_id": str(repo_id) if repo_id is not None else None,
-        "message": f"Successfully added {repository} to HACS",
+        "message": f"Successfully added {repository} to {store_name}",
         "data": repo,
     }
