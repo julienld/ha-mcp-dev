@@ -6,6 +6,8 @@ import sys
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
+import pytest
+
 from ha_mcp.runtime import Engine
 from ha_mcp.runtime.catalog import build_initial_catalog
 from ha_mcp.tool_api import CallContext
@@ -13,6 +15,61 @@ from ha_mcp.tool_api import CallContext
 from .test_component_ws_phase2_async import _call_hass, _FakeCallServices
 from .test_native_engine_backend import EventBus, authorize
 from .test_native_engine_backend import native as native
+
+
+@pytest.mark.parametrize("single", [False, True])
+async def test_registry_reads_keep_raw_keys_and_isolate_invalid_ids(
+    native, monkeypatch, single
+):
+    import importlib
+
+    owner = importlib.import_module(
+        "custom_components.ha_mcp_tools.native_registry_ops"
+    )
+    helpers = importlib.import_module(
+        "custom_components.ha_mcp_tools.helper_collections"
+    )
+    cv = sys.modules["homeassistant.helpers.config_validation"]
+    monkeypatch.setattr(
+        sys.modules["homeassistant.helpers"], "config_validation", cv, raising=False
+    )
+
+    def normalize(raw):
+        if raw == "invalid":
+            raise helpers._INVALID_ERRORS[0]("Invalid entity ID")
+        return raw.strip().lower()
+
+    monkeypatch.setattr(cv, "entity_id", normalize)
+    monkeypatch.setattr(
+        cv, "entity_ids", lambda values: [normalize(raw) for raw in values]
+    )
+    rows = {
+        "light.kitchen": SimpleNamespace(extended_dict={"entity_id": "light.kitchen"}),
+        "sensor.valid": SimpleNamespace(extended_dict={"entity_id": "sensor.valid"}),
+    }
+    registry = SimpleNamespace(async_get=rows.get)
+    registry_module = SimpleNamespace(async_get=lambda _: registry)
+    monkeypatch.setitem(
+        sys.modules, "homeassistant.helpers.entity_registry", registry_module
+    )
+    monkeypatch.setattr(
+        sys.modules["homeassistant.helpers"], "entity_registry", registry_module
+    )
+    ids = (
+        [" Light.Kitchen "]
+        if single
+        else [" Light.Kitchen ", "invalid", "sensor.valid", "light.missing"]
+    )
+    result = await owner._entity_read(object(), {"entity_ids": ids, "single": single})
+    expected = {" Light.Kitchen ": {"entity_id": "light.kitchen"}}
+    if not single:
+        expected["sensor.valid"] = {"entity_id": "sensor.valid"}
+    assert result["entries"] == expected
+    assert result["errors"] == (
+        {}
+        if single
+        else {"invalid": "Invalid entity ID", "light.missing": "Entity not found"}
+    )
 
 
 async def test_raw_read_after_another_test_preimports_the_serializer(

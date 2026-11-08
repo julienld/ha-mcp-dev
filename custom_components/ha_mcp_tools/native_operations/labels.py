@@ -40,6 +40,7 @@ from .registry_access import (
     registry_failure,
     registry_json,
 )
+from .registry_expectation import check_registry_name
 from .registry_failures import (
     registry_outcome_unknown,
     registry_target_missing,
@@ -292,6 +293,8 @@ class NativeLabels:
                     "The label changed after its snapshot was read; no mutation was sent.",
                     status="not_started",
                 )
+            if action != "delete":
+                check_registry_name(registry, "label", payload, identifier)
             check_mutation_admission(self.actor)
             try:
                 if action == "create":

@@ -13,6 +13,53 @@ from .test_native_catalog_contract_area_writes import _serialize, _setup
 from .test_native_engine_backend import native as native
 
 
+@pytest.mark.parametrize("kind", ["area", "floor"])
+@pytest.mark.parametrize("action", ["create", "update"])
+async def test_duplicate_name_is_refused_before_area_or_floor_dispatch(
+    native: Any, monkeypatch: pytest.MonkeyPatch, kind: str, action: str
+) -> None:
+    from types import SimpleNamespace
+
+    engine, _, areas, floors, _ = _setup(native, monkeypatch)
+    registry = areas if kind == "area" else floors
+    before = {key: _serialize(row) for key, row in registry.entries.items()}
+    collision = SimpleNamespace(**{"id" if kind == "area" else "floor_id": "other"})
+    lookup = Mock(return_value=collision)
+    monkeypatch.setattr(registry, f"async_get_{kind}_by_name", lookup, raising=False)
+    operation = Mock(side_effect=ValueError("Core refuses the duplicate name"))
+    monkeypatch.setattr(registry, f"async_{action}", operation)
+    arguments = {"kind": kind, "name": "Already used"}
+    if action == "update":
+        arguments["id"] = "existing"
+    result = await engine.call("ha_set_area_or_floor", arguments, CallContext("actor"))
+    assert result.is_error and result.status == "not_started", result.data
+    assert result.data["error"]["code"] == "VALIDATION_INVALID_PARAMETER"
+    lookup.assert_called_once_with("Already used")
+    operation.assert_not_called()
+    assert {key: _serialize(row) for key, row in registry.entries.items()} == before
+
+
+@pytest.mark.parametrize("kind", ["area", "floor"])
+async def test_area_or_floor_can_keep_its_own_normalized_name(
+    native: Any, monkeypatch: pytest.MonkeyPatch, kind: str
+) -> None:
+    engine, _, areas, floors, _ = _setup(native, monkeypatch)
+    registry = areas if kind == "area" else floors
+    monkeypatch.setattr(
+        registry,
+        f"async_get_{kind}_by_name",
+        Mock(return_value=registry.entries["existing"]),
+        raising=False,
+    )
+    result = await engine.call(
+        "ha_set_area_or_floor",
+        {"kind": kind, "id": "existing", "name": "Before"},
+        CallContext("actor"),
+    )
+    assert not result.is_error, result.data
+    assert len(registry.calls) == 1
+
+
 @pytest.mark.parametrize(
     ("action", "kind"), [("create", "humidity"), ("update", "temperature")]
 )

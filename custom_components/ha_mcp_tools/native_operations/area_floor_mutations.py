@@ -12,6 +12,7 @@ from ha_mcp.tool_api import ToolFailure, UnsupportedOperation
 from ha_mcp.utils.config_hash import json_values_equal
 
 from .label_validation import existing_label_ids
+from .registry_expectation import check_registry_name
 from .registry_failures import registry_outcome_unknown, registry_target_missing
 from .registry_mutations import _validated_payload
 
@@ -96,6 +97,8 @@ async def _mutate(
     if action != "create" and before is None:
         registry_target_missing(domain, data[f"{domain}_id"])
     data = _owner_payload(hass, domain, data)
+    if action != "delete":
+        check_registry_name(registry, domain, data, data.get(f"{domain}_id"))
     if domain == "area" and action != "delete":
         _validate_area_sensors(hass, data, before)
     operation = getattr(registry, f"async_{action}", None)

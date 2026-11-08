@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -31,6 +31,44 @@ _STAMP = datetime(2026, 1, 1, tzinfo=UTC)
 _CONTRACT = (
     Path(__file__).resolve().parents[3] / "docs/native-migration/catalog-baseline.json"
 )
+
+
+@pytest.mark.parametrize("action", ["create", "update"])
+async def test_duplicate_label_name_is_refused_before_core_dispatch(
+    native, monkeypatch, action
+):
+    engine, _, labels, _, _, _, _ = _setup(native, monkeypatch)
+    before = {key: _serialized(row) for key, row in labels.rows.items()}
+    lookup = Mock(return_value=labels.rows["other"])
+    monkeypatch.setattr(labels, "async_get_label_by_name", lookup, raising=False)
+    operation = Mock(side_effect=ValueError("Core refuses the duplicate name"))
+    monkeypatch.setattr(labels, f"async_{action}", operation)
+    arguments = {"name": "Other"}
+    if action == "update":
+        arguments["label_id"] = "existing"
+    result = await engine.call("ha_config_set_label", arguments, CallContext("actor"))
+    assert result.is_error and result.status == "not_started", result.data
+    assert result.data["error"]["code"] == "VALIDATION_INVALID_PARAMETER"
+    lookup.assert_called_once_with("Other")
+    operation.assert_not_called()
+    assert {key: _serialized(row) for key, row in labels.rows.items()} == before
+
+
+async def test_label_can_keep_its_own_normalized_name(native, monkeypatch):
+    engine, _, labels, _, _, _, _ = _setup(native, monkeypatch)
+    monkeypatch.setattr(
+        labels,
+        "async_get_label_by_name",
+        Mock(return_value=labels.rows["existing"]),
+        raising=False,
+    )
+    result = await engine.call(
+        "ha_config_set_label",
+        {"label_id": "existing", "name": "Existing"},
+        CallContext("actor"),
+    )
+    assert not result.is_error, result.data
+    assert len(labels.calls) == 1
 
 
 def _serialized(entry: Any) -> dict[str, Any]:

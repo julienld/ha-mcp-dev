@@ -6,6 +6,25 @@ from ha_mcp.tool_api import ToolFailure
 from ha_mcp.utils.config_hash import json_values_equal
 
 
+def check_registry_name(
+    registry: Any, domain: str, data: dict[str, Any], identifier: str | None
+) -> None:
+    """Use Core's normalized-name index without rejecting an owner's own name."""
+    lookup = getattr(registry, f"async_get_{domain}_by_name", None)
+    if "name" not in data or not callable(lookup):
+        return
+    existing = lookup(data["name"])
+    identity_field = "id" if domain == "area" else f"{domain}_id"
+    if existing is not None and (
+        identifier is None or getattr(existing, identity_field, None) != identifier
+    ):
+        raise ToolFailure(
+            "VALIDATION_INVALID_PARAMETER",
+            f"The name '{data['name']}' is already in use",
+            status="not_started",
+        )
+
+
 def check_expected_registry(hass: Any, expected: dict[str, Any] | None) -> None:
     """Synchronous admission: call after authorization, immediately before dispatch."""
     if expected is None:

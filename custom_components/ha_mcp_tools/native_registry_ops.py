@@ -121,23 +121,17 @@ async def _entity_read(hass: HomeAssistant, arguments: dict[str, Any]) -> Any:
     single = arguments.get("single", False)
     for start in range(0, len(ids), 500):
         chunk = ids[start : start + 500]
-        try:
-            normalized = [cv.entity_id(chunk[0])] if single else cv.entity_ids(chunk)
-        except _INVALID_ERRORS as error:
-            errors.update(dict.fromkeys(chunk, str(error)))
-            continue
-        result = {
-            entity_id: entry.extended_dict
-            if (entry := registry.async_get(entity_id))
-            else None
-            for entity_id in normalized
-        }
-        for entity_id in chunk:
-            row = result.get(normalized[0] if single else entity_id)
-            if row is None:
-                errors[entity_id] = "Entity not found"
+        for raw in chunk:
+            try:
+                normalized = cv.entity_id(chunk[0] if single else raw)
+            except _INVALID_ERRORS as error:
+                errors[raw] = str(error)
+                continue
+            entry = registry.async_get(normalized)
+            if entry is None:
+                errors[raw] = "Entity not found"
             else:
-                entries[entity_id] = row
+                entries[raw] = entry.extended_dict
         await asyncio.sleep(0)
     return {"entries": entries, "errors": errors}
 
