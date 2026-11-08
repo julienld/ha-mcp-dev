@@ -203,8 +203,9 @@ def test_client_selection() -> None:
             if download.count():
                 download.first.click()
                 dialog = scope.locator("hacs-download-dialog")
-                dialog.wait_for(timeout=30000)
-                result["download_dialog"] = dialog.aria_snapshot()
+                visible_dialog = scope.get_by_role("alertdialog")
+                visible_dialog.wait_for(timeout=30000)
+                result["download_dialog"] = visible_dialog.aria_snapshot()
                 page.screenshot(
                     path=str(args.output / "download-dialog.png"), full_page=True
                 )
@@ -222,7 +223,7 @@ def test_client_selection() -> None:
                 dialog.get_by_role(
                     "button", name=re.compile("^Télécharger$|^Download$", re.IGNORECASE)
                 ).click()
-                expect(dialog).not_to_be_visible(timeout=180000)
+                expect(visible_dialog).not_to_be_visible(timeout=180000)
             else:
                 raise AssertionError("No actual installer download action")
             component = config / "custom_components/ha_mcp_tools"
