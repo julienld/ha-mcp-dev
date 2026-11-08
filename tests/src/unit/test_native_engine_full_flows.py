@@ -13,6 +13,7 @@ from ha_mcp.runtime import Engine
 from ha_mcp.runtime.flows.session import FlowSession
 from ha_mcp.tool_api import CallContext, ToolFailure
 from ha_mcp.utils.registry_update_lock import registry_update_lock
+from tests.src.e2e.utilities.cleanup import CleanupSteps
 
 from .test_component_helper_collections import FakeCollection, _hass
 from .test_component_ws_search import FakeRegEntry, make_view
@@ -30,26 +31,80 @@ async def test_revoked_actor_can_only_abort_its_own_flow_and_release_entry_lock(
     manager.async_init.return_value = {"flow_id": "owned", "type": "form"}
     credential = AsyncMock()
     actor = CallContext("actor", credential=credential)
-    await backend.execute(
-        "config.flow.start", {"kind": "options", "handler": "entry"}, actor
-    )
-    user.is_active = False
-    credential.side_effect = PermissionError("revoked")
-    with pytest.raises(ToolFailure, match="revoked") as rejected:
+    original_active, original_credential = user.is_active, credential.side_effect
+    try:
         await backend.execute(
-            "config.flow.configure", {"flow_id": "owned", "user_input": {}}, actor
+            "config.flow.start", {"kind": "options", "handler": "entry"}, actor
         )
-    assert rejected.value.status == "not_started"
-    manager.async_configure.assert_not_awaited()
-    with pytest.raises(ToolFailure, match="does not own"):
-        await backend.execute(
-            "config.flow.abort", {"flow_id": "owned"}, CallContext("other")
+        user.is_active = False
+        credential.side_effect = PermissionError("revoked")
+        with pytest.raises(ToolFailure, match="revoked") as rejected:
+            await backend.execute(
+                "config.flow.configure", {"flow_id": "owned", "user_input": {}}, actor
+            )
+        assert rejected.value.status == "not_started"
+        manager.async_configure.assert_not_awaited()
+        with pytest.raises(ToolFailure, match="does not own"):
+            await backend.execute(
+                "config.flow.abort", {"flow_id": "owned"}, CallContext("other")
+            )
+        await backend.execute("config.flow.abort", {"flow_id": "owned"}, actor)
+        assert (
+            not backend._flows.owned
+            and not registry_update_lock("config_entry", "entry").locked()
         )
-    await backend.execute("config.flow.abort", {"flow_id": "owned"}, actor)
-    assert (
-        not backend._flows.owned
-        and not registry_update_lock("config_entry", "entry").locked()
-    )
+    finally:
+        with CleanupSteps() as cleanup:
+            with cleanup.step():
+                user.is_active, credential.side_effect = (
+                    original_active,
+                    original_credential,
+                )
+            with cleanup.step():
+                await backend.stop()
+
+
+async def test_revocation_scenario_failure_restores_actor_and_releases_entry_lock(
+    native, flows, monkeypatch
+):
+    original_setup = _setup
+    captured = []
+
+    def failing_setup(*args, **kwargs):
+        result = original_setup(*args, **kwargs)
+        _, user, _, manager, backend, _ = result
+        case = SimpleNamespace(user=user, backend=backend, actor=None)
+        captured.append(case)
+        manager.async_configure.assert_not_awaited = Mock(
+            side_effect=AssertionError("injected scenario assertion")
+        )
+        execute = backend.execute
+
+        async def record(operation, arguments, actor):
+            if operation == "config.flow.start":
+                case.actor = actor
+            return await execute(operation, arguments, actor)
+
+        backend.execute = record
+        return result
+
+    monkeypatch.setattr(sys.modules[__name__], "_setup", failing_setup)
+    try:
+        with pytest.raises(AssertionError, match="injected scenario assertion"):
+            await test_revoked_actor_can_only_abort_its_own_flow_and_release_entry_lock(
+                native, flows, monkeypatch
+            )
+        case = captured[0]
+        assert case.user.is_active
+        assert case.actor.credential.side_effect is None
+        assert not case.backend._flows.owned
+        assert not registry_update_lock("config_entry", "entry").locked()
+    finally:
+        for case in captured:
+            case.user.is_active = True
+            if case.actor:
+                case.actor.credential.side_effect = None
+            await case.backend.stop()
 
 
 @pytest.mark.parametrize("kind", ["options", "subentry-create", "subentry-update"])

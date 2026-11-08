@@ -75,7 +75,10 @@ async def test_admission_reads_shared_envelope_and_requires_registered_identity(
         return {
             "success": True,
             **timezone_metadata(
-                added_data(repository, category, {"id": repository_id}), "UTC"
+                added_data(
+                    repository, category, {"id": repository_id}, store_name="HACS"
+                ),
+                "UTC",
             ),
         }
 
@@ -110,7 +113,10 @@ async def test_incomplete_tool_envelope_is_not_accepted(missing: str) -> None:
         "success": True,
         **timezone_metadata(
             added_data(
-                "qualification/hacs-owner-fixture", "integration", {"id": "987654321"}
+                "qualification/hacs-owner-fixture",
+                "integration",
+                {"id": "987654321"},
+                store_name="HACS",
             ),
             "UTC",
         ),
