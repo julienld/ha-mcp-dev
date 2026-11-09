@@ -158,7 +158,7 @@ def test_running_manager_does_not_imply_ready_webhook_and_authentication(
         is_running=False,
         data={
             "ha_mcp_tools": {"webhook": cfg},
-            "webhook": {"w": {"domain": "ha_mcp_tools"}},
+            "webhook": {"w": SimpleNamespace(domain="ha_mcp_tools")},
         },
     )
     assert not endpoint_ready(hass, entry)
@@ -171,3 +171,35 @@ def test_running_manager_does_not_imply_ready_webhook_and_authentication(
     assert endpoint_ready(hass, entry)
     hass.data["webhook"].clear()
     assert not endpoint_ready(hass, entry)
+
+
+@pytest.mark.parametrize("http_status", [401, 500])
+async def test_readiness_preserves_probe_errors_without_waiting_for_startup_timeout(
+    monkeypatch, http_status
+):
+    from tests.native.upgrade_paths import exercise
+
+    http = SimpleNamespace(
+        get=AsyncMock(
+            return_value=SimpleNamespace(
+                status_code=http_status,
+                json=Mock(
+                    side_effect=AssertionError("Private response must not be read")
+                ),
+            )
+        )
+    )
+    monkeypatch.setattr(
+        exercise, "time", SimpleNamespace(monotonic=Mock(side_effect=[0, 0, 721]))
+    )
+    sleep = AsyncMock()
+    monkeypatch.setattr(exercise, "asyncio", SimpleNamespace(sleep=sleep))
+    with pytest.raises(
+        exercise.UpgradeFailure, match="runtime_probe_http_refused"
+    ) as error:
+        await exercise.ready(
+            http, "http://127.0.0.1:1234", "private-token", {}, "legacy"
+        )
+    assert error.value.diagnostic == {"http_status": http_status}
+    http.get.assert_awaited_once()
+    sleep.assert_not_awaited()

@@ -9,11 +9,11 @@ def endpoint_ready(hass: Any, entry: Any) -> bool:
     domain = hass.data.get("ha_mcp_tools", {})
     cfg = domain.get("webhook", {})
     webhook_id = entry.data.get("webhook_id")
-    registration = hass.data.get("webhook", {}).get(webhook_id, {})
+    registration = hass.data.get("webhook", {}).get(webhook_id)
     if (
         not webhook_id
         or cfg.get("webhook_id") != webhook_id
-        or registration.get("domain") != "ha_mcp_tools"
+        or getattr(registration, "domain", None) != "ha_mcp_tools"
         or cfg.get("auth_mode") != entry.options.get("webhook_auth", "none")
     ):
         return False

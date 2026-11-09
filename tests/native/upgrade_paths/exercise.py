@@ -37,6 +37,10 @@ async def ready(
                 origin + "/api/upgrade_fixture",
                 headers={"Authorization": "Bearer " + token},
             )
+            if response.status_code not in {200, 404}:
+                raise UpgradeFailure(
+                    "runtime_probe_http_refused", http_status=response.status_code
+                )
             if response.status_code == 200 and (proof := response.json()).get(
                 "running"
             ):
