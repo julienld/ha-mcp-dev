@@ -32,7 +32,12 @@ def raise_tool_error(error_response: dict[str, Any]) -> NoReturn:
         ... )
         >>> raise_tool_error(error)  # Raises ToolError with isError=true
     """
-    raise ToolError(
+    raise tool_error_from_response(error_response)
+
+
+def tool_error_from_response(error_response: dict[str, Any]) -> ToolError:
+    """Build the ToolError used by the raising facade and fail-closed callers."""
+    return ToolError(
         json.dumps(error_response, indent=2, default=str),
         log_level=TOOL_ERROR_LOG_LEVEL,
     )

@@ -85,7 +85,9 @@ def _classify_exception(
                 error_msg,
                 suggestions=[
                     "Use a long-lived access token from an administrator's profile",
-                    "Or use the in-process server, which provisions its own admin token",
+                    "Or, on the in-process server, use a token issued in the "
+                    + "integration's forms from the login of a local-only "
+                    + "administrator account",
                 ],
                 context=context,
             )

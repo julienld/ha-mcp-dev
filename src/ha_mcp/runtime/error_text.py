@@ -50,5 +50,6 @@ def extract_structured_error_reason(exc: BaseException) -> str | None:
         else error.get("suggestion")
     )
     if isinstance(first, str) and first:
-        return f"{message} {first}"
+        separator = " " if message[-1] in ".!?:" else ". "
+        return f"{message}{separator}{first}"
     return message

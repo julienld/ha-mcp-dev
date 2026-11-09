@@ -30,6 +30,7 @@ from ..runtime.action_params import (
 from ..runtime.error_classification import classified_error
 from ..tool_api.parameters import HIDDEN_PARAM, hidden_param_names
 from ..utils.tool_errors import raise_tool_error
+from ..utils.tool_errors import tool_error_from_response as tool_error_from_response
 from ..utils.usage_logger import log_tool_call
 from .coercion import UNSET
 

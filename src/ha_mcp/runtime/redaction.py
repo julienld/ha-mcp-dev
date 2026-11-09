@@ -12,7 +12,7 @@ surfaces stop returning operator secrets verbatim:
    name-based match is the operator's own ``redact_app_option_keys`` list;
    listed options and PEM private-key values are treated as password fields.
 2. **Integration options** (``ha_get_integration``): fields the
-   options-flow schema marks with a password text selector are replaced the
+   options-flow schema marks secret or with a password text selector are replaced the
    same way, on both the harvested options and the ``include_schema=True``
    schema echo (whose ``suggested_value`` carries the live value).
 3. **Every other tool response**: secret values seen while serving 1 and 2
@@ -409,13 +409,12 @@ def sentinel_option_keys(options: Any) -> list[str]:
 def is_password_flow_field(field: dict[str, Any]) -> bool:
     """True when a serialized flow field is marked as a password input.
 
-    The authoritative marker is a text selector with ``type: "password"``
-    (``TextSelectorType.PASSWORD`` — serialized as
-    ``{"selector": {"text": {"type": "password"}}}``). A literal
-    ``type: "password"`` on the field is honored too. Fields with no
-    password marker cannot be classified from metadata and pass through —
-    the known-value scrub is the only remaining line for those.
+    Core's ``secret: true`` field flag, a text selector with
+    ``type: "password"`` and a literal ``type: "password"`` are authoritative.
+    Fields with no marker pass through; only known-value scrubbing applies.
     """
+    if field.get("secret") is True:
+        return True
     selector = field.get("selector")
     if isinstance(selector, dict):
         text = selector.get("text")

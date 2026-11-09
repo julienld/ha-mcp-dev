@@ -24,6 +24,14 @@ def setup_world(filesystem, monkeypatch):
     unsubscribe = Mock()
     hass.bus = SimpleNamespace(async_listen_once=Mock(return_value=unsubscribe))
     hass.services.async_register = Mock()
+
+    def register_admin(owner, domain, service, handler, **kwargs):
+        assert owner is hass
+        hass.services.async_register(domain, service, handler, **kwargs)
+
+    monkeypatch.setattr(
+        component.ha_service, "async_register_admin_service", register_admin
+    )
     entry = SimpleNamespace(
         entry_id="tools-entry",
         data={},
