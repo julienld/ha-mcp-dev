@@ -1,0 +1,48 @@
+name: Ephemeral development worker
+run-name: dev-agent ${{ inputs.session_id }} ${{ inputs.request_id }}
+on:
+  workflow_dispatch:
+    inputs:
+      session_id:
+        description: Opaque client session identifier
+        required: true
+        type: string
+      request_id:
+        description: Unique allocation request identifier
+        required: true
+        type: string
+      public_key:
+        description: Client public SSH key (never a private key)
+        required: true
+        type: string
+permissions: {}
+jobs:
+  worker:
+    if: github.actor == github.repository_owner
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      DEV_AGENT_POLICY: public
+      DEV_AGENT_ENGINE_REPOSITORY: jldkiro/dev-agent
+      DEV_AGENT_ENGINE_SHA: 584db9f213527cccc14029f8947c49026e368b71
+    steps:
+      - name: Bootstrap isolated development worker
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location "https://raw.githubusercontent.com/$DEV_AGENT_ENGINE_REPOSITORY/$DEV_AGENT_ENGINE_SHA/.github/scripts/bootstrap.sh" -o "$RUNNER_TEMP/dev-agent-bootstrap.sh"
+          bash "$RUNNER_TEMP/dev-agent-bootstrap.sh"
+      - name: Publish public connection information
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: connection-${{ inputs.request_id }}
+          path: ${{ runner.temp }}/dev-agent-public/connection.json
+          retention-days: 1
+      - name: Wait for activity-aware worker expiration
+        shell: bash
+        run: |
+          session=$(python3 -c "import json,os; print(json.load(open(os.environ['GITHUB_EVENT_PATH']))['inputs']['session_id'])")
+          sudo -u devagent python3 /opt/dev-agent/worker.py supervise --root /tmp/dev-agent/state --session "$session"
+      - name: Report fixed failure status
+        if: failure()
+        run: echo 'DEV_AGENT_FAILED'
