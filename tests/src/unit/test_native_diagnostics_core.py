@@ -20,6 +20,7 @@ async def test_native_diagnostics_keeps_the_real_core_download_sections(
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     assert await async_setup_component(hass, "diagnostics", {})
+    await hass.async_block_till_done()
 
     result = await diagnostics(hass, {"entry_id": entry.entry_id})
 
@@ -33,6 +34,7 @@ async def test_native_diagnostics_refuses_a_missing_entry_without_a_partial_arti
     hass: HomeAssistant,
 ) -> None:
     assert await async_setup_component(hass, "diagnostics", {})
+    await hass.async_block_till_done()
     with pytest.raises(HomeAssistantAPIError) as caught:
         await diagnostics(hass, {"entry_id": "no_such_entry"})
     assert caught.value.status_code == 404
