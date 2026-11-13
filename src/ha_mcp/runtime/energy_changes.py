@@ -31,8 +31,8 @@ class EnergyChanges:
         """Add a device-consumption entry using a fresh snapshot.
 
         Reads current prefs, checks for duplicate ``stat_consumption`` in the
-        target list, appends the new entry, and writes back with the freshly
-        captured ``config_hash``. The bound owner controls admission and
+        target list, appends the new entry, and writes the list back.
+        The bound owner controls admission and
         conflict handling; a dispatched write is never replayed here.
         """
         if stat_consumption is None:

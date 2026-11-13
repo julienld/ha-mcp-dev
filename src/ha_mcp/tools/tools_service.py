@@ -34,7 +34,10 @@ from ..errors import (
     create_validation_error,
 )
 from ..read_only import require_write_access
-from ..runtime.action_constants import _NON_ENVELOPE_WARNING
+from ..runtime.action_constants import (
+    _COMPONENT_RESPONSE_UNCONFIRMED_WARNING,
+    _NON_ENVELOPE_WARNING,
+)
 from ..runtime.actions import ServiceCallTools as SharedServiceCallTools
 from ..runtime.bulk_params import BulkControlOperation
 from ..runtime.bulk_params import (
@@ -394,16 +397,21 @@ class ServiceTools(LegacyBackendTools, SharedServiceCallTools):
             isinstance(cause, httpx.TimeoutException)
             and not isinstance(cause, (httpx.ConnectTimeout, httpx.PoolTimeout))
         ):
-            raise_tool_error(
-                create_service_outcome_unknown_error(
-                    error,
-                    context={
-                        "domain": domain,
-                        "service": service,
-                        "entity_id": entity_id,
-                    },
-                )
+            payload = create_service_outcome_unknown_error(
+                error,
+                context={
+                    "domain": domain,
+                    "service": service,
+                    "entity_id": entity_id,
+                },
             )
+            payload["partial"] = True
+            if return_response:
+                payload["service_response"] = None
+                payload.setdefault("warnings", []).append(
+                    _COMPONENT_RESPONSE_UNCONFIRMED_WARNING
+                )
+            raise_tool_error(payload)
         exception_to_structured_error(
             error,
             context={

@@ -61,7 +61,9 @@ class LogsFacade:
                     "are selected within it, and a record longer than it is cut "
                     "(header and last lines kept) with a warning naming how many "
                     "lines were cut. Does not apply to source='error_log' with "
-                    "structured=True."
+                    "structured=True. On a supervisor/system_service page read "
+                    "(see offset) it counts journal entries, and an entry can "
+                    "print several lines."
                 )
             ),
         ] = None,
@@ -79,24 +81,42 @@ class LogsFacade:
             ),
         ] = None,
         order: Annotated[
-            Literal["newest", "oldest"],
+            Literal["newest", "oldest"] | None,
             Field(
                 description=(
                     "Sort order for time-ordered sources (logbook, system, error_log, "
                     "supervisor, system_service, fault_log): 'newest' returns "
                     "most-recent first; 'oldest' returns chronological-first. For "
-                    "raw-text sources it sets the read direction of the most-recent "
-                    "window; fault_log orders whole crash blocks; error_log orders "
+                    "error_log, supervisor and system_service it sets the read "
+                    "direction of the newest lines read. A supervisor/"
+                    "system_service page read (hours_back, no search) is "
+                    "always oldest-first, so this may be omitted there; "
+                    "'newest' is answered oldest-first with a warning. "
+                    "Default 'newest'. "
+                    "fault_log orders whole crash blocks; error_log orders "
                     "whole records and keeps each record's lines in place. Ignored "
                     "for source='logger', and for source='error_log' with "
                     "structured=True."
                 )
             ),
-        ] = "newest",
+        ] = None,
         # Source-scoped options: each description names the sources it applies to
         hours_back: Annotated[
-            int, Field(ge=1, description="Logbook only: how many hours back to read.")
-        ] = 1,
+            int | None,
+            Field(
+                ge=1,
+                description=(
+                    "How many hours back to read. Logbook (default 1), "
+                    "supervisor and system_service. For the last two, only "
+                    "when given: the journal serves that window, from its "
+                    "start to the journal's end, one page at a time, "
+                    "oldest-first (see offset); has_more says more of it remains. With search "
+                    "the whole window is read at once, up to 10,000 entries: "
+                    "window_complete says whether every entry of the window "
+                    "was searched, and when false only the newest were."
+                ),
+            ),
+        ] = None,
         entity_id: Annotated[
             str | None,
             Field(
@@ -132,11 +152,17 @@ class LogsFacade:
             Field(description="Logbook only: end of the window (ISO datetime)."),
         ] = None,
         offset: Annotated[
-            Annotated[int, Field(ge=0)] | str,
+            int | str,
             Field(
                 description=(
-                    "Page deeper into source='logbook', 'error_log' and "
-                    "'fault_log' (ignored for other sources). On error_log it "
+                    "Page deeper into source='logbook', 'error_log', "
+                    "'fault_log', and supervisor/system_service on a page "
+                    "read: hours_back and no search (ignored otherwise). "
+                    "There it is the opaque token a previous page returned "
+                    "in 'next_offset', which continues from an exact journal "
+                    "entry in the same window; pass it with the same slug "
+                    "(hours_back may be omitted). An integer skips that many "
+                    "entries from the window's first. A page's total_lines is its line count. On error_log it "
                     "counts raw log lines back from the newest entry, or is the "
                     "opaque token a previous page returned in 'next_offset' on "
                     "Supervisor/journald installs, which keeps paging exact "
@@ -224,9 +250,12 @@ class LogsFacade:
 
         Raw-text sources (error_log, supervisor, system_service) read a bounded
         window per call, so level/search filter and limit slice within that
-        window only; window_lines reports the size requested. Logbook
-        responses carry has_more plus a pagination_hint; error_log and fault_log
-        carry has_more with a next_offset to pass back while it stays true.
+        window only; window_lines reports the size requested. With hours_back,
+        supervisor and system_service read the journal's own time window
+        instead. Logbook and hours_back responses carry has_more plus a
+        pagination_hint; error_log, fault_log and supervisor/system_service
+        page reads carry has_more with a next_offset to pass back while it
+        stays true.
         """
         return await self.get_logs(
             source=source,

@@ -66,15 +66,8 @@ async def enrich_zwave_status(
         "Z-Wave node status",
     )
     if available:
-        device_info["node_status"] = {
-            "node_id": node.get("node_id"),
-            "status": node.get("status"),
-            "is_routing": node.get("is_routing"),
-            "is_secure": node.get("is_secure"),
-            "highest_security_class": node.get("highest_security_class"),
-            "zwave_plus_version": node.get("zwave_plus_version"),
-            "is_controller_node": node.get("is_controller_node"),
-        }
+        device_info["node_id"] = node.get("node_id")
+        device_info["node_status"] = node
 
 
 async def enrich_matter_diagnostics(

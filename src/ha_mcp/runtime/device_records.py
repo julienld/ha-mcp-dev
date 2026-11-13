@@ -14,12 +14,11 @@ def _process_device_domain(
     value: str,
     ieee_address: str | None,
     is_z2m: bool,
-    zwave_node_id: str | None,
-) -> tuple[str | None, bool, str | None]:
-    """Return updated (ieee_address, is_z2m, zwave_node_id) for a single identifier domain."""
+) -> tuple[str | None, bool]:
+    """Return updated IEEE address and Zigbee2MQTT classification."""
     # ZHA: identifier is ["zha", "IEEE_ADDRESS"]
     if domain == "zha":
-        return value, is_z2m, zwave_node_id
+        return value, is_z2m
     # Z2M: identifier is ["mqtt", "zigbee2mqtt_0xIEEE"] or "zigbee2mqtt_bridge_0xIEEE"
     if domain == "mqtt" and "zigbee2mqtt" in value.lower():
         extracted = (
@@ -27,34 +26,29 @@ def _process_device_domain(
             if "_0x" in value
             else ieee_address
         )
-        return extracted, True, zwave_node_id
-    # Z-Wave JS: identifier is ["zwave_js", "{home_id}-{node_id}"]
-    if domain == "zwave_js" and "-" in value:
-        return ieee_address, is_z2m, value.split("-")[1]
-    return ieee_address, is_z2m, zwave_node_id
+        return extracted, True
+    return ieee_address, is_z2m
 
 
 def _extract_zigbee_info(
     identifiers: list[Any],
-) -> tuple[str | None, bool, str | None]:
-    """Parse device identifiers into (ieee_address, is_z2m, zwave_node_id)."""
+) -> tuple[str | None, bool]:
+    """Parse Zigbee identifiers; Z-Wave JS resolves its own node identity."""
     ieee_address: str | None = None
     is_z2m = False
-    zwave_node_id: str | None = None
 
     for identifier in identifiers:
         if isinstance(identifier, (list, tuple)) and len(identifier) >= 2:
             domain = identifier[0]
             if isinstance(domain, str):
-                ieee_address, is_z2m, zwave_node_id = _process_device_domain(
+                ieee_address, is_z2m = _process_device_domain(
                     domain,
                     str(identifier[1]),
                     ieee_address,
                     is_z2m,
-                    zwave_node_id,
                 )
 
-    return ieee_address, is_z2m, zwave_node_id
+    return ieee_address, is_z2m
 
 
 def _first_ieee_from_connections(
@@ -110,9 +104,7 @@ def _get_device_info(
     places it in, where a child device without its own area sits in its
     parent's.
     """
-    ieee_address, is_z2m, zwave_node_id = _extract_zigbee_info(
-        device.get("identifiers") or []
-    )
+    ieee_address, is_z2m = _extract_zigbee_info(device.get("identifiers") or [])
     ieee_address = _first_ieee_from_connections(
         device.get("connections") or [], ieee_address
     )
@@ -143,8 +135,6 @@ def _get_device_info(
         device_info["zha_trigger_hint"] = (
             f"Use ieee '{ieee_address}' for zha_event triggers"
         )
-    if integration_type == "zwave_js" and zwave_node_id:
-        device_info["node_id"] = zwave_node_id
 
     return device_info
 
@@ -247,8 +237,8 @@ def _add_integration_hints(
         )
     elif integration_lower == "zwave_js":
         result["usage_hint"] = (
-            "Use node_id for Z-Wave device identification. "
-            "Single device lookup includes node status (security, routing)."
+            "Single device lookup includes Z-Wave JS's node_id and node status "
+            "(security, routing)."
         )
 
 

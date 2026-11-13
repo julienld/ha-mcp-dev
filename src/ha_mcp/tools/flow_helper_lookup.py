@@ -1,15 +1,10 @@
 """Resolve the helper behind an entity_id for ha_remove_helpers_integrations."""
 
-import logging
 from typing import Any
 
 from ha_mcp.backends.legacy_flows import legacy_helper_flow
 from ha_mcp.runtime import helper_targets as _shared
 
-from ..client.rest_client import (
-    HomeAssistantAuthError,
-    HomeAssistantConnectionError,
-)
 from ..errors import create_error_response
 from .helpers import get_entity_state_or_none, raise_tool_error, ws_failure_code
 
@@ -22,41 +17,21 @@ _raise_platform_mismatch = legacy_helper_flow(_shared._raise_platform_mismatch)
 resolve_helper_entity = legacy_helper_flow(_shared.resolve_helper_entity)
 
 
-logger = logging.getLogger(__name__)
-
-
 async def _read_registry_entry(
-    client: Any, entity_id: str, warnings: list[str] | None = None
+    client: Any, entity_id: str
 ) -> tuple[dict[str, Any] | None, FlowLookupReason]:
     """Read ``entity_id``'s entity-registry entry, or ``(None, reason)``.
 
-    ``reason`` is ``lookup_failed`` for an OSError/TimeoutError from the
-    WebSocket send. On Core's ``not_found`` the entity's state decides between
+    On Core's ``not_found`` the entity's state decides between
     ``not_registry_managed`` and ``not_in_registry``. A ``success: false``
     reply other than ``not_found``, and a reply without an entry, raise a
-    ToolError: neither proves the entity is absent. HomeAssistantConnectionError, HomeAssistantAuthError
+    ToolError: neither proves the entity is absent. Transport failures
     and a non-404 HomeAssistantAPIError from the state read propagate to the
     caller's except chain.
     """
-    try:
-        result = await client.send_websocket_message(
-            {"type": "config/entity_registry/get", "entity_id": entity_id}
-        )
-    except HomeAssistantConnectionError, HomeAssistantAuthError:
-        # Typed errors must reach the outer handler — do not swallow.
-        raise
-    except (OSError, TimeoutError) as e:
-        # Network / transport errors from the WS layer (ConnectionError,
-        # BrokenPipeError, TimeoutError, …). Programmer-bug-shape
-        # exceptions (KeyError, AttributeError, TypeError) intentionally
-        # propagate — the response is shape-checked at the dict guard
-        # below, and catching them here would mask the bug as a
-        # transient WEBSOCKET_DISCONNECTED.
-        logger.debug(f"entity_registry/get failed for {entity_id}: {e}")
-        if warnings is not None:
-            warnings.append(f"entity_registry/get failed for {entity_id}: {e}")
-        return None, "lookup_failed"
-
+    result = await client.send_websocket_message(
+        {"type": "config/entity_registry/get", "entity_id": entity_id}
+    )
     if not isinstance(result, dict):
         _raise_unexpected_registry_reply(entity_id, result)
     if not result.get("success"):

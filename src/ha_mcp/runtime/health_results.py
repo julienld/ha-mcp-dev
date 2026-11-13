@@ -122,21 +122,16 @@ def filter_active_repairs(
     overview / system-health responses don't surface repairs the user has
     already dismissed.
 
-    Entries with ``active=False`` are always dropped, regardless of
-    ``include_dismissed``: HA core's ``ws_list_issues`` never emits them
-    (on restart the registry reloads each stored non-persistent issue as an
-    inactive stub until it is re-raised or deleted), but the component's
-    raw registry dump does.
     """
     if include_dismissed:
-        return [r for r in issues if r.get("active") is not False]
-    return [r for r in issues if r.get("active") is not False and not r.get("ignored")]
+        return list(issues)
+    return [r for r in issues if not r.get("ignored")]
 
 
 def repair_section(
     raw_issues: list[dict[str, Any]], include_dismissed: bool
 ) -> dict[str, Any]:
-    all_issues = [i for i in raw_issues if i.get("active") is not False]
+    all_issues = raw_issues
     visible_issues = filter_active_repairs(
         all_issues, include_dismissed=include_dismissed
     )
@@ -145,8 +140,6 @@ def repair_section(
         "count": len(visible_issues),
     }
     if not include_dismissed:
-        # Baseline excludes inactive registry stubs so they are
-        # not miscounted as dismissed.
         dismissed_count = len(
             filter_active_repairs(all_issues, include_dismissed=True)
         ) - len(visible_issues)

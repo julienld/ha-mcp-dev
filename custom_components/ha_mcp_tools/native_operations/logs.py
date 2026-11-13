@@ -1,9 +1,11 @@
 """Canonical log sources backed by Core collections, recorder and configured files."""
 
+import asyncio
 import json
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from typing import Any, Literal
 
 from homeassistant.core import HomeAssistant
@@ -16,16 +18,22 @@ from ha_mcp.runtime.fault_log_results import (
     _no_crash,
     _shape_crash_page,
 )
+from ha_mcp.runtime.journal_window import (
+    JournalPage,
+    JournalWindow,
+    WindowToken,
+    read_page,
+    read_window,
+)
 from ha_mcp.runtime.log_common import (
     DEFAULT_LOG_LIMIT,
-    SUPERVISOR_SEARCH_WINDOW_LINES,
     _coerce_limit,
 )
 from ha_mcp.runtime.log_query import LogQuery
-from ha_mcp.runtime.log_results import LogResults, supervisor_log_result
-from ha_mcp.runtime.log_window import MIN_LOG_WINDOW_LINES
+from ha_mcp.runtime.log_results import LogResults
 from ha_mcp.runtime.logbook_results import LogbookResults
 from ha_mcp.runtime.projection import timezone_metadata
+from ha_mcp.runtime.supervisor_log_query import SupervisorLogQuery
 from ha_mcp.tool_api import CallContext, ToolFailure, UnsupportedOperation
 from ha_mcp.utils.owned_executor import await_owned_io
 
@@ -37,7 +45,7 @@ _LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
-class NativeLogs(LogQuery, LogResults, LogbookResults):
+class NativeLogs(LogQuery, SupervisorLogQuery, LogResults, LogbookResults):
     hass: HomeAssistant
     actor: CallContext
     authorize: Authorize = field(kw_only=True, repr=False)
@@ -158,19 +166,27 @@ class NativeLogs(LogQuery, LogResults, LogbookResults):
         slug: str,
         limit: int | None,
         search: str | None,
-        order: Literal["newest", "oldest"],
+        order: Literal["newest", "oldest"] | None,
+        hours_back: int | None = None,
+        offset: int | str = 0,
+        now: datetime | None = None,
     ) -> dict[str, Any]:
-        return await self._supervisor_source("supervisor", slug, limit, search, order)
+        return await self._supervisor_source(
+            "supervisor", slug, limit, search, order, hours_back, offset, now
+        )
 
     async def _get_system_service_log(
         self,
         service: str,
         limit: int | None,
         search: str | None,
-        order: Literal["newest", "oldest"],
+        order: Literal["newest", "oldest"] | None,
+        hours_back: int | None = None,
+        offset: int | str = 0,
+        now: datetime | None = None,
     ) -> dict[str, Any]:
         return await self._supervisor_source(
-            "system_service", service, limit, search, order
+            "system_service", service, limit, search, order, hours_back, offset, now
         )
 
     async def _supervisor_source(
@@ -179,18 +195,33 @@ class NativeLogs(LogQuery, LogResults, LogbookResults):
         slug: str,
         limit: int | None,
         search: str | None,
-        order: Literal["newest", "oldest"],
+        order: Literal["newest", "oldest"] | None,
+        hours_back: int | None,
+        offset: int | str,
+        now: datetime | None,
     ) -> dict[str, Any]:
-        effective = _coerce_limit(
-            limit, default=DEFAULT_LOG_LIMIT, suggestion_example="100"
-        )
-        lines = max(effective, SUPERVISOR_SEARCH_WINDOW_LINES) if search else effective
+        files = NativeLogFiles(self)
+
+        async def tail(lines: int) -> str:
+            return await files.supervisor(
+                slug if source == "system_service" else None,
+                slug if source == "supervisor" else None,
+                lines,
+            )
+
         try:
-            text = await await_owned_io(
-                NativeLogFiles(self).supervisor(
-                    slug if source == "system_service" else None,
-                    slug if source == "supervisor" else None,
-                    max(lines, MIN_LOG_WINDOW_LINES),
+            return await await_owned_io(
+                self._read_service_log(
+                    source,
+                    slug,
+                    f"addons/{slug}" if source == "supervisor" else slug,
+                    limit,
+                    search,
+                    order,
+                    hours_back,
+                    offset,
+                    now,
+                    tail,
                 )
             )
         except ToolFailure as error:
@@ -202,12 +233,32 @@ class NativeLogs(LogQuery, LogResults, LogbookResults):
                 else "Verify Supervisor is available and use a supported system service slug",
             )
             raise
-        result: dict[str, Any] = await await_owned_io(
-            self.hass.async_add_executor_job(
-                supervisor_log_result, text, source, slug, effective, search, order
+
+    async def read_journal_window(self, path: str, since: datetime) -> JournalWindow:
+        async with asyncio.timeout(30):
+            return await read_window(
+                partial(NativeLogFiles(self).journal, path), path, since
             )
-        )
-        return result
+
+    async def read_journal_page(
+        self,
+        path: str,
+        since: datetime,
+        hours_back: int,
+        count: int,
+        resume: WindowToken | None = None,
+        skip: int = 0,
+    ) -> JournalPage:
+        async with asyncio.timeout(30):
+            return await read_page(
+                partial(NativeLogFiles(self).journal, path),
+                path,
+                since,
+                hours_back,
+                count,
+                resume,
+                skip,
+            )
 
     async def _get_fault_log(
         self,

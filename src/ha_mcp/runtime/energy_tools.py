@@ -150,7 +150,7 @@ class EnergyFacade:
           device-consumption entry. The tool performs a fresh read-modify-write
           internally.
         - mode='add_source': append a single entry to ``energy_sources``.
-          Same optimistic read-modify-write semantics.
+          Same internal read-modify-write.
 
         RELATED TOOLS: Use ha_get_history(source="statistics") with the returned
         statistic IDs for consumption, totals, and trends. Metadata comes directly

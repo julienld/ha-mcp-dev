@@ -24,11 +24,8 @@ async def execute_removal_operation(
     if operation == "helpers.remove.entity":
         from ha_mcp.tools.flow_helper_lookup import _read_registry_entry
 
-        warnings: list[str] = []
-        entry, reason = await _read_registry_entry(
-            client, arguments["entity_id"], warnings
-        )
-        return {"entry": entry, "reason": reason, "warnings": warnings}
+        entry, reason = await _read_registry_entry(client, arguments["entity_id"])
+        return {"entry": entry, "reason": reason, "warnings": []}
     if operation == "helpers.remove.storage_target":
         from ha_mcp.tools.component_helper_collections import stored_helper_target
 

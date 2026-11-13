@@ -9,12 +9,18 @@ Split out of ``tools_utility`` under `.gemini/styleguide.md` § Tool
 Consolidation and Module Size.
 """
 
+from datetime import datetime
 from typing import Any, Literal, NoReturn
 
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
-from ha_mcp.runtime.log_results import supervisor_log_result
+from ha_mcp.runtime.supervisor_log_query import SupervisorLogQuery
+from ha_mcp.tool_api import ToolFailure
 
 from .._version import is_running_in_addon
+from ..client.journal_window import (
+    read_logs_page,
+    read_logs_window,
+)
 from ..client.rest_client import (
     HomeAssistantAPIError,
     HomeAssistantAuthError,
@@ -23,15 +29,12 @@ from ..client.rest_client import (
 from ..errors import ErrorCode, create_error_response
 from .helpers import exception_to_structured_error, raise_tool_error
 from .log_common import (
-    DEFAULT_LOG_LIMIT,
-    SUPERVISOR_SEARCH_WINDOW_LINES,
     SYSTEM_SERVICE_SLUGS,
     _addon_auth_error_suggestions,
-    _coerce_limit,
 )
 
 
-class SupervisorLogSourcesMixin:
+class SupervisorLogSourcesMixin(SupervisorLogQuery):
     """App (add-on) and system-service logs, fetched through Supervisor.
 
     ``_client`` is supplied by the host class (``LogTools``); this mixin adds
@@ -40,44 +43,47 @@ class SupervisorLogSourcesMixin:
 
     _client: Any
 
+    async def read_journal_page(self, *args: Any, **kwargs: Any) -> Any:
+        return await read_logs_page(self._client, *args, **kwargs)
+
+    async def read_journal_window(self, *args: Any, **kwargs: Any) -> Any:
+        return await read_logs_window(self._client, *args, **kwargs)
+
     async def _get_supervisor_log(
         self,
         slug: str,
         limit: int | None = None,
         search: str | None = None,
-        order: Literal["newest", "oldest"] = "newest",
+        order: Literal["newest", "oldest"] | None = None,
+        hours_back: int | None = None,
+        offset: int | str = 0,
+        now: datetime | None = None,
     ) -> dict[str, Any]:
-        """Fetch app (add-on) container logs.
+        """Fetch app (add-on) container logs; the routes are ``_read_service_log``'s.
 
-        Delegates to ``HomeAssistantClient.get_addon_logs`` which branches on
-        ``is_running_in_addon()``: inside the app container hits Supervisor
-        directly at ``http://supervisor/addons/<slug>/logs`` (the HA-Core
-        proxy at ``/api/hassio/addons/<slug>/logs`` rejects the Supervisor
-        token there — see #1116); on non-addon installs falls back to the
-        HA-Core proxy. Both paths return ``text/plain``.
+        The tail goes through ``HomeAssistantClient.get_addon_logs``, and the
+        ``hours_back`` window through ``journal_window``; both branch on
+        ``is_running_in_addon()``: inside the app container they hit
+        Supervisor directly at ``http://supervisor/addons/<slug>/logs`` (the
+        HA-Core proxy at ``/api/hassio/addons/<slug>/logs`` rejects the
+        Supervisor token there — see #1116); on non-addon installs they use
+        the HA-Core proxy. Both return ``text/plain``.
         """
-        effective_limit = _coerce_limit(
-            limit, default=DEFAULT_LOG_LIMIT, suggestion_example="100"
-        )
-
-        # Request a journald window sized to the caller's limit —
-        # Supervisor's /logs endpoints default to their last-100-lines
-        # window, which silently capped any larger limit before ?lines=
-        # was plumbed through (found via #1721's e2e).
-        fetch_lines = (
-            max(effective_limit, SUPERVISOR_SEARCH_WINDOW_LINES)
-            if search
-            else effective_limit
-        )
-
         try:
-            log_text = await self._client.get_addon_logs(slug, lines=fetch_lines)
-
-            return supervisor_log_result(
-                log_text, "supervisor", slug, effective_limit, search, order
+            return await self._read_service_log(
+                "supervisor",
+                slug,
+                f"addons/{slug}",
+                limit,
+                search,
+                order,
+                hours_back,
+                offset,
+                now,
+                lambda lines: self._client.get_addon_logs(slug, lines=lines),
             )
 
-        except ToolError:
+        except ToolError, ToolFailure:
             raise
         except HomeAssistantAuthError as e:
             # Listed before HomeAssistantAPIError because AuthError is a sibling,
@@ -240,40 +246,41 @@ class SupervisorLogSourcesMixin:
         service: str,
         limit: int | None = None,
         search: str | None = None,
-        order: Literal["newest", "oldest"] = "newest",
+        order: Literal["newest", "oldest"] | None = None,
+        hours_back: int | None = None,
+        offset: int | str = 0,
+        now: datetime | None = None,
     ) -> dict[str, Any]:
-        """Fetch HA system-service logs from Supervisor's per-service endpoint.
+        """Fetch HA system-service logs; the routes are ``_read_service_log``'s.
 
         ``service`` ∈ ``SYSTEM_SERVICE_SLUGS`` (the six Supervisor-managed
         services: supervisor, host, core, dns, audio, multicast).
         Caller (``ha_get_logs(source='system_service')``) validates against
-        ``SYSTEM_SERVICE_SLUGS`` before dispatch. Routed through
-        ``HomeAssistantClient._get_system_service_logs`` which gates on
+        ``SYSTEM_SERVICE_SLUGS`` before dispatch. The tail goes through
+        ``HomeAssistantClient._get_system_service_logs`` and the
+        ``hours_back`` window through ``journal_window``; both gate on
         ``is_running_in_addon()``: addon installs hit Supervisor directly at
         ``http://supervisor/<service>/logs`` (requires ``hassio_role: manager``
-        in the addon manifest), non-addon installs fall back to the HA Core
-        proxy at ``/api/hassio/<service>/logs`` (requires an admin LLA).
+        in the addon manifest), non-addon installs use the HA Core proxy at
+        ``/api/hassio/<service>/logs`` (requires an admin LLA).
         """
-        effective_limit = _coerce_limit(
-            limit, default=DEFAULT_LOG_LIMIT, suggestion_example="100"
-        )
-
-        fetch_lines = (
-            max(effective_limit, SUPERVISOR_SEARCH_WINDOW_LINES)
-            if search
-            else effective_limit
-        )
-
         try:
-            log_text = await self._client._get_system_service_logs(
-                service, lines=fetch_lines
+            return await self._read_service_log(
+                "system_service",
+                service,
+                service,
+                limit,
+                search,
+                order,
+                hours_back,
+                offset,
+                now,
+                lambda lines: self._client._get_system_service_logs(
+                    service, lines=lines
+                ),
             )
 
-            return supervisor_log_result(
-                log_text, "system_service", service, effective_limit, search, order
-            )
-
-        except ToolError:
+        except ToolError, ToolFailure:
             raise
         except HomeAssistantAuthError as e:
             # Listed before HomeAssistantAPIError because AuthError is a sibling,

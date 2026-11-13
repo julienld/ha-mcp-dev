@@ -115,6 +115,17 @@ def _reject_reconfigure_conflicts(
         )
 
 
+def _attach_capture_warnings(
+    response: dict[str, Any], session: FlowSession
+) -> dict[str, Any]:
+    if session.warnings:
+        warnings = response.setdefault("warnings", [])
+        warnings.extend(
+            warning for warning in session.warnings if warning not in warnings
+        )
+    return response
+
+
 class IntegrationWriteTools(BackendTools):
     def _entry_write_guard(self, entry_id: str) -> AbstractAsyncContextManager[Any]:
         # Native owners serialize flow lifetimes and compare the snapshot again
@@ -491,11 +502,14 @@ class IntegrationWriteTools(BackendTools):
                         reconfigure=reconfigure or None,
                         **flow_args,
                     )
-                    return await send_ws_command(
+                    return _attach_capture_warnings(
+                        await send_ws_command(
+                            session,
+                            validate_identifier_not_empty(entry_id, "entry_id"),
+                            validate_identifier_not_empty(ws_command, "ws_command"),
+                            ws_data,
+                        ),
                         session,
-                        validate_identifier_not_empty(entry_id, "entry_id"),
-                        validate_identifier_not_empty(ws_command, "ws_command"),
-                        ws_data,
                     )
                 if subentry_type is not None or subentry_id is not None:
                     modes = {
@@ -506,43 +520,54 @@ class IntegrationWriteTools(BackendTools):
                         "flow_id": flow_id is not None,
                         "abort": abort,
                     }
-                    return await describe_flow_form(
+                    return _attach_capture_warnings(
+                        await describe_flow_form(
+                            session,
+                            domain=domain,
+                            entry_id=entry_id,
+                            subentry_type=subentry_type,
+                            subentry_id=subentry_id,
+                            menu_choice=menu_choice,
+                            other_modes=[
+                                name for name, given in modes.items() if given
+                            ],
+                        ),
                         session,
-                        domain=domain,
-                        entry_id=entry_id,
-                        subentry_type=subentry_type,
-                        subentry_id=subentry_id,
-                        menu_choice=menu_choice,
-                        other_modes=[name for name, given in modes.items() if given],
                     )
                 if log_level is not None:
-                    return await set_log_level(
+                    return _attach_capture_warnings(
+                        await set_log_level(
+                            session,
+                            entry_id,
+                            domain,
+                            log_level,
+                            other_modes=config is not None
+                            or enabled is not None
+                            or reconfigure
+                            or any(v is not None for v in flow_args.values()),
+                            persistence=log_persistence,
+                        ),
                         session,
-                        entry_id,
-                        domain,
-                        log_level,
-                        other_modes=config is not None
-                        or enabled is not None
-                        or reconfigure
-                        or any(v is not None for v in flow_args.values()),
-                        persistence=log_persistence,
                     )
 
                 if reconfigure:
-                    return await run_integration_step(
+                    return _attach_capture_warnings(
+                        await run_integration_step(
+                            session,
+                            domain=None,
+                            entry_id=entry_id,
+                            flow_id=flow_id,
+                            config=config,
+                            menu_choice=menu_choice,
+                            abort=abort,
+                            expected_identity={
+                                "device_id": expected_device_id,
+                                "unique_id": expected_unique_id,
+                                "mac": expected_mac,
+                                "entity_ids": list(expected_entity_ids or []),
+                            },
+                        ),
                         session,
-                        domain=None,
-                        entry_id=entry_id,
-                        flow_id=flow_id,
-                        config=config,
-                        menu_choice=menu_choice,
-                        abort=abort,
-                        expected_identity={
-                            "device_id": expected_device_id,
-                            "unique_id": expected_unique_id,
-                            "mac": expected_mac,
-                            "entity_ids": list(expected_entity_ids or []),
-                        },
                     )
 
                 _reject_set_integration_mode_conflicts(
@@ -562,14 +587,17 @@ class IntegrationWriteTools(BackendTools):
                             "'local_calendar'",
                         ],
                     )
-                    return await run_integration_step(
+                    return _attach_capture_warnings(
+                        await run_integration_step(
+                            session,
+                            domain=domain.strip().lower(),
+                            entry_id=None,
+                            flow_id=flow_id,
+                            config=config,
+                            menu_choice=menu_choice,
+                            abort=abort,
+                        ),
                         session,
-                        domain=domain.strip().lower(),
-                        entry_id=None,
-                        flow_id=flow_id,
-                        config=config,
-                        menu_choice=menu_choice,
-                        abort=abort,
                     )
 
                 # Empty/whitespace entry_id would surface as a misleading HA
@@ -583,17 +611,22 @@ class IntegrationWriteTools(BackendTools):
                 )
 
                 if enabled is not None:
-                    return await set_entry_enabled(session, entry_id, enabled)
+                    return _attach_capture_warnings(
+                        await set_entry_enabled(session, entry_id, enabled), session
+                    )
 
                 # Options mode: one step of the entry's options flow.
-                return await run_integration_step(
+                return _attach_capture_warnings(
+                    await run_integration_step(
+                        session,
+                        domain=None,
+                        entry_id=entry_id,
+                        flow_id=flow_id,
+                        config=config,
+                        menu_choice=menu_choice,
+                        abort=abort,
+                    ),
                     session,
-                    domain=None,
-                    entry_id=entry_id,
-                    flow_id=flow_id,
-                    config=config,
-                    menu_choice=menu_choice,
-                    abort=abort,
                 )
 
             except ToolFailure:

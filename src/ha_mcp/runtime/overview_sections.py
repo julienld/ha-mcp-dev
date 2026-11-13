@@ -62,15 +62,13 @@ def apply_overview_repairs(
     raw_issues: list[dict[str, Any]],
     include_dismissed_repairs_bool: bool,
 ) -> None:
-    all_issues = [i for i in raw_issues if i.get("active") is not False]
+    all_issues = raw_issues
     visible_issues = filter_active_repairs(
         all_issues,
         include_dismissed=include_dismissed_repairs_bool,
     )
     result["repair_count"] = len(visible_issues)
     if not include_dismissed_repairs_bool:
-        # Baseline excludes inactive registry stubs so they are
-        # not miscounted as dismissed.
         dismissed_count = len(
             filter_active_repairs(all_issues, include_dismissed=True)
         ) - len(visible_issues)

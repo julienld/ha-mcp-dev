@@ -42,7 +42,9 @@ class RemoteSnapshotFlowPorts:
         _manager()._log_flow_helper_failure(step, error)
 
     async def created(self, entry_id: str, unique_id: str) -> Any:
-        return await _manager()._created_entity(self.session, entry_id, unique_id)
+        from ha_mcp.backup_entity_ids import created_entity
+
+        return await created_entity(self.session, entry_id, unique_id)
 
     async def collision(
         self, target: str, *, owned_entry_id: str | None = None

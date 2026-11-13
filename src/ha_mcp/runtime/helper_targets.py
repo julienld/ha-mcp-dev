@@ -11,7 +11,7 @@ from .helper_schema import SIMPLE_HELPER_TYPES
 
 async def _read_registry_entry(
     session: Any, entity_id: str, warnings: list[str] | None = None
-) -> tuple[dict[str, Any] | None, "FlowLookupReason"]:
+) -> tuple[dict[str, Any] | None, FlowLookupReason]:
     result = await session.backend.execute(
         "helpers.remove.entity", {"entity_id": entity_id}, session.context
     )
@@ -62,7 +62,6 @@ FlowLookupReason = Literal[
     "not_in_registry",
     "not_registry_managed",
     "no_config_entry",
-    "lookup_failed",
 ]
 
 
@@ -225,24 +224,6 @@ def raise_flow_helper_lookup_error(
                     "entity_id": entity_id,
                 },
                 suggestions=[YAML_HELPER_SUGGESTION],
-            )
-        )
-    if reason == "lookup_failed":
-        # Registry WebSocket call failed transiently. Surface as
-        # a connectivity error so the caller knows to retry,
-        # rather than chasing a non-existent entity_id.
-        raise_failure(
-            create_error_response(
-                ErrorCode.WEBSOCKET_DISCONNECTED,
-                (
-                    f"Registry lookup for {entity_id} failed due to a "
-                    f"WebSocket error{f': {detail}' if detail else '.'}"
-                ),
-                context={
-                    "target": target,
-                    "helper_type": helper_type,
-                    "entity_id": entity_id,
-                },
             )
         )
     # wrong_helper_type cannot occur here because the dispatcher

@@ -519,6 +519,12 @@ async def _cleanup_snapshot_creation(
 ) -> None:
     if not progress.flow_id:
         return
+    if progress.current_step.get("type") == _FlowType.ABORT:
+        logger.debug(
+            "Helper recreation flow %s already ended in Home Assistant",
+            progress.flow_id,
+        )
+        return
     if failure.apply_status == "not_applied":
         await abort_failed_flow_type_only(
             client.abort_config_flow,

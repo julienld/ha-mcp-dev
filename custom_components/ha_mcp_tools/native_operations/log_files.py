@@ -100,12 +100,18 @@ class NativeLogFiles:
     async def _core_window(self, header: str) -> JournaldPage:
         return await self._supervisor_page("core", None, header)
 
+    async def journal(self, path: str, header: str) -> JournaldPage:
+        """Read a journal range through Core's existing authenticated session."""
+        if path.startswith("addons/"):
+            return await self._supervisor_page(
+                None, path.removeprefix("addons/"), header
+            )
+        return await self._supervisor_page(path, None, header)
+
     async def supervisor(
         self, service: str | None, addon: str | None, lines: int, *, offset: int = 0
     ) -> str:
-        page = await self._supervisor_page(
-            service, addon, range_header(max(lines, MIN_LOG_WINDOW_LINES), offset)
-        )
+        page = await self._supervisor_page(service, addon, range_header(lines, offset))
         return page.text
 
     async def _supervisor_page(

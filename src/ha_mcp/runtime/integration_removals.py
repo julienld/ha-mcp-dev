@@ -120,7 +120,7 @@ class IntegrationRemovalTools(EntryRemovalTools):
         but no registry entry), for a config entry the backend reports as 404,
         or for a missing config subentry.
         Calling N times gives the same response. Transient connectivity failures
-        raise their own codes (WEBSOCKET_DISCONNECTED, CONNECTION_FAILED) so
+        raise their own codes (CONNECTION_FAILED, CONNECTION_TIMEOUT) so
         retry logic can branch separately.
 
         EXAMPLES:

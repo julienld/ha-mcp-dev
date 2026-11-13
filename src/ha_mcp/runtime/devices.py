@@ -87,9 +87,7 @@ class DeviceDiscoveryTools(BackendTools):
             await enrich_zha_metrics(
                 self.backend, self.context, device_info, enrichment_warnings
             )
-        if device_info.get("integration_type") == "zwave_js" and device_info.get(
-            "node_id"
-        ):
+        if device_info.get("integration_type") == "zwave_js":
             await enrich_zwave_status(
                 self.backend, self.context, device_id, device_info, enrichment_warnings
             )
@@ -184,7 +182,8 @@ class DeviceDiscoveryTools(BackendTools):
         - By entity_id: ha_get_device(entity_id="light.living_room")
 
         **Zigbee:** integration="zha" or "zigbee2mqtt". Returns ieee_address, radio metrics.
-        **Z-Wave:** integration="zwave_js". Returns node_id, node_status.
+        **Z-Wave:** integration="zwave_js". Single device lookup returns
+        Z-Wave JS's node_id and node_status.
         **Matter:** integration="matter". Returns node_diagnostics (network type,
         reachability, IPs, fabrics). For management use ha_manage_radio.
         """

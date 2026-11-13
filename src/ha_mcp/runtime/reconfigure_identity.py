@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 class EntryUniqueId(NamedTuple):
     """A config entry's ``unique_id``, and whether it could be read at all."""
 
-    #: False when no component answered, or the component predates the field.
+    #: False when no component answered or its answer could not be trusted.
     known: bool
     #: The value when ``known``; always ``None`` when not.
     value: str | None
