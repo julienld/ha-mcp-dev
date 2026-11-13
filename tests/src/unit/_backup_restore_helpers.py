@@ -27,7 +27,7 @@ def _backup_settings() -> Settings:
     )
 
 
-def _dispatcher(client: Any) -> Any:
+def _dispatcher(client: Any = None) -> Any:
     """Use the registered tool method and its real exception boundary."""
     from ha_mcp.tools.backup import BackupTools
 
