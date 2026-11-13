@@ -11,7 +11,7 @@ from typing import Any, Literal
 from ha_mcp._vendor.fastmcp import Context
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp._vendor.fastmcp.tools import tool
-from ha_mcp.backends.legacy import legacy_errors_sync
+from ha_mcp.backends.legacy import legacy_errors, legacy_errors_sync
 from ha_mcp.runtime import trace_results as _shared_trace
 
 from ..client.rest_client import HomeAssistantError
@@ -450,4 +450,4 @@ class TraceTools(TraceFacade):
         name="ha_get_automation_traces",
         tags={"History & Statistics"},
         annotations=read_only_hints("Get Automation Traces", open_world=False),
-    )(log_tool_usage(TraceFacade.ha_get_automation_traces))
+    )(log_tool_usage(legacy_errors(TraceFacade.ha_get_automation_traces)))
