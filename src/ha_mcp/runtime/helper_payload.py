@@ -17,10 +17,6 @@ from .errors import raise_failure
 from .helper_schema import _simple_helper_error_context
 from .validation import clear_or_keep
 
-# The tool's own range parameters, under the names each type's Core schema uses.
-_RANGE_KEYS: dict[str, tuple[str, str]] = {"counter": ("minimum", "maximum")}
-_DEFAULT_RANGE_KEYS = ("min", "max")
-
 
 def icon_targets_from_schema(
     helper_type: str, action: str, icon: str | None, schemas: dict[str, Any] | None

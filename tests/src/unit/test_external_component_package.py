@@ -27,9 +27,6 @@ def test_external_component_boot_uses_checkout_library_without_a_server_entry(
     monkeypatch.setattr(
         harness, "__file__", str(repo / "tests/src/e2e/_conftest_testcontainer.py")
     )
-    monkeypatch.setattr(
-        harness.tempfile, "mkdtemp", lambda **_: str(tmp_path / "config")
-    )
     monkeypatch.setattr(harness, "_is_no_tools_entry_selected", lambda: no_tools)
     monkeypatch.setattr(harness, "native_runtime_selected", lambda: False)
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
@@ -64,7 +61,11 @@ def test_external_component_boot_uses_checkout_library_without_a_server_entry(
         getattr(container, method).return_value = container
     monkeypatch.setattr(harness, "DockerContainer", lambda *_: container)
 
-    config, _, _, wheel_name = harness._prepare_testcontainer_config(embedded=False)
+    config_path = tmp_path / "config"
+    config_path.mkdir()
+    config, _, wheel_name = harness.prepare_testcontainer_config(
+        embedded=False, config_path=config_path
+    )
     entries = json.loads((config / ".storage/core.config_entries").read_text())["data"][
         "entries"
     ]
@@ -78,7 +79,7 @@ def test_external_component_boot_uses_checkout_library_without_a_server_entry(
         )
         assert (config / wheel_name).read_bytes() == b"checkout package"
         assert [entry["unique_id"] for entry in entries] == ["ha_mcp_tools"]
-        harness._build_ha_testcontainer(config, False, wheel_name)
+        harness.build_ha_testcontainer(config, False, wheel_name)
         command = container.with_kwargs.call_args.kwargs["entrypoint"][-1]
         assert f"/config/{wheel_name}" in command
         assert "--constraint" in command

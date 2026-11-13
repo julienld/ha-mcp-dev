@@ -123,10 +123,10 @@ def start(
     *,
     candidate: bool,
 ) -> Any:
-    from e2e._conftest_testcontainer import _build_ha_testcontainer
+    from e2e._conftest_testcontainer import build_ha_testcontainer
 
     os.environ["E2E_EMBEDDED_RUNTIME"] = "native" if candidate else "legacy"
-    container = _build_ha_testcontainer(config, True, wheel.name)
+    container = build_ha_testcontainer(config, True, wheel.name)
     constrain_container(container, network, name, nonce)
     container.ports = {
         "8123/tcp": ("127.0.0.1", ports[0]),

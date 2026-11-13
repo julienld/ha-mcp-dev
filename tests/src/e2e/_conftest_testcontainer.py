@@ -177,7 +177,7 @@ def _copy_local_blueprint_to_www(config_path: Path) -> dict[str, str]:
     }
 
 
-def _prepare_testcontainer_config(
+def prepare_testcontainer_config(
     embedded: bool, config_path: Path
 ) -> tuple[Path, dict, str | None]:
     """Stage the fresh HA config into ``config_path`` (custom components, seeds, recorder).
@@ -315,7 +315,7 @@ def _hand_back_pip_cache_command(container_dir: str) -> str:
     )
 
 
-def _build_ha_testcontainer(
+def build_ha_testcontainer(
     config_path: Path, embedded: bool, embedded_wheel_name: str | None
 ) -> DockerContainer:
     """Construct the HA DockerContainer with ports, mounts, and preinstall entrypoint."""

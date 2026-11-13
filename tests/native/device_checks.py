@@ -40,8 +40,7 @@ async def exercise_devices(checks: Any, base: str) -> None:
     assert restored.status_code == 200 and restored.json()["success"], restored.text
     read = await checks.call("ha_get_device", {"device_id": device_id})
     assert (
-        read["device"]["device_id"] == device_id
-        and read["device"]["name_by_user"] is None
+        read["device"]["id"] == device_id and read["device"]["name_by_user"] is None
     ), read
     checks.passed("native_device_update_and_restore_preserve_Core_identity")
     removed = await checks.call("ha_remove_device", {"device_id": device_id})
@@ -49,5 +48,5 @@ async def exercise_devices(checks: Any, base: str) -> None:
     fixture = await checks.control("device")
     assert fixture["device_removals"] == 1, fixture
     listed = await checks.call("ha_get_device")
-    assert all(row["device_id"] != device_id for row in listed["devices"]), listed
+    assert all(row["id"] != device_id for row in listed["devices"]), listed
     checks.passed("native_device_removal_uses_real_integration_callback_once")

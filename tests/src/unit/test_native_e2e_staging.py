@@ -9,6 +9,7 @@ from typing import Any
 from unittest.mock import Mock
 
 import pytest
+from testcontainers.core.container import DockerContainer
 
 from tests.src.e2e import _conftest_testcontainer as container_harness
 from tests.src.e2e._conftest_native_runtime import (
@@ -103,16 +104,15 @@ def container_build(tmp_path, monkeypatch):
     monkeypatch.delenv("HA_TEST_IMAGE", raising=False)
     monkeypatch.delenv("HA_IMAGE_GHCR", raising=False)
 
-    def build() -> Mock:
+    def build() -> DockerContainer:
         spec = importlib.util.spec_from_file_location(
             "selected_test_image", Path(__file__).parents[2] / "test_constants.py"
         )
+        assert spec is not None and spec.loader is not None
         constants = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(constants)
         monkeypatch.setattr(container_harness, "HA_TEST_IMAGE", constants.HA_TEST_IMAGE)
-        return container_harness._build_ha_testcontainer(
-            tmp_path, True, "candidate.whl"
-        )
+        return container_harness.build_ha_testcontainer(tmp_path, True, "candidate.whl")
 
     return SimpleNamespace(build=build, constructor=constructor)
 
@@ -286,9 +286,6 @@ def test_container_preparation_pairs_the_component_with_its_checkout_wheel(
     monkeypatch, tmp_path, embedded, no_tools, native
 ):
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
-    monkeypatch.setattr(
-        container_harness.tempfile, "mkdtemp", lambda **_: str(tmp_path)
-    )
     monkeypatch.setattr(container_harness.shutil, "copytree", lambda *_, **__: None)
     for name in (
         "_ensure_hacs_frontend",
@@ -339,7 +336,9 @@ def test_container_preparation_pairs_the_component_with_its_checkout_wheel(
         return wheel
 
     monkeypatch.setattr(container_harness, "stage_native_runtime", stage)
-    config, _, _, wheel = container_harness._prepare_testcontainer_config(embedded)
+    config, _, wheel = container_harness.prepare_testcontainer_config(
+        embedded, tmp_path
+    )
     manifest = json.loads(
         (config / "custom_components/ha_mcp_tools/manifest.json").read_text()
     )

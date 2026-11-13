@@ -371,13 +371,13 @@ def worker(args: argparse.Namespace) -> int:
     )
     write_json(directory / "config/protocol-build.json", expected)
     expected["runtime"] = ROLES[args.role]
-    from e2e._conftest_testcontainer import _build_ha_testcontainer
+    from e2e._conftest_testcontainer import build_ha_testcontainer
 
     name = f"ha-mcp-protocol-{args.nonce}-{args.role}"
     network = name + "-net"
     write_json(directory / "status.json", {"phase": "creating_network"})
     command("docker", "network", "create", "--label", f"{LABEL}={args.nonce}", network)
-    container = _build_ha_testcontainer(directory / "config", True, wheel.name)
+    container = build_ha_testcontainer(directory / "config", True, wheel.name)
     constrain_container(container, network, name, args.nonce)
     capture = None
     try:

@@ -134,7 +134,7 @@ async def exercise_traces(checks: Any) -> None:
     deadline = time.monotonic() + 6
     while True:
         traces = await checks.call(
-            "ha_get_automation_traces", {"automation_id": "script.native_contract"}
+            "ha_get_automation_traces", {"entity_id": "script.native_contract"}
         )
         if traces["traces"]:
             break
@@ -144,10 +144,12 @@ async def exercise_traces(checks: Any) -> None:
     run_id = traces["traces"][0]["run_id"]
     detail = await checks.call(
         "ha_get_automation_traces",
-        {"automation_id": "script.native_contract", "run_id": run_id, "detailed": True},
+        {"entity_id": "script.native_contract", "run_id": run_id, "detailed": True},
     )
     assert detail["success"] and detail["run_id"] == run_id, detail
-    assert detail.get("action_trace"), detail
+    assert detail["entity_id"] == "script.native_contract", detail
+    assert detail["domain"] == "script", detail
+    assert isinstance(detail.get("trace"), dict) and detail["trace"], detail
     checks.passed("native_trace_list_and_detail_use_Core_serialization_and_live_script")
 
 
@@ -186,7 +188,8 @@ async def exercise_flow_helpers(checks: Any, common: dict[str, Any]) -> None:
             **common,
             "helper_type": "template",
             "name": "Native template",
-            "config": {"next_step_id": "sensor", "state": "{{ 2 + 3 }}"},
+            "menu_choice": "sensor",
+            "config": {"state": "{{ 2 + 3 }}"},
         },
     )
     assert created["success"] and created["entity_ids"], created

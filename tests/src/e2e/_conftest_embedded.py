@@ -115,7 +115,7 @@ def _is_no_tools_entry_selected() -> bool:
     On these lanes the component's "HA-MCP File & YAML Tools" config entry is
     absent, so the privileged filesystem / YAML services never register. It is
     orthogonal to the backend selectors: each backend has its own no-tools
-    shape (see ``_prepare_testcontainer_config`` / ``_prepare_haos_image``).
+    shape (see ``prepare_testcontainer_config`` / ``_prepare_haos_image``).
 
     Delegates to ``utilities.topology.tools_entry_absent`` — the staging here
     and the markers / assertions there must never disagree about which
