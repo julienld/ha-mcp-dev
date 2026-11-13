@@ -19,7 +19,8 @@ from ha_mcp.client.rest_client import (
 )
 from ha_mcp.tools.tools_todo import TodoTools
 
-from .test_tools_todo import LIST, _error, _FakeClient, _no_component  # noqa: F401
+from ._tool_errors import error_body
+from .test_tools_todo import LIST, _FakeClient, _no_component  # noqa: F401
 
 
 @pytest.fixture
@@ -144,7 +145,7 @@ class TestBridge:
         client.items.insert(0, {"uid": "x", "summary": "2", "status": "needs_action"})
         with pytest.raises(ToolError) as excinfo:
             await tools.ha_set_todo_item(LIST, item="Pay", rename="Paid")
-        assert _error(excinfo)["error"]["code"] == "VALIDATION_INVALID_PARAMETER"
+        assert error_body(excinfo)["error"]["code"] == "VALIDATION_INVALID_PARAMETER"
         assert client.items[2]["summary"] == "Pay"
 
     async def test_move_uses_the_resolved_uids(
@@ -167,7 +168,7 @@ class TestBridge:
     ) -> None:
         with pytest.raises(ToolError) as excinfo:
             await tools.ha_set_todo_item(LIST, item="Nope", status="completed")
-        assert _error(excinfo)["error"]["code"] == "RESOURCE_NOT_FOUND"
+        assert error_body(excinfo)["error"]["code"] == "RESOURCE_NOT_FOUND"
         assert [c[0] for c in bridge.calls] == ["resolve"]
 
     async def test_string_naming_an_item_is_that_item(
@@ -188,7 +189,7 @@ class TestBridge:
         bridge.refusal = {"code": "list_unavailable", "message": "unavailable"}
         with pytest.raises(ToolError) as excinfo:
             await tools.ha_remove_todo_item(LIST, item="Pay")
-        assert _error(excinfo)["error"]["code"] == "ENTITY_UNAVAILABLE"
+        assert error_body(excinfo)["error"]["code"] == "ENTITY_UNAVAILABLE"
 
     async def test_write_without_answer_is_an_unknown_outcome(
         self, tools: TodoTools, client: _FakeClient, bridge: _Bridge
@@ -203,7 +204,7 @@ class TestBridge:
             pytest.raises(ToolError) as excinfo,
         ):
             await tools.ha_remove_todo_item(LIST, item="Pay")
-        error = _error(excinfo)
+        error = error_body(excinfo)
         assert error["error"]["code"] == "SERVICE_CALL_FAILED"
         assert "did not return its outcome" in error["error"]["message"]
         assert error["write_outcome_unknown"] is True
@@ -260,7 +261,7 @@ class TestBridge:
         }
         with pytest.raises(ToolError) as excinfo:
             await tools.ha_set_todo_item(LIST, item="Pay", move_after="", status="x")
-        error = _error(excinfo)["error"]
+        error = error_body(excinfo)["error"]
         assert error["code"] == expected
         assert error["message"] == message
 
@@ -270,7 +271,7 @@ class TestBridge:
         bridge.refusal = {"code": "invalid", "message": "no description support"}
         with pytest.raises(ToolError) as excinfo:
             await tools.ha_set_todo_item(LIST, item="Pay", description="x")
-        error = _error(excinfo)["error"]
+        error = error_body(excinfo)["error"]
         assert error["code"] == "VALIDATION_INVALID_PARAMETER"
         assert "no description support" in error["message"]
 
@@ -296,7 +297,7 @@ class TestBridge:
             await tools.ha_set_todo_item(
                 LIST, item="Pay", status="needs_action", move_after=move_after
             )
-        error = _error(excinfo)["error"]
+        error = error_body(excinfo)["error"]
         assert error["code"] == "CONNECTION_FAILED"
         # The move goes with the update, so nothing was moved either.
         assert not [c for c in client.calls if c["type"] == "todo/item/move"]
@@ -315,7 +316,7 @@ class TestBridge:
             pytest.raises(ToolError) as excinfo,
         ):
             await tools.ha_set_todo_item(LIST, summary="Eggs")
-        body = _error(excinfo)
+        body = error_body(excinfo)
         assert body["error"]["code"] == "AUTH_INVALID_TOKEN"
         assert "write_outcome_unknown" not in str(body)
         assert not [c for c in client.calls if c["type"] == "call_service"]
@@ -405,7 +406,7 @@ class TestBackups:
         snapshots.during = lambda: client.items[1].update(summary="Changed elsewhere")
         with pytest.raises(ToolError) as caught:
             await tools.ha_set_todo_item(LIST, item="Pay", status="completed")
-        assert _error(caught)["error"]["code"] == "CONFIG_CONFLICT"
+        assert error_body(caught)["error"]["code"] == "CONFIG_CONFLICT"
         assert [action for action, _fields in bridge.calls] == ["resolve"]
 
     async def test_remove_completed_backs_up_the_completed_items(

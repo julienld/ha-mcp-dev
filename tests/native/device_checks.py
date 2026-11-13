@@ -42,6 +42,8 @@ async def exercise_devices(checks: Any, base: str) -> None:
     assert (
         read["device"]["id"] == device_id and read["device"]["name_by_user"] is None
     ), read
+    assert "entities" not in read, read
+    assert read["entity_count"] == len(read["device"].get("entities", [])), read
     checks.passed("native_device_update_and_restore_preserve_Core_identity")
     removed = await checks.call("ha_remove_device", {"device_id": device_id})
     assert removed["success"], removed

@@ -45,7 +45,7 @@ from ..utils.usage_logger import (
     get_startup_logs,
 )
 from .bug_report_config import collect_config_toggles
-from .bug_report_redaction import _sanitize_log_text, known_identifiers_scope
+from .bug_report_redaction import known_identifiers_scope, sanitize_log_text
 from .bug_report_sources import (
     _fetch_addon_logs,
     _fetch_core_error_log,
@@ -474,7 +474,7 @@ class LegacyBugReportTools:
         except Exception as e:  # noqa: BLE001
             logger.warning(f"Failed to get Home Assistant config: {e}")
             diagnostic_info["connection_status"] = (
-                f"Connection Error: {_sanitize_log_text(str(e))}"
+                f"Connection Error: {sanitize_log_text(str(e))}"
             )
 
         try:

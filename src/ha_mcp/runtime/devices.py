@@ -99,7 +99,6 @@ class DeviceDiscoveryTools(BackendTools):
         response: dict[str, Any] = {
             "success": True,
             "device": device_info,
-            "entities": entities,
             "entity_count": len(entities),
             "queried_by": "entity_id" if entity_id else "device_id",
             "queried_entity_id": entity_id,

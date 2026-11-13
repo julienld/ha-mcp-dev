@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Awaitable
 from typing import Any
 
 import attr
@@ -28,13 +27,13 @@ from pytest_homeassistant.common import (
     MockConfigEntry,
 )
 
-from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp.client.rest_client import HomeAssistantClient
 from ha_mcp.tools.tools_registry import RegistryTools
 
 from ._client_spies import sent_messages
 from ._core_devices import device as _device
 from ._core_devices import removable_device as _removable_device
+from ._tool_errors import rejected_call_body
 
 
 @pytest.fixture
@@ -42,14 +41,6 @@ async def tools(hass: HomeAssistant, core_client: HomeAssistantClient) -> Regist
     """The registry tools on Core with its ``config`` commands set up."""
     assert await async_setup_component(hass, "config", {})
     return RegistryTools(core_client)
-
-
-async def _tool_error(call: Awaitable[Any]) -> dict[str, Any]:
-    """The error payload of a tool call that must fail."""
-    with pytest.raises(ToolError) as excinfo:
-        _ = await call
-    error: dict[str, Any] = json.loads(str(excinfo.value))
-    return error
 
 
 async def test_summary_list_is_compact_and_full_keeps_cores_row(
@@ -136,7 +127,7 @@ async def test_refused_linked_devices_read_fails_the_lookup(
     dev = _device(hass, "hue", identifiers={("hue", "0xAABB")})
     monkeypatch.setattr(dr.DeviceRegistry, "async_get", lambda self, device_id: None)
 
-    error = await _tool_error(tools.ha_get_device(device_id=dev.id))
+    error = await rejected_call_body(tools.ha_get_device(device_id=dev.id))
     assert (
         error["error"]["message"] == "Failed to read linked devices: Device not found"
     )
@@ -217,7 +208,7 @@ async def test_refused_config_entries_read_fails_the_call(
         config_entries_ws, "_async_matching_config_entries_json_fragments", refuse
     )
 
-    error = await _tool_error(tools.ha_get_device(integration="hue"))
+    error = await rejected_call_body(tools.ha_get_device(integration="hue"))
 
     assert error["error"]["message"] == (
         "Failed to read config entries: entries unavailable"
@@ -245,12 +236,12 @@ async def test_split_composite_id_names_the_devices_that_replaced_it(
         lambda self: {"composite": [primary, matter]},
     )
 
-    error = await _tool_error(getattr(tools, tool)(device_id="composite"))
+    error = await rejected_call_body(getattr(tools, tool)(device_id="composite"))
     assert error["error"]["code"] == "RESOURCE_NOT_FOUND"
     assert (error["split_ids"], error["primary_id"]) == ([hue.id, matter.id], hue.id)
     assert "split_ids" in error["error"]["suggestion"]
 
-    error = await _tool_error(getattr(tools, tool)(device_id="ghost"))
+    error = await rejected_call_body(getattr(tools, tool)(device_id="ghost"))
     assert not {"split_ids", "primary_id"} & set(error)
     assert "split_ids" not in error["error"]["suggestion"]
 
@@ -266,7 +257,7 @@ async def test_refused_split_read_fails_the_not_found(
 
     monkeypatch.setattr(dr.ActiveDeviceRegistryItems, "get_composite_splits", refuse)
 
-    error = await _tool_error(tools.ha_get_device(device_id="composite"))
+    error = await rejected_call_body(tools.ha_get_device(device_id="composite"))
     assert error["error"]["code"] == "SERVICE_CALL_FAILED"
     assert error["error"]["message"] == (
         "Failed to read composite device splits: splits unavailable"
@@ -282,7 +273,7 @@ async def test_core_without_remove_passes_the_fallbacks_refusal_on(
     dev = _device(hass, "hue", identifiers={("hue", "0xAABB")})
     hass.data[websocket_api.DOMAIN].pop("config/device_registry/remove")
 
-    error = await _tool_error(tools.ha_remove_device(device_id=dev.id))
+    error = await rejected_call_body(tools.ha_remove_device(device_id=dev.id))
 
     assert error["error"]["message"] == (
         "Failed to remove device: Config entry does not support device removal"

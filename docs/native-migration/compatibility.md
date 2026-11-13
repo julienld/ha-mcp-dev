@@ -12,7 +12,7 @@ evidence of their original candidate, rather than current behavior.
 
 ## Current Main reference, 13 November 2026
 
-The candidate incorporates upstream `40e86d65750ad8cfa4ed5ea933a5fbb82dec6ce2`.
+The candidate incorporates upstream `381b515959e4a8897b1ae27a957bdaa5ee3219ce`.
 The dated sections below retain their original evidence; this section describes
 later Main changes. Both runtimes follow Main's functional choices rather than
 adding Native aliases for retired interfaces.
@@ -34,7 +34,19 @@ adding Native aliases for retired interfaces.
   history timestamps use Home Assistant's timezone, and workload guards count
   elapsed time across daylight-saving changes.
 
-The [new independent Main receipt](upstream-contract-40e86d657.json) records
+- Supervisor journal windows, pagination tokens and log shaping share one policy
+  across Native and Legacy. Native retains the Core-owned Supervisor session;
+  the standalone Core bench does not qualify a live Supervisor transport.
+- Z-Wave node identity and status come from Core's integration reply. Single-device
+  entities remain under `device.entities`; a second top-level copy is omitted.
+- A deleted dashboard resource captured without a type cannot be recreated:
+  both runtimes explain the missing type before issuing a create operation.
+- Service failures retain typed uncertainty and readback guidance. A saved scene
+  may have an unknown activation result; a received HTTP 500 does not prove that
+  no handler effect occurred. Finished flows are not aborted again, and warnings
+  about unavailable safety captures remain in flow results.
+
+The [independent Main receipt at the earlier checkpoint](upstream-contract-40e86d657.json) records
 public interfaces extracted from source texts verified against their Git blob
 hashes. The old source receipt and historical catalogue captures remain intact;
 the machine contract explicitly records inherited Main interface changes.

@@ -142,6 +142,12 @@ def _unit_test_env(tmp_path_factory, monkeypatch):
     reset_global_settings()
 
 
+@pytest.fixture
+def hass_config_dir(hass_tmp_config_dir: str) -> str:
+    """Core writes into its config directory; a shared one holds other tests' files."""
+    return hass_tmp_config_dir
+
+
 def _uses_js_harness(module: object) -> bool:
     from . import _js_harness
 
@@ -360,7 +366,7 @@ def mock_client():
 def no_flow_outline(monkeypatch: pytest.MonkeyPatch) -> None:
     """No component describes a flow's declared steps, for a test whose client
     is a test double: a form then says only what its own step reports."""
-    from ha_mcp.tools.config_helpers import describe
+    from ha_mcp.runtime import flow_description as describe
 
     monkeypatch.setattr(describe, "flow_outline", AsyncMock(return_value=None))
     # The component is there; it has no declaration for the test's flow.

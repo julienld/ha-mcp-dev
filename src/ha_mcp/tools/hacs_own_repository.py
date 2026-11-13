@@ -14,6 +14,7 @@ installed.
 
 from __future__ import annotations
 
+import logging
 from functools import partial
 from typing import Any
 
@@ -27,6 +28,8 @@ from ..runtime.hacs_ownership import (
 )
 from .hacs_backend import StoreApi, is_owned_directory_refusal
 
+logger = logging.getLogger(__name__)
+
 
 async def installed_own_records(
     ws_client: Any, api: StoreApi
@@ -36,6 +39,7 @@ async def installed_own_records(
     try:
         response = await ws_client.send_command(api.command("list"))
     except HomeAssistantCommandError, HomeAssistantCommandTimeout:
+        logger.debug("Could not list the store's repositories", exc_info=True)
         return None
     listed = response.get("result") if isinstance(response, dict) else None
     repos = [dict(r) for r in (listed or []) if isinstance(r, dict)]

@@ -22,8 +22,8 @@ from .report_templates import (
     _generate_runtime_bug_template,
     _generate_search_keywords,
     _ReportText,
-    _sanitize_log_text,
     _suggested_title,
+    sanitize_log_text,
 )
 
 _AGENT_SIDE_TEMPLATES = {
@@ -198,7 +198,7 @@ def _format_logs_for_report(logs: list[dict[str, Any]]) -> str:
         line = f"  {timestamp} | {tool_name} | {success} | {duration}"
         if error:
             # Sanitize before truncating so secrets straddling the cut survive redaction.
-            error_short = _sanitize_log_text(str(error))[:100]
+            error_short = sanitize_log_text(str(error))[:100]
             line += f" | Error: {error_short}"
         lines.append(line)
 
@@ -218,7 +218,7 @@ def _format_startup_logs(logs: list[dict[str, Any]]) -> str:
         message = log.get("message", "")
 
         # Sanitize before truncating so secrets straddling the cut survive redaction.
-        message = _sanitize_log_text(message)
+        message = sanitize_log_text(message)
         if len(message) > 200:
             message = message[:200] + "..."
 
@@ -364,10 +364,10 @@ def render_report(
         # key-masked at the logging chokepoint and its error_message is
         # returned as-is to the trusted client by design (see SECURITY.md);
         # formatted_report and addon_logs already route through
-        # _sanitize_log_text. This copies entries — the underlying log
+        # sanitize_log_text. This copies entries — the underlying log
         # records stay raw.
         "startup_logs": [
-            {**entry, "message": _sanitize_log_text(entry.get("message", ""))}
+            {**entry, "message": sanitize_log_text(entry.get("message", ""))}
             for entry in startup_logs
         ],
         "addon_logs": addon_logs,

@@ -10,7 +10,7 @@ import pytest
 
 from ha_mcp import __version__
 from ha_mcp.client.rest_client import ErrorLogPage
-from ha_mcp.tools.bug_report_redaction import _sanitize_log_text
+from ha_mcp.tools.bug_report_redaction import sanitize_log_text
 from ha_mcp.tools.tools_bug_report import (
     _detect_mcp_transport,
     _fetch_addon_logs,
@@ -611,60 +611,56 @@ class TestBugReportTool:
         # The source record is untouched.
         assert raw_entry["message"] == raw_message
 
-    def test_sanitize_log_text_redacts_generated_secret_path(self):
+    def testsanitize_log_text_redacts_generated_secret_path(self):
         """The generated ``/private_<token>`` connect path is redacted."""
-        out = _sanitize_log_text(
-            "on http://0.0.0.0:9583/private_T6tSJxqYuTESTtoken/mcp"
-        )
+        out = sanitize_log_text("on http://0.0.0.0:9583/private_T6tSJxqYuTESTtoken/mcp")
         assert "/private_T6tSJxqYuTESTtoken" not in out
         assert "[REDACTED_SECRET_PATH]" in out
 
-    def test_sanitize_log_text_redacts_configured_secret_path(self, monkeypatch):
+    def testsanitize_log_text_redacts_configured_secret_path(self, monkeypatch):
         """A custom configured ``MCP_SECRET_PATH`` is redacted by value."""
         monkeypatch.setenv("MCP_SECRET_PATH", "/customhook")
-        out = _sanitize_log_text("connect at http://ha.local:9583/customhook/mcp")
+        out = sanitize_log_text("connect at http://ha.local:9583/customhook/mcp")
         assert "/customhook" not in out
         assert "[REDACTED_SECRET_PATH]" in out
 
-    def test_sanitize_log_text_redacts_configured_settings_path(self, monkeypatch):
+    def testsanitize_log_text_redacts_configured_settings_path(self, monkeypatch):
         """A custom ``MCP_SETTINGS_SECRET_PATH`` is redacted by value too, so
         ha_report_issue can't hand the settings secret to an MCP client
         (GHSA-mx64-982r-65vg). The auto-generated /private_ form is caught by the
         generic pattern already; this covers a non-/private_ custom value."""
         monkeypatch.delenv("MCP_SECRET_PATH", raising=False)
         monkeypatch.setenv("MCP_SETTINGS_SECRET_PATH", "/admin_ui")
-        out = _sanitize_log_text(
+        out = sanitize_log_text(
             "Settings UI available at: http://ha.local:8086/admin_ui/settings"
         )
         assert "/admin_ui" not in out
         assert "[REDACTED_SECRET_PATH]" in out
 
-    def test_sanitize_log_text_redacts_settings_path_with_whitespace(self, monkeypatch):
+    def testsanitize_log_text_redacts_settings_path_with_whitespace(self, monkeypatch):
         """The resolver strips MCP_SETTINGS_SECRET_PATH before mounting, so a
         value with stray whitespace mounts at the stripped path; the sanitizer
         must strip too or it redacts the wrong string and leaks the secret
         (GHSA-mx64-982r-65vg)."""
         monkeypatch.delenv("MCP_SECRET_PATH", raising=False)
         monkeypatch.setenv("MCP_SETTINGS_SECRET_PATH", "/admin_ui ")
-        out = _sanitize_log_text(
+        out = sanitize_log_text(
             "Settings UI available at: http://ha.local:8086/admin_ui/settings"
         )
         assert "/admin_ui" not in out
         assert "[REDACTED_SECRET_PATH]" in out
 
-    def test_sanitize_log_text_keeps_default_mcp_path(self, monkeypatch):
+    def testsanitize_log_text_keeps_default_mcp_path(self, monkeypatch):
         """The low-entropy ``/mcp`` default is left intact (avoids noise)."""
         monkeypatch.delenv("MCP_SECRET_PATH", raising=False)
-        out = _sanitize_log_text("on http://0.0.0.0:9583/mcp")
+        out = sanitize_log_text("on http://0.0.0.0:9583/mcp")
         assert "/mcp" in out
 
-    def test_sanitize_log_text_short_configured_path_does_not_corrupt(
-        self, monkeypatch
-    ):
+    def testsanitize_log_text_short_configured_path_does_not_corrupt(self, monkeypatch):
         """A short configured secret path must redact only its own path segment,
         not unrelated text that happens to share the prefix."""
         monkeypatch.setenv("MCP_SECRET_PATH", "/ha")
-        out = _sanitize_log_text("Connecting to /happy/path via /ha")
+        out = sanitize_log_text("Connecting to /happy/path via /ha")
         assert "/happy/path" in out
         assert out.count("[REDACTED_SECRET_PATH]") == 1
 
@@ -1089,7 +1085,7 @@ class TestFetchCoreErrorLog:
     @pytest.mark.asyncio
     async def test_scrubs_secrets_keeps_diagnostics(self):
         """Secrets that can appear in home-assistant.log are scrubbed via the
-        same _sanitize_log_text the add-on-log path uses, while the diagnostic
+        same sanitize_log_text the add-on-log path uses, while the diagnostic
         lines survive."""
         client = MagicMock()
         client.get_error_log = AsyncMock(

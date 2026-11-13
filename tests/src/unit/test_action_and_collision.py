@@ -26,13 +26,7 @@ from ha_mcp.client.rest_client import HomeAssistantClient
 from ha_mcp.tools.tools_config_helpers import HelperConfigTools
 
 from ._client_spies import sent_messages
-from ._tool_errors import _error
-
-
-@pytest.fixture
-def hass_config_dir(hass_tmp_config_dir: str) -> str:
-    """The template flow copies Core's template blueprints into it."""
-    return hass_tmp_config_dir
+from ._tool_errors import error_of
 
 
 @pytest.fixture
@@ -90,7 +84,7 @@ async def test_create_with_an_existing_name_points_at_that_helper(
             helper_type="input_boolean", name=name, wait=False
         )
 
-    error = _error(exc_info)
+    error = error_of(exc_info)
     assert error["code"] == "VALIDATION_INVALID_PARAMETER"
     assert "input_boolean/create" not in [
         call.args[0]["type"] for call in sent.await_args_list
@@ -153,7 +147,7 @@ async def test_flow_helper_with_an_existing_title_is_refused_before_a_flow_opens
             **template, config={"name": title, "state": "{{ 2 }}"}
         )
 
-    error = _error(exc_info)
+    error = error_of(exc_info)
     assert error["code"] == "VALIDATION_INVALID_PARAMETER"
     assert entry.entry_id in error["message"]
     start.assert_not_awaited()

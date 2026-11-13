@@ -14,7 +14,7 @@ from ha_mcp.tools.statistics_calendar import (
 
 from .errors import raise_failure
 
-_RELATIVE_TIME_UNIT_SECONDS = {
+RELATIVE_TIME_UNIT_SECONDS = {
     "min": 60,
     "h": 60 * 60,
     "d": 24 * 60 * 60,
@@ -82,7 +82,7 @@ def parse_relative_time(
         value = int(match.group(1))
         unit = match.group(2)
         try:
-            return now - timedelta(seconds=value * _RELATIVE_TIME_UNIT_SECONDS[unit])
+            return now - timedelta(seconds=value * RELATIVE_TIME_UNIT_SECONDS[unit])
         except OverflowError as exc:
             raise ValueError(
                 f"Invalid time format: {time_str} is out of range"

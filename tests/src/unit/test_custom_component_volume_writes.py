@@ -40,12 +40,6 @@ from custom_components.ha_mcp_tools.const import DOMAIN, TOOLS_ENTRY_TITLE
 FileService = Callable[[str, dict[str, Any]], Awaitable[dict[str, Any]]]
 
 
-@pytest.fixture
-def hass_config_dir(hass_tmp_config_dir: str) -> str:
-    """Core's config directory is this test's ``tmp_path``."""
-    return hass_tmp_config_dir
-
-
 async def _file_service(hass: HomeAssistant, allowed: str) -> FileService:
     """Set the tools entry up with ``allowed`` as an extra directory and return
     a caller of its services that presents the caller token."""
@@ -209,8 +203,12 @@ async def test_read_only_mount_is_named_not_a_raw_errno(
 ) -> None:
     # A config-directory bind mount can be read-only too. Keep a real before-image.
     target = Path(hass.config.path("www/t/a.txt"))
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text("unchanged", encoding="utf-8")
+    await hass.async_add_executor_job(
+        lambda: target.parent.mkdir(parents=True, exist_ok=True)
+    )
+    await hass.async_add_executor_job(
+        lambda: target.write_text("unchanged", encoding="utf-8")
+    )
     erofs = OSError(errno.EROFS, "Read-only file system", str(target))
     monkeypatch.setattr(file_access, f"_{build}_file_sync", _raise(erofs))
     call = await _file_service(hass, "www/t")
@@ -222,7 +220,10 @@ async def test_read_only_mount_is_named_not_a_raw_errno(
 
     result = await call(service, data)
 
-    assert target.read_text(encoding="utf-8") == "unchanged"
+    assert (
+        await hass.async_add_executor_job(lambda: target.read_text(encoding="utf-8"))
+        == "unchanged"
+    )
     assert result == {
         "success": False,
         "error": "www/t/a.txt is on a read-only mount in Home Assistant Core"

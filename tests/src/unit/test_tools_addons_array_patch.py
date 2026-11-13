@@ -8,7 +8,6 @@ raw=True, applies ops, and posts the mutated array back exactly once.
 """
 
 import copy
-import json
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
@@ -16,9 +15,7 @@ import pytest
 
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
 
-
-def _parse_tool_error(exc: pytest.ExceptionInfo[ToolError]) -> dict:
-    return json.loads(str(exc.value))
+from ._tool_errors import error_body, error_of
 
 
 @pytest.fixture
@@ -286,7 +283,7 @@ class TestApplyArrayOpsValidation:
             await _patch_array(
                 _registered_tool, [], [{"op": "yeet", "id": "x"}], id_field="id"
             )
-        err = _parse_tool_error(exc)
+        err = error_body(exc)
         assert err["error"]["code"] == "VALIDATION_FAILED"
 
     async def test_patch_missing_id_raises(self, _registered_tool):
@@ -297,7 +294,7 @@ class TestApplyArrayOpsValidation:
                 [{"op": "patch", "patches": {"name": "X"}}],
                 id_field="id",
             )
-        assert _parse_tool_error(exc)["error"]["code"] == "VALIDATION_FAILED"
+        assert error_of(exc)["code"] == "VALIDATION_FAILED"
 
     async def test_patch_unknown_id_raises(self, _registered_tool):
         with pytest.raises(ToolError) as exc:
@@ -307,7 +304,7 @@ class TestApplyArrayOpsValidation:
                 [{"op": "patch", "id": "ghost", "patches": {"name": "X"}}],
                 id_field="id",
             )
-        assert _parse_tool_error(exc)["error"]["code"] == "RESOURCE_NOT_FOUND"
+        assert error_of(exc)["code"] == "RESOURCE_NOT_FOUND"
 
     async def test_patch_non_dict_patches_raises(self, _registered_tool):
         with pytest.raises(ToolError) as exc:
@@ -317,7 +314,7 @@ class TestApplyArrayOpsValidation:
                 [{"op": "patch", "id": "a", "patches": "not a dict"}],
                 id_field="id",
             )
-        assert _parse_tool_error(exc)["error"]["code"] == "VALIDATION_FAILED"
+        assert error_of(exc)["code"] == "VALIDATION_FAILED"
 
     async def test_delete_unknown_id_raises(self, _registered_tool):
         with pytest.raises(ToolError) as exc:
@@ -327,7 +324,7 @@ class TestApplyArrayOpsValidation:
                 [{"op": "delete", "id": "ghost"}],
                 id_field="id",
             )
-        assert _parse_tool_error(exc)["error"]["code"] == "RESOURCE_NOT_FOUND"
+        assert error_of(exc)["code"] == "RESOURCE_NOT_FOUND"
 
     async def test_add_collision_raises(self, _registered_tool):
         with pytest.raises(ToolError) as exc:
@@ -337,7 +334,7 @@ class TestApplyArrayOpsValidation:
                 [{"op": "add", "item": {"id": "a", "type": "x"}}],
                 id_field="id",
             )
-        assert _parse_tool_error(exc)["error"]["code"] == "RESOURCE_ALREADY_EXISTS"
+        assert error_of(exc)["code"] == "RESOURCE_ALREADY_EXISTS"
 
     async def test_add_missing_id_field_raises(self, _registered_tool):
         with pytest.raises(ToolError) as exc:
@@ -347,7 +344,7 @@ class TestApplyArrayOpsValidation:
                 [{"op": "add", "item": {"type": "x"}}],
                 id_field="id",
             )
-        assert _parse_tool_error(exc)["error"]["code"] == "VALIDATION_FAILED"
+        assert error_of(exc)["code"] == "VALIDATION_FAILED"
 
     async def test_add_with_empty_string_id_raises(self, _registered_tool):
         """`id_field not in item` only checks key presence, not value validity.
@@ -360,7 +357,7 @@ class TestApplyArrayOpsValidation:
                 [{"op": "add", "item": {"id": "", "type": "x"}}],
                 id_field="id",
             )
-        assert _parse_tool_error(exc)["error"]["code"] == "VALIDATION_FAILED"
+        assert error_of(exc)["code"] == "VALIDATION_FAILED"
 
     async def test_add_with_none_id_raises(self, _registered_tool):
         """Same rationale as empty-string: `id` cannot be None."""
@@ -371,7 +368,7 @@ class TestApplyArrayOpsValidation:
                 [{"op": "add", "item": {"id": None, "type": "x"}}],
                 id_field="id",
             )
-        assert _parse_tool_error(exc)["error"]["code"] == "VALIDATION_FAILED"
+        assert error_of(exc)["code"] == "VALIDATION_FAILED"
 
     async def test_add_with_integer_zero_id_is_accepted(self, _registered_tool):
         """The check rejects `None` and whitespace-only strings only — non-string
@@ -399,7 +396,7 @@ class TestApplyArrayOpsValidation:
                 [{"op": "add", "item": {"id": bad_id, "type": "x"}}],
                 id_field="id",
             )
-        assert _parse_tool_error(exc)["error"]["code"] == "VALIDATION_FAILED"
+        assert error_of(exc)["code"] == "VALIDATION_FAILED"
 
     async def test_patch_with_empty_patches_raises(self, _registered_tool):
         """Empty `patches` is a silent no-op — reject up-front so the caller
@@ -411,7 +408,7 @@ class TestApplyArrayOpsValidation:
                 [{"op": "patch", "id": "a", "patches": {}}],
                 id_field="id",
             )
-        assert _parse_tool_error(exc)["error"]["code"] == "VALIDATION_FAILED"
+        assert error_of(exc)["code"] == "VALIDATION_FAILED"
 
     async def test_delete_where_with_explicit_none_value_is_allowed(
         self, _registered_tool
@@ -558,7 +555,7 @@ class TestHaManageAddonArrayPatchDispatch:
                     "operations": [{"op": "delete", "id": "x"}],
                 },
             )
-        err = _parse_tool_error(exc)
+        err = error_body(exc)
         assert err["error"]["code"] == "VALIDATION_FAILED"
 
     @pytest.mark.asyncio
@@ -701,7 +698,7 @@ class TestHaManageAddonArrayPatchDispatch:
                 websocket=True,
                 array_patch={"operations": [{"op": "delete", "id": "x"}]},
             )
-        err = _parse_tool_error(exc)
+        err = error_body(exc)
         assert err["error"]["code"] == "VALIDATION_FAILED"
 
     @pytest.mark.asyncio
@@ -713,7 +710,7 @@ class TestHaManageAddonArrayPatchDispatch:
                 body={"foo": "bar"},
                 array_patch={"operations": [{"op": "delete", "id": "x"}]},
             )
-        err = _parse_tool_error(exc)
+        err = error_body(exc)
         assert err["error"]["code"] == "VALIDATION_FAILED"
 
     @pytest.mark.asyncio
@@ -725,7 +722,7 @@ class TestHaManageAddonArrayPatchDispatch:
                 limit=10,
                 array_patch={"operations": [{"op": "delete", "id": "x"}]},
             )
-        err = _parse_tool_error(exc)
+        err = error_body(exc)
         assert err["error"]["code"] == "VALIDATION_FAILED"
 
     @pytest.mark.asyncio
@@ -736,7 +733,7 @@ class TestHaManageAddonArrayPatchDispatch:
                 path="/flows",
                 array_patch={"operations": []},
             )
-        err = _parse_tool_error(exc)
+        err = error_body(exc)
         assert err["error"]["code"] == "VALIDATION_FAILED"
 
 
@@ -822,7 +819,7 @@ class TestHaManageAddonRequestHeaders:
                 websocket=True,
                 request_headers={"X-Custom": "v"},
             )
-        err = _parse_tool_error(exc)
+        err = error_body(exc)
         assert err["error"]["code"] == "VALIDATION_FAILED"
 
     @pytest.mark.asyncio
@@ -833,7 +830,7 @@ class TestHaManageAddonRequestHeaders:
                 options={"log_level": "debug"},
                 request_headers={"X-Custom": "value"},
             )
-        err = _parse_tool_error(exc)
+        err = error_body(exc)
         assert err["error"]["code"] == "VALIDATION_FAILED"
         assert "request_headers" in err["error"]["message"]
 

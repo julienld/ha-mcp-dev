@@ -12,6 +12,27 @@ async def exercise_developer_tools(checks: Any, base: str) -> None:
         base + "/api/ha_mcp_tools/ui/session", headers=checks.headers()
     )
     session.raise_for_status()
+    services = await checks.client.get(base + "/api/services", headers=checks.headers())
+    services.raise_for_status()
+    rows = services.json()
+    for source, extra, expected in (
+        ("ha_domains", {}, sorted(row["domain"] for row in rows)),
+        (
+            "ha_services",
+            {"domain": "input_boolean"},
+            sorted(
+                next(
+                    row["services"] for row in rows if row["domain"] == "input_boolean"
+                )
+            ),
+        ),
+    ):
+        choices = await checks.client.get(
+            root + "policy/value-source", params={"source": source, **extra}
+        )
+        choices.raise_for_status()
+        assert choices.json()["values"] == expected, choices.text
+    checks.passed("native_policy_choices_match_real_Core_services_with_admin_session")
     features = await checks.client.get(root + "settings/features")
     features.raise_for_status()
     old_features = features.json()["flags"]

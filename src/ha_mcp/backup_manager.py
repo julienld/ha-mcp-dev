@@ -1500,6 +1500,12 @@ async def _restore_dashboard_resource(client: Any, entity_id: str, config: Any) 
     live = await _dashboard_resource_like(client, config)
     if live is not None:  # an earlier restore re-created it
         return live
+    if "type" not in config:  # create requires one; never guess it
+        raise BackupRestoreError(
+            f"Dashboard resource {config['url']!r} was stored without a type, and "
+            "Home Assistant needs one to create it; create it again with a type",
+            reason="invalid_snapshot",
+        )
     return await _ws_send(client, {"type": "lovelace/resources/create", **payload})
 
 

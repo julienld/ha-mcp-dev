@@ -660,7 +660,10 @@ class NativeSettings:
         source = request.query.get("source", "")
         params = {key: value for key, value in request.query.items() if key != "source"}
         if source in ("ha_domains", "ha_services"):
-            data = hass.services.async_services()
+            data = [
+                {"domain": domain, "services": services}
+                for domain, services in hass.services.async_services().items()
+            ]
         elif source == "ha_entities":
             data = [{"entity_id": state.entity_id} for state in hass.states.async_all()]
         elif source == "ha_config_entries":

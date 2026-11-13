@@ -54,7 +54,7 @@ from .statistics_helpers import (
 from .statistics_resets import restore_reset_timestamps
 from .tool_hints import read_only_hints
 
-_RELATIVE_TIME_UNIT_SECONDS = _query_policy._RELATIVE_TIME_UNIT_SECONDS
+RELATIVE_TIME_UNIT_SECONDS = _query_policy.RELATIVE_TIME_UNIT_SECONDS
 _DEFAULT_START_HOURS_BY_SOURCE = _query_policy._DEFAULT_START_HOURS_BY_SOURCE
 _DEFAULT_HISTORY_LIMIT = _query_policy._DEFAULT_HISTORY_LIMIT
 _MAX_HISTORY_LIMIT = _query_policy._MAX_HISTORY_LIMIT
@@ -467,7 +467,7 @@ async def _fetch_statistics(
 
 __all__ = [
     "HistoryTools",
-    "_RELATIVE_TIME_UNIT_SECONDS",
+    "RELATIVE_TIME_UNIT_SECONDS",
     "parse_relative_time",
     "register_history_tools",
 ]

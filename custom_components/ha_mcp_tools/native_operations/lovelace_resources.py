@@ -389,6 +389,14 @@ class NativeResources:
                 )
             if self.snapshot_matches(before, config):
                 return {"restore_mode": "already_matches", "resource": before}
+            if before is None and "type" not in config:
+                raise ToolFailure(
+                    "VALIDATION_INVALID_PARAMETER",
+                    f"Dashboard resource {config.get('url')!r} was stored without a type, and "
+                    "Home Assistant needs one to create it; create it again with a type",
+                    data={"reason": "invalid_snapshot"},
+                    status="not_started",
+                )
             fields = {"url": config.get("url")}
             if "type" in config:
                 fields["res_type"] = config["type"]

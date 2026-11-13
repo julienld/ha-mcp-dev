@@ -1,8 +1,11 @@
 """Keep an executor operation's resource owner alive through cancellation."""
 
 import asyncio
+import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 async def await_owned_io[T](operation: Awaitable[T]) -> T:
@@ -23,8 +26,8 @@ async def await_owned_io[T](operation: Awaitable[T]) -> T:
                 await asyncio.wait({worker})
             except asyncio.CancelledError:
                 continue
-        if not worker.cancelled():
-            worker.exception()
+        if not worker.cancelled() and (err := worker.exception()) is not None:
+            logger.warning("Owned I/O failed after cancellation", exc_info=err)
         raise
 
 

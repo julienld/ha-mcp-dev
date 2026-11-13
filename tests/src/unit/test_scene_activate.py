@@ -29,15 +29,9 @@ from ha_mcp.config import get_global_settings, reset_global_settings
 from ha_mcp.tools.tools_config_scenes import ConfigSceneTools
 
 from ._config_dir_yaml import setup_scenes
-from ._tool_errors import _error
+from ._tool_errors import error_of
 
 _WRITE_MODES = ("config", "python_transform")
-
-
-@pytest.fixture
-def hass_config_dir(hass_tmp_config_dir: str) -> str:
-    """Core's scene config API writes ``scenes.yaml`` here."""
-    return hass_tmp_config_dir
 
 
 async def _scene(hass: HomeAssistant, entities: dict[str, Any]) -> None:
@@ -118,7 +112,7 @@ async def test_activate_unknown_scene_is_entity_not_found(
             scene_id="scene.missing", activate=True
         )
 
-    assert _error(exc)["code"] == "ENTITY_NOT_FOUND"
+    assert error_of(exc)["code"] == "ENTITY_NOT_FOUND"
     call_service.assert_not_awaited()
 
 
@@ -160,7 +154,7 @@ async def test_activate_alone_without_an_answer_is_connection_failed(
             scene_id="scene.film_night", activate=True
         )
 
-    assert _error(exc)["code"] == "CONNECTION_FAILED"
+    assert error_of(exc)["code"] == "CONNECTION_FAILED"
 
 
 @pytest.mark.parametrize("mode", _WRITE_MODES)
@@ -224,8 +218,9 @@ async def test_write_whose_activation_fails_still_reports_the_write(
     )
 
     assert result["success"] is True
-    assert result["activated"] is False
-    assert any("could not be activated" in w for w in result["warnings"])
+    assert result["activated"] is None
+    assert result["write_outcome_unknown"] is True
+    assert any("outcome" in w and "unknown" in w for w in result["warnings"])
     stored = await ConfigSceneTools(core_client).ha_config_get_scene(
         scene_id="movie_night"
     )

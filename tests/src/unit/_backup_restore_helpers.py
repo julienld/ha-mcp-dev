@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 from typing import Any
-from unittest.mock import MagicMock
 
 from starlette.applications import Starlette
 from starlette.routing import Route
@@ -28,30 +27,11 @@ def _backup_settings() -> Settings:
     )
 
 
-def _dispatcher() -> Any:
-    """Resolve the raw ``ha_manage_backup`` closure from the ``@tool`` stack.
+def _dispatcher(client: Any) -> Any:
+    """Use the registered tool method and its real exception boundary."""
+    from ha_mcp.tools.backup import BackupTools
 
-    Mirrors the addon-tool tests: a fake ``mcp`` captures the decorated
-    function, then ``__wrapped__`` is unwound past ``@log_tool_usage`` so the
-    dispatcher is called directly, bypassing the FastMCP transport.
-    """
-    from ha_mcp.tools.backup import register_backup_tools
-
-    captured: dict[str, Any] = {}
-
-    class _MockMCP:
-        def tool(self, *args: Any, **kwargs: Any) -> Any:
-            def deco(fn: Any) -> Any:
-                captured.setdefault(fn.__name__, fn)
-                return fn
-
-            return deco
-
-    register_backup_tools(_MockMCP(), MagicMock())
-    fn = captured["ha_manage_backup"]
-    while hasattr(fn, "__wrapped__"):
-        fn = fn.__wrapped__
-    return fn
+    return BackupTools(client).ha_manage_backup
 
 
 def backup_tool(monkeypatch, manager) -> Any:
@@ -59,7 +39,7 @@ def backup_tool(monkeypatch, manager) -> Any:
     monkeypatch.setattr("ha_mcp.tools.backup.get_backup_manager", lambda *args: manager)
     monkeypatch.setattr("ha_mcp.tools.backup.get_global_settings", _backup_settings)
     monkeypatch.setattr("ha_mcp.read_only.get_global_settings", _backup_settings)
-    return _dispatcher()
+    return _dispatcher(None)
 
 
 NAME = "helper_template.sensor.example.20260909_000000.yaml"

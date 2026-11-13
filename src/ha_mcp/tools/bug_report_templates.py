@@ -18,8 +18,8 @@ from ..runtime.report_templates import (
     _generate_runtime_bug_template,
     _generate_search_keywords,
     _ReportText,
-    _sanitize_log_text,
     _suggested_title,
+    sanitize_log_text,
 )
 from .bug_report_redaction import _URL_USERINFO_RE as _URL_USERINFO_RE
 
@@ -42,6 +42,6 @@ __all__ = [
     "_generate_feature_request_template",
     "_generate_runtime_bug_template",
     "_generate_search_keywords",
-    "_sanitize_log_text",
+    "sanitize_log_text",
     "_suggested_title",
 ]
