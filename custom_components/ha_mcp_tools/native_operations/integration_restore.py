@@ -8,7 +8,7 @@ from typing import Any, cast
 from homeassistant.helpers.json import json_bytes
 
 from ha_mcp.errors import HomeAssistantError
-from ha_mcp.runtime.flows.entry import update_config_entry_options
+from ha_mcp.runtime.flows.entry import restore_config_entry_options
 from ha_mcp.runtime.flows.session import FlowSession
 from ha_mcp.runtime.flows.settings import FlowSettings, bind_flow_settings
 from ha_mcp.runtime.integration_snapshot import restore_integration
@@ -154,12 +154,11 @@ class NativeIntegrationRestore:
             await _apply_and_verify(
                 f"{config.get('domain')} integration",
                 partial(
-                    update_config_entry_options,
+                    restore_config_entry_options,
                     session,
                     identifier,
                     config["options"],
                     expected_domain=config.get("domain"),
-                    keep_current_values=False,
                     fixed_options=current_options,
                 ),
                 partial(
