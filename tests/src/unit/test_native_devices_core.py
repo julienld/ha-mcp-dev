@@ -91,7 +91,7 @@ async def test_revocation_after_capture_prevents_core_device_dispatch(
     dev = await removable_device(hass)
 
     async def revoke(snapshot: dict[str, Any], actor: CallContext) -> None:
-        hass_admin_user.is_active = False
+        await hass.auth.async_remove_user(hass_admin_user)
 
     service = NativeDevices(
         hass,
