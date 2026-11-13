@@ -10,6 +10,43 @@ changes. The 6 November compatibility pass below restores the installation
 floor and automatic entity-history contracts; historical audit entries remain
 evidence of their original candidate, rather than current behavior.
 
+## Current Main reference, 13 November 2026
+
+The candidate incorporates upstream `40e86d65750ad8cfa4ed5ea933a5fbb82dec6ce2`.
+The dated sections below retain their original evidence; this section describes
+later Main changes. Both runtimes follow Main's functional choices rather than
+adding Native aliases for retired interfaces.
+
+- Main's package now requires Python 3.14. The focused Core environment is
+  Home Assistant 2026.11.1; this is not qualification of every supported Core.
+- Helpers accept Core's storage fields unchanged. Flow helpers expose one Core
+  step at a time with `flow_id`, `menu_choice` and `abort`; `config` can also be
+  a list of form answers. Descriptions and snapshot replay use Core-declared
+  fields and forms rather than guessed helper schemas or hidden typed aliases.
+- Traces use `entity_id` instead of the retired `automation_id`; `deduplicate`
+  is retired. Domain/item/context selectors follow Main, and detail results
+  preserve Core's extended trace dictionary and variable values. The old
+  inferred action/condition summaries are not reconstructed by Native.
+- Device results retain Core rows and config-entry integration ownership,
+  linked-device and composite-split metadata. Removal dispatches through Core's
+  owner after Native admission and before-image checks.
+- Composed entity names remain distinct from legacy `friendly_name`. Naive
+  history timestamps use Home Assistant's timezone, and workload guards count
+  elapsed time across daylight-saving changes.
+
+The [new independent Main receipt](upstream-contract-40e86d657.json) records
+public interfaces extracted from source texts verified against their Git blob
+hashes. The old source receipt and historical catalogue captures remain intact;
+the machine contract explicitly records inherited Main interface changes.
+
+Focused real-Core regressions do not establish whole-candidate compatibility.
+Historical Native tests still need migration to Main's real-Core and
+private-access rules; no exemption was added for them. Current-source full-suite,
+type, beta, MCP/LLM and real upgrade qualification remain incomplete. Both
+historical real upgrade attempts failed before Native continuity was qualified.
+Legacy remains the transparent-update target; an explicit Native switch uses
+Core's listener, and the former separate MCP port is still a compatibility limit.
+
 ## Upstream functional reference, 7 November 2026
 
 The current integration target is upstream
