@@ -5,6 +5,7 @@ from typing import Any
 
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp.errors import ErrorCode, create_error_response
+from ha_mcp.runtime.device_values import device_update_result
 from ha_mcp.runtime.device_values import device_update_values as _device_update_values
 from ha_mcp.tools.coercion import parse_string_list_param
 from ha_mcp.tools.component_api import UNKNOWN_COMMAND_CODE
@@ -56,41 +57,19 @@ class LegacyDevices:
             logger.info(f"Updating device {device_id}: {', '.join(updates_made)}")
             result = await self._client.send_websocket_message(message)
 
-            if result.get("success"):
-                device_entry = result.get("result", {})
-                return {
-                    "success": True,
-                    "device_id": device_id,
-                    "updates": updates_made,
-                    "device_entry": {
-                        "name": device_entry.get("name_by_user")
-                        or device_entry.get("name"),
-                        "name_by_user": device_entry.get("name_by_user"),
-                        "area_id": device_entry.get("area_id"),
-                        "disabled_by": device_entry.get("disabled_by"),
-                        "labels": device_entry.get("labels", []),
-                    },
-                    "message": f"Device updated: {', '.join(updates_made)}",
-                    "note": "Remember: Device rename does NOT cascade to entities. Use ha_set_entity(new_entity_id=...) to rename entities.",
-                }
-            else:
-                error = result.get("error", {})
-                error_msg = (
-                    error.get("message", str(error))
-                    if isinstance(error, dict)
-                    else str(error)
+            if not result.get("success"):
+                unknown = result.get("error_code") in ("not_found", "unknown_error")
+                raise_core_refusal(
+                    "Failed to update device",
+                    result,
+                    {"device_id": device_id},
+                    ["Verify the device_id exists using ha_get_device()"]
+                    if unknown
+                    else None,
                 )
-                raise_tool_error(
-                    create_error_response(
-                        ErrorCode.SERVICE_CALL_FAILED,
-                        f"Failed to update device: {error_msg}",
-                        suggestions=[
-                            "Verify the device_id exists using ha_get_device()",
-                            "Check that area_id exists if specified",
-                        ],
-                        context={"device_id": device_id},
-                    )
-                )
+            return device_update_result(
+                device_id, result.get("result"), updates_made, []
+            )
 
         except ToolError:
             raise
@@ -100,8 +79,6 @@ class LegacyDevices:
                 e,
                 context={"device_id": device_id},
             )
-            return None  # unreachable: exception_to_structured_error always raises
-        return None  # py/mixed-returns: explicit terminal; error handlers above always raise (NoReturn), unreachable
 
     async def set(
         self,

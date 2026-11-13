@@ -69,7 +69,7 @@ def device_update_result(
         "success": True,
         "device_id": device_id,
         "updates": updates,
-        "device_entry": {**row, "name": row.get("name_by_user") or row.get("name")},
+        "device_entry": row,
         "message": f"Device updated: {', '.join(updates)}",
         "note": "Remember: Device rename does NOT cascade to entities. Use ha_set_entity(new_entity_id=...) to rename entities.",
     }
