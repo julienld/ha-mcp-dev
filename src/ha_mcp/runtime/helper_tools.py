@@ -285,8 +285,10 @@ class HelperConfigTools(HelperStorageTools):
                 )
 
             await self._require_helper_type(helper_type)
-            action = await self._validate_action(action, helper_id, helper_type)
-            async with self._schema_context(helper_type, action):
+            resolved_action = await self._validate_action(
+                action, helper_id, helper_type
+            )
+            async with self._schema_context(helper_type, resolved_action):
                 if helper_type not in SIMPLE_HELPER_TYPES:
                     return await self._flow_helper(
                         helper_type,
@@ -298,7 +300,7 @@ class HelperConfigTools(HelperStorageTools):
                         category,
                         wait,
                         icon=icon,
-                        action=action,
+                        action=resolved_action,
                         MandatoryBPS=MandatoryBPS,
                         flow_id=flow_id,
                         menu_choice=menu_choice,
@@ -314,7 +316,7 @@ class HelperConfigTools(HelperStorageTools):
                 )
                 name, icon, fields = storage_fields(helper_type, config, name, icon)
                 unchecked = None
-                if action == "create" and self._check_create_name:
+                if resolved_action == "create" and self._check_create_name:
                     unchecked = await self._check_name_collision(helper_type, name)
                 try:
                     labels = parse_string_list_param(labels, "labels")
@@ -328,7 +330,7 @@ class HelperConfigTools(HelperStorageTools):
                 await self._validate_registry_ids(
                     area_id, labels, {"helpers": category}, fail_closed=True
                 )
-                if action == "create":
+                if resolved_action == "create":
                     created = await self._create_simple(
                         helper_type,
                         name,

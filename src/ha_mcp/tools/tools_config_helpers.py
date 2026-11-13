@@ -440,7 +440,10 @@ class HelperConfigTools(
     async def _check_name_collision(
         self, helper_type: str, name: str | None
     ) -> str | None:
-        return await _check_name_collision(self._client, helper_type, name)
+        warning: str | None = await _check_name_collision(
+            self._client, helper_type, name
+        )
+        return warning
 
     async def _validate_registry_ids(self, *args: Any, **kwargs: Any) -> None:
         await validate_registry_ids(self._client, *args, **kwargs)

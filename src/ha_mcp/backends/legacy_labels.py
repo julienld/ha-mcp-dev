@@ -2,7 +2,7 @@
 
 import json
 import logging
-from typing import Any, NoReturn, cast
+from typing import Any, NoReturn
 
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp.backends.legacy import legacy_errors_sync
@@ -141,7 +141,7 @@ class LegacyLabels:
         return areas
 
     def _unique_area_ids(self, area_ids: list[str]) -> list[str]:
-        return cast(list[str], _legacy_unique_areas(area_ids))
+        return _legacy_unique_areas(area_ids)
 
     async def _require_areas_exist(self, area_ids: list[str]) -> None:
         unique = self._unique_area_ids(area_ids)
@@ -360,7 +360,7 @@ class LegacyLabels:
         return assigned
 
     def _parse_areas_param(self, areas: str | list[str] | None) -> list[str] | None:
-        return cast(list[str] | None, _legacy_parse_areas(areas))
+        return _legacy_parse_areas(areas)
 
     async def _apply_label_to_requested_areas(
         self,
@@ -606,7 +606,7 @@ class LegacyLabels:
                     context={"action": "get"},
                 )
             labels = await self._list_labels(context={"label_id": label_id})
-            return cast(dict[str, Any], _legacy_get_result(labels, label_id))
+            return _legacy_get_result(labels, label_id)
         except ToolError:
             raise
         except Exception as error:  # noqa: BLE001 - legacy classifier preserves public failures

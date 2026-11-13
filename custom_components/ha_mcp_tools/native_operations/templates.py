@@ -212,7 +212,7 @@ class NativeTemplates(CoreOperationOwner):
             condition_trace = trace.trace_get()
             with trace.suppress_template_error_logging():
                 value = condition.async_check(variables=payload.get("variables"))
-            result = {"result": value}
+            result: dict[str, Any] = {"result": value}
             errors = [
                 message
                 for elements in condition_trace.values()

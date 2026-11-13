@@ -318,7 +318,7 @@ class HelperStorageTools(BackendTools):
         wait: bool,
         *,
         icon: str | None,
-        action: str | None,
+        action: str,
         MandatoryBPS: bool = False,
         flow_id: str | None = None,
         menu_choice: str | None = None,

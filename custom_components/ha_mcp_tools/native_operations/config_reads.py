@@ -184,7 +184,7 @@ async def _zones(hass: HomeAssistant, arguments: dict[str, Any]) -> dict[str, An
         for entry in er.async_get(hass).entities.values()
         if entry.platform == "zone" and entry.unique_id
     ]
-    states = [state.as_dict() for state in hass.states.async_all("zone")]
+    states = [dict(state.as_dict()) for state in hass.states.async_all("zone")]
     return {
         "rows": _with_occupancy(_with_registry_icons(rows, entries), states),
         "gaps": [],

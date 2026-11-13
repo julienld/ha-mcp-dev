@@ -3,7 +3,7 @@
 from typing import Any
 
 from homeassistant.const import EVENT_STATE_CHANGED
-from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
 
 from ..core_call_service import call_service
 
@@ -27,7 +27,7 @@ async def call_and_observe(
     changed: list[dict[str, Any]] = []
 
     @callback
-    def record(event: Event) -> None:
+    def record(event: Event[EventStateChangedData]) -> None:
         if (
             event.context == context
             and (state := event.data.get("new_state")) is not None

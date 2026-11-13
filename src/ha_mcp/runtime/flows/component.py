@@ -13,9 +13,10 @@ async def component_serves(client: FlowSession, capability: str) -> bool:
 async def flow_record(
     client: FlowSession, manager: str, flow_id: str
 ) -> dict[str, Any] | None:
-    return await client.backend.execute(
+    result: dict[str, Any] | None = await client.backend.execute(
         "config.flow.record", {"manager": manager, "flow_id": flow_id}, client.context
     )
+    return result
 
 
 async def flow_outline(

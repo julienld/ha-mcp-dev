@@ -6,7 +6,7 @@ Home Assistant serves; this module compacts it the way helper ``describe`` does.
 
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any
 
 from ha_mcp.backends.legacy import legacy_errors_sync
 from ha_mcp.runtime.dashboard_card_values import _flatten, describe_card_result
@@ -61,9 +61,7 @@ async def describe_card_response(client: Any, card_type: str | None) -> dict[str
     result = raw.get("result") if isinstance(raw, dict) else None
     if not isinstance(result, dict):
         result = {}
-    return cast(
-        dict[str, Any], legacy_errors_sync(describe_card_result)(result, card_type)
-    )
+    return legacy_errors_sync(describe_card_result)(result, card_type)
 
 
 __all__ = [
