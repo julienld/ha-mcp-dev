@@ -568,18 +568,17 @@ class NativeEntityWrites(NativeEntityRegistry):
         try:
             commit_device_update(registry, current, payload)
             written = registered_device(registry, before["id"])
-            before_anchor = NativeDevices._removal_anchor(device)
-            after_anchor = (
-                NativeDevices._removal_anchor(written) if written is not None else None
-            )
+            observed = registry_json(written.dict_repr) if written is not None else {}
+            expected = {**before, "name_by_user": payload["name_by_user"]}
+            # Core refreshes this timestamp for the rename; every other field
+            # must still describe the captured device and the requested name.
+            observed.pop("modified_at", None)
+            expected.pop("modified_at", None)
             if (
                 dr.async_get(self.hass) is not registry
                 or written is None
-                or after_anchor is None
-                or after_anchor[0] is not before_anchor[0]
-                or not json_values_equal(after_anchor[1], before_anchor[1])
-                or registry_json(written.dict_repr).get("name_by_user")
-                != payload["name_by_user"]
+                or type(written) is not type(device)
+                or not json_values_equal(observed, expected)
             ):
                 raise RuntimeError(
                     "Core did not confirm the same device identity after rename"
