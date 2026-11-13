@@ -7,11 +7,11 @@ from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
+import voluptuous as _REAL_VOL
 
 from ha_mcp.tool_api import CallContext, ToolFailure
 from ha_mcp.utils.config_hash import compute_config_hash
 
-from .test_component_ws_search import _REAL_VOL
 from .test_native_blueprint_management import blueprints as blueprints
 from .test_native_energy import call as energy_call
 from .test_native_energy import energy as energy

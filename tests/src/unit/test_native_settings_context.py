@@ -5,10 +5,6 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from ._embedded_stubs import install
-
-install()
-
 
 async def test_panel_context_is_cookie_bound_and_revalidates_admin(monkeypatch):
     from custom_components.ha_mcp_tools import ui_panel

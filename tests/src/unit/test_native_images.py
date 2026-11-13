@@ -9,18 +9,14 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from ._embedded_stubs import install
+from custom_components.ha_mcp_tools import native_llm, native_server
+from ha_mcp import tool_api
+from ha_mcp._vendor.fastmcp import Client, FastMCP
+from ha_mcp._vendor.fastmcp.server import create_proxy
+from ha_mcp.runtime import Engine
+from ha_mcp.tool_api import CallContext, ToolDefinition, ToolImage, ToolResult
 
-install()
-
-from custom_components.ha_mcp_tools import native_llm, native_server  # noqa: E402
-from ha_mcp import tool_api  # noqa: E402
-from ha_mcp._vendor.fastmcp import Client, FastMCP  # noqa: E402
-from ha_mcp._vendor.fastmcp.server import create_proxy  # noqa: E402
-from ha_mcp.runtime import Engine  # noqa: E402
-from ha_mcp.tool_api import CallContext, ToolDefinition, ToolImage, ToolResult  # noqa: E402
-
-from .test_native_visibility import runtime as visibility_runtime  # noqa: E402
+from .test_native_visibility import runtime as visibility_runtime
 
 _IMAGE = b"bounded image bytes"
 

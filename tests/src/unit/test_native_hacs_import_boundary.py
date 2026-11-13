@@ -18,8 +18,6 @@ class Boundary(importlib.abc.MetaPathFinder):
         if fullname.startswith(('ha_mcp.client', 'custom_components.hacs', 'aiogithubapi')):
             raise AssertionError('HACS native import crossed boundary: ' + fullname)
 sys.meta_path.insert(0, Boundary())
-from tests.src.unit._embedded_stubs import install
-install()
 package = ModuleType('custom_components.ha_mcp_tools')
 package.__path__ = [str(Path.cwd() / 'custom_components' / 'ha_mcp_tools')]
 sys.modules[package.__name__] = package
@@ -47,8 +45,6 @@ import importlib.abc
 import sys
 from pathlib import Path
 from types import ModuleType
-from tests.src.unit._embedded_stubs import install
-install()
 component = ModuleType('custom_components.ha_mcp_tools')
 component.__path__ = [str(Path.cwd() / 'custom_components' / 'ha_mcp_tools')]
 sys.modules[component.__name__] = component

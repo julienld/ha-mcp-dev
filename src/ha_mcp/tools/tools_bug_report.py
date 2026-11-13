@@ -31,7 +31,6 @@ from ..mcp_client_context import (
     extract_client_info,
     protocol_version,
 )
-from ..runtime.report_environment import _detect_platform
 from ..runtime.report_rendering import (
     _format_logs_for_report,
     _format_startup_logs,
@@ -39,6 +38,7 @@ from ..runtime.report_rendering import (
     render_report,
 )
 from ..runtime.report_tools import ReportFacade
+from ..update_check import python_upgrade_hint
 from ..utils.mcp_client_host import detect_client_host
 from ..utils.usage_logger import (
     AVG_LOG_ENTRIES_PER_TOOL,
@@ -51,6 +51,7 @@ from .bug_report_sources import (
     _fetch_addon_logs,
     _fetch_core_error_log,
     collect_known_identifiers,
+    detect_platform,
     fetch_ha_install,
 )
 from .bug_report_templates import _ReportText
@@ -518,7 +519,7 @@ class LegacyBugReportTools:
             client_app=client_app,
         )
         install_method = _detect_installation_method()
-        platform_info = _detect_platform()
+        platform_info = detect_platform()
         config_toggles = _get_config_toggles()
         tool_policy = await asyncio.to_thread(_tool_policy_summary)
         mcp_transport = _detect_mcp_transport()
@@ -585,6 +586,7 @@ class LegacyBugReportTools:
                 report_type,
                 text,
                 parsed_fields,
+                python_hint=python_upgrade_hint(),
             )
             if identifier_warning:
                 result.setdefault("warnings", []).append(identifier_warning)

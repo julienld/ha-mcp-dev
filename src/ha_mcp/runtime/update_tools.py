@@ -116,6 +116,8 @@ class UpdateToolsFacade:
         update_available} when the host has authoritative update information
         for this MCP server. The native HACS host does not substitute PyPI's
         sidecar release status for this component's own update status.
+        When present, ``python_required`` and ``upgrade_command`` explain a
+        Python upgrade needed for the newer release.
 
         EXAMPLES:
         - Pre-update analysis: ha_manage_updates(action="get", entity_ids=["update.home_assistant_core_update"], include_release_notes=True)

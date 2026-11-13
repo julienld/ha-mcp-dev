@@ -49,6 +49,11 @@ class ZoneReadTools(BackendTools):
         settings) and YAML zones, are listed with ``editable=false`` /
         ``source="yaml"``; editable means ha_set_zone and ha_remove_zone can
         change the zone. Each zone carries its entity_id.
+
+        A stored zone's ``icon`` is the one stored in the zone, which the
+        Zones editor shows. ``entity_icon`` is an icon override in the zone
+        entity's registry entry: the map and the zone's state show it instead.
+        Set or clear the override with ha_set_entity.
         """
         try:
             return render_zone_snapshot(await self._zone_snapshot(), zone_id)

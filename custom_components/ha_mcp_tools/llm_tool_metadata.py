@@ -33,10 +33,12 @@ def declare_metadata(
         )
 
 
-def tool_result(data: JsonObjectType, *, error: bool) -> Any:
-    """Core 2026.8/9 consumes the original dict, including MCP's isError flag."""
-    result = getattr(llm, "ToolResult", None)
-    return data if result is None else result(data=data, error=error)
+def tool_result(
+    data: JsonObjectType, *, error: bool
+) -> llm.ToolResult | JsonObjectType:
+    """Wrap a result in ``llm.ToolResult`` where Core has it, else return it bare."""
+    result_cls = getattr(llm, "ToolResult", None)
+    return data if result_cls is None else result_cls(data=data, error=error)
 
 
 def tool_hints(tool: Any) -> dict[str, Any] | None:

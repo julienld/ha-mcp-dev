@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import importlib
-import json
-import sys
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+import voluptuous as _REAL_VOL
 
 from ha_mcp.runtime import Engine
 from ha_mcp.runtime.catalog import build_initial_catalog
@@ -23,12 +22,11 @@ from ha_mcp.tool_api import (
 from .test_component_helper_collections import (
     FakeCollection,
     FakeRegistry,
-    ItemNotFound,
     _hass,
     hc,
 )
 from .test_component_ws_phase2_async import _call_hass, _FakeCallServices
-from .test_component_ws_search import _REAL_VOL, FakeState, wsapi
+from .test_component_ws_search import FakeState, wsapi
 
 
 class EventBus:
@@ -48,58 +46,9 @@ class EventBus:
 
 
 @pytest.fixture
-def native(monkeypatch: pytest.MonkeyPatch) -> Any:
-    # Sibling modules install independent HA stubs during collection. Native
-    # imports and the existing Core command owners must use the same registry.
-    monkeypatch.setattr(
-        sys.modules["homeassistant.helpers"], "entity_registry", wsapi.er, raising=False
-    )
-    monkeypatch.setitem(sys.modules, "homeassistant.helpers.entity_registry", wsapi.er)
-    monkeypatch.setitem(
-        sys.modules,
-        "homeassistant.helpers.collection",
-        SimpleNamespace(
-            StorageCollection=FakeCollection,
-            DictStorageCollection=FakeCollection,
-            CollectionChange=lambda *values: values,
-            CHANGE_ADDED="added",
-            CHANGE_UPDATED="updated",
-            ItemNotFound=ItemNotFound,
-        ),
-    )
-    monkeypatch.setitem(
-        sys.modules,
-        "homeassistant.helpers.json",
-        SimpleNamespace(json_bytes=lambda value: json.dumps(value).encode()),
-    )
-    module = importlib.import_module("custom_components.ha_mcp_tools.native_backend")
-    monkeypatch.setattr(module, "json_bytes", lambda value: json.dumps(value).encode())
-    # These owners may already have been imported by another test module.
-    # Replacing sys.modules above does not replace their `from ... import`
-    # bindings; install the same real serializer for this native fake world.
-    for owner_name in ("storage_api", "registry_access"):
-        owner = importlib.import_module(
-            f"custom_components.ha_mcp_tools.native_operations.{owner_name}"
-        )
-        monkeypatch.setattr(owner, "json_bytes", module.json_bytes)
-    raw_commands = importlib.import_module(
-        "custom_components.ha_mcp_tools.native_raw_commands"
-    )
-    monkeypatch.setattr(raw_commands, "json_bytes", module.json_bytes)
-    monkeypatch.setattr(module, "Context", SimpleNamespace)
-    monkeypatch.setattr(module, "vol", _REAL_VOL)
-    monkeypatch.setattr(wsapi, "vol", _REAL_VOL)
-    validation = importlib.import_module(
-        "custom_components.ha_mcp_tools.native_operations.command_validation"
-    )
-    # Collection may have imported this owner while voluptuous was stubbed.
-    # The fake world's real schemas and caught exception must use one class.
-    monkeypatch.setattr(validation, "_INVALID_ERRORS", (ValueError, _REAL_VOL.Invalid))
-    operations = importlib.import_module(
-        "custom_components.ha_mcp_tools.native_operations.services"
-    )
-    monkeypatch.setattr(operations, "callback", lambda function: function)
-    return module
+def native() -> Any:
+    """Use Core and the component exactly as imported by the test plugin."""
+    return importlib.import_module("custom_components.ha_mcp_tools.native_backend")
 
 
 def authorize(hass: Any) -> Any:

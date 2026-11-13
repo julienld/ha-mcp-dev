@@ -7,15 +7,17 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any, NoReturn, cast
 
-from ha_mcp.errors import ErrorCode, create_error_response
+from ha_mcp.errors import ErrorCode, HomeAssistantError, create_error_response
 from ha_mcp.tool_api import BackendTools, ToolFailure
 from ha_mcp.utils.registry_update_lock import registry_update_lock
 
 from .errors import raise_failure
 from .helper_params import _prepare_typed_params
 from .helper_payload import (
-    collection_icon_from_schema,
+    icon_targets_from_schema,
     merged_update,
+    note_hidden_icon,
+    note_kept_icon,
     with_create_defaults,
 )
 from .helper_schema import (
@@ -164,17 +166,11 @@ class HelperStorageTools(BackendTools):
                     context=_simple_helper_error_context(helper_type),
                 )
             )
-        item_icon = (
-            None
-            if helper_type == "zone"
-            else _collection_icon(helper_type, "create", icon)
-        )
+        item_icon, registry_icon = _icon_targets(helper_type, "create", icon)
         body = {"name": name, **with_create_defaults(helper_type, fields)}
         if item_icon:
             body["icon"] = item_icon
-        registry = _registry_fields(
-            icon if item_icon is None else None, area_id, labels, category
-        )
+        registry = _registry_fields(registry_icon, area_id, labels, category)
         async with registry_update_lock(
             f"helper_{helper_type}", f"name:{_name_slug(name)}"
         ):
@@ -194,6 +190,7 @@ class HelperStorageTools(BackendTools):
         response = _write_response(
             result, "create", helper_type, f"Successfully created {helper_type}: {name}"
         )
+        await self._note_hidden_icon(response, item_icon)
         await self._attach_helper_skill(response, MandatoryBPS)
         return response
 
@@ -227,14 +224,13 @@ class HelperStorageTools(BackendTools):
             )
         async with registry_update_lock(f"helper_{helper_type}", helper_id):
             item = await self._stored_item(helper_type, helper_id, name=name)
-            entity_id = item.get("entity_id") or helper_id
+            item_icon, registry_icon = _icon_targets(helper_type, "update", icon)
             body = merged_update(
                 helper_type,
                 item["item"],
                 name,
-                _collection_icon(helper_type, "update", icon),
+                item_icon,
                 fields,
-                entity_id,
             )
             backup = await self.backend.execute(
                 "helpers.backup.capture",
@@ -256,7 +252,9 @@ class HelperStorageTools(BackendTools):
                     "action": "update",
                     "item_id": item["item_id"],
                     "data": body,
-                    "registry": _registry_fields(icon, area_id, labels, category),
+                    "registry": _registry_fields(
+                        registry_icon, area_id, labels, category
+                    ),
                     "expected_item": item["item"],
                     **(
                         {"expected_registry": backup["expected_registry"]}
@@ -275,8 +273,31 @@ class HelperStorageTools(BackendTools):
         )
         if backup and backup.get("warnings"):
             response.setdefault("warnings", []).extend(backup["warnings"])
+        warnings = list(response.get("warnings") or [])
+        note_kept_icon(helper_type, item_icon, result.get("item") or {}, warnings)
+        if warnings:
+            response["warnings"] = warnings
+        await self._note_hidden_icon(response, item_icon)
         await self._attach_helper_skill(response, MandatoryBPS)
         return response
+
+    async def _note_hidden_icon(
+        self, response: dict[str, Any], item_icon: str | None
+    ) -> None:
+        entity_id = response.get("entity_id")
+        if item_icon is None or not entity_id:
+            return
+        try:
+            result = await self.backend.execute(
+                "entities.registry.read", {"entity_ids": [entity_id]}, self.context
+            )
+        except (HomeAssistantError, ToolFailure, OSError, TimeoutError):
+            return  # Advisory read: failure does not undo a successful write.
+        entry = result.get("entries", {}).get(entity_id) or {}
+        warnings = list(response.get("warnings") or [])
+        note_hidden_icon(entity_id, item_icon, entry.get("icon"), warnings)
+        if warnings:
+            response["warnings"] = warnings
 
     def _backup_identity(self, helper_type: str) -> dict[str, Any]:
         """Domain wrappers may supply a separately validated backup identity."""
@@ -406,9 +427,11 @@ def _name_slug(name: str) -> str:
     )
 
 
-def _collection_icon(helper_type: str, action: str, icon: str | None) -> str | None:
+def _icon_targets(
+    helper_type: str, action: str, icon: str | None
+) -> tuple[str | None, str | None]:
     current = _CORE_HELPER_SCHEMAS.get()
-    return collection_icon_from_schema(
+    return icon_targets_from_schema(
         helper_type, action, icon, current[0] if current else None
     )
 

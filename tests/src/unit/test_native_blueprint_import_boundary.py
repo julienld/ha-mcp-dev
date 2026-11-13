@@ -17,8 +17,6 @@ class RejectRemote(importlib.abc.MetaPathFinder):
         if fullname == 'ha_mcp.client' or fullname.startswith('ha_mcp.client.'):
             raise AssertionError('Native binding import reached ' + fullname)
 sys.meta_path.insert(0, RejectRemote())
-from tests.src.unit._embedded_stubs import install
-install()
 package = ModuleType('custom_components.ha_mcp_tools')
 package.__path__ = [str(Path.cwd() / 'custom_components' / 'ha_mcp_tools')]
 sys.modules[package.__name__] = package

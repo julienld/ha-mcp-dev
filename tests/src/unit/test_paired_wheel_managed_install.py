@@ -13,9 +13,7 @@ from .test_paired_wheel import _DIGEST, _SPEC, _URL
 
 @pytest.fixture
 def managed(tmp_path, monkeypatch):
-    from ._embedded_stubs import install
 
-    install()
     from custom_components.ha_mcp_tools import paired_wheel
 
     (tmp_path / "installed" / "ha_mcp").mkdir(parents=True)

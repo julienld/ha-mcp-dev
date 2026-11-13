@@ -5,21 +5,18 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from ._embedded_stubs import fake_llm_apis, install
+import custom_components.ha_mcp_tools as component
+from custom_components.ha_mcp_tools import llm_api, native_llm
 
-install()
-
-import custom_components.ha_mcp_tools as component  # noqa: E402
-from custom_components.ha_mcp_tools import llm_api, native_llm  # noqa: E402
-
-from ._llm_api_helpers import make_hass  # noqa: E402
-from .test_embedded_entry import (  # noqa: E402
+from ._llm_api_helpers import make_hass
+from ._llm_api_helpers import registered_apis as fake_llm_apis
+from .test_embedded_entry import (
     _drain_background_tasks,
     _make_entry,
     _make_hass,
     eentry,
 )
-from .test_embedded_entry import (  # noqa: E402
+from .test_embedded_entry import (
     fake_collaborators as fake_collaborators,
 )
 

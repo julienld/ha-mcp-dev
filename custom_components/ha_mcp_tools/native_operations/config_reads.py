@@ -167,6 +167,7 @@ async def _zones(hass: HomeAssistant, arguments: dict[str, Any]) -> dict[str, An
 
     from ha_mcp.runtime.zone_records import (
         _shape_component_zone_rows,
+        _with_occupancy,
         _with_registry_icons,
     )
 
@@ -183,7 +184,12 @@ async def _zones(hass: HomeAssistant, arguments: dict[str, Any]) -> dict[str, An
         for entry in er.async_get(hass).entities.values()
         if entry.platform == "zone" and entry.unique_id
     ]
-    return {"rows": _with_registry_icons(rows, entries), "gaps": [], "warnings": []}
+    states = [state.as_dict() for state in hass.states.async_all("zone")]
+    return {
+        "rows": _with_occupancy(_with_registry_icons(rows, entries), states),
+        "gaps": [],
+        "warnings": [],
+    }
 
 
 async def _scene_inventory(hass: HomeAssistant, arguments: dict[str, Any]) -> Any:

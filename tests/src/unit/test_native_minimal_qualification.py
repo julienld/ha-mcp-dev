@@ -571,9 +571,7 @@ def test_sanitized_log_keeps_origin_but_not_url_credentials_or_signed_parameters
 
 
 async def test_real_private_sdk_http_client_exercises_lazy_state_store() -> None:
-    from ._embedded_stubs import install
 
-    install()
     await minimal_probes._legacy_http()
 
 

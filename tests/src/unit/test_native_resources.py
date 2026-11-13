@@ -10,10 +10,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from ._embedded_stubs import install
-
-install()
-
 
 async def test_skill_resource_reads_are_off_loop_and_preserve_manifest(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch

@@ -12,11 +12,7 @@ from typing import Any
 import httpx2
 import pytest
 
-from ._embedded_stubs import install
-
-install()
-
-from custom_components.ha_mcp_tools import llm_api  # noqa: E402
+from custom_components.ha_mcp_tools import llm_api
 
 
 def test_legacy_import_is_cold_then_prewarms_only_private_sdk_off_loop() -> None:
@@ -25,8 +21,6 @@ def test_legacy_import_is_cold_then_prewarms_only_private_sdk_off_loop() -> None
         from importlib.abc import MetaPathFinder
         from types import ModuleType, SimpleNamespace
         from pathlib import Path
-        from tests.src.unit._embedded_stubs import install
-        install()
         package = ModuleType('custom_components.ha_mcp_tools')
         package.__path__ = [str(Path.cwd() / 'custom_components' / 'ha_mcp_tools')]
         sys.modules[package.__name__] = package

@@ -211,8 +211,6 @@ class ForbidRemoteClient(importlib.abc.MetaPathFinder):
         if fullname == 'ha_mcp.client' or fullname.startswith('ha_mcp.client.'):
             raise AssertionError('Native events loaded a remote client: ' + fullname)
 sys.meta_path.insert(0, ForbidRemoteClient())
-from tests.src.unit._embedded_stubs import install
-install()
 sys.modules["homeassistant.helpers.json"] = SimpleNamespace(json_bytes=lambda value: json.dumps(value).encode())
 package = ModuleType('custom_components.ha_mcp_tools')
 package.__path__ = [str(Path.cwd() / 'custom_components' / 'ha_mcp_tools')]

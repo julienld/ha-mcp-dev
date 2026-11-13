@@ -2,16 +2,12 @@
 
 from types import SimpleNamespace
 
+from custom_components.ha_mcp_tools.native_server import _project_tool
 from ha_mcp.runtime.catalog import build_initial_catalog
 from ha_mcp.tool_api.llm_projection import describe_tool
 
-from ._embedded_stubs import install
 from .test_native_catalog_contract import _changed_inputs
 from .test_native_engine_backend import native as native
-
-install()
-
-from custom_components.ha_mcp_tools.native_server import _project_tool  # noqa: E402
 
 
 def test_native_mcp_and_assist_disclose_bounded_ws_support(

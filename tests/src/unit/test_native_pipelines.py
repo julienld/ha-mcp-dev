@@ -393,7 +393,7 @@ async def test_revocation_during_core_callback_blocks_followup_preferred_mutatio
 
 
 async def test_core_validator_rejects_before_dispatch_and_gets_future_fields(pipelines):
-    from .test_component_ws_search import _REAL_VOL
+    import voluptuous as _REAL_VOL
 
     seen = []
 

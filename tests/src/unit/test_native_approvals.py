@@ -9,14 +9,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from ._embedded_stubs import install
-
-install()
-
-from custom_components.ha_mcp_tools.native_approvals import NativeApprovalGate  # noqa: E402
-from ha_mcp.policy.model import Policy, Rule  # noqa: E402
-from ha_mcp.runtime import Engine  # noqa: E402
-from ha_mcp.tool_api import CallContext, ToolDefinition  # noqa: E402
+from custom_components.ha_mcp_tools.native_approvals import NativeApprovalGate
+from ha_mcp.policy.model import Policy, Rule
+from ha_mcp.runtime import Engine
+from ha_mcp.tool_api import CallContext, ToolDefinition
 
 
 def test_native_decision_channel_subscribes_only_for_an_opted_in_approval(tmp_path):

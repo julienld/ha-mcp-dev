@@ -94,15 +94,29 @@ def _shape_component_zone_record(rec: dict[str, Any]) -> dict[str, Any]:
 def _with_registry_icons(
     rows: list[dict[str, Any]], entries: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
-    """The rows with the icon each zone's entity shows: its registry icon, where
-    the zone tools keep a new zone's icon (#2643), over the stored one."""
+    """Keep the stored dialog icon separate from the entity registry override."""
     icons = {e.get("entity_id"): e["icon"] for e in entries if e.get("icon")}
     return [
-        {**row, "icon": icons[row["entity_id"]]}
+        {**row, "entity_icon": icons[row["entity_id"]]}
         if row.get("entity_id") in icons
         else row
         for row in rows
     ]
+
+
+def _with_occupancy(
+    rows: list[dict[str, Any]], states: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """The rows with who is in each zone, from the zone entity's state: Core
+    puts it there for every zone, stored or not, as the Map panel shows it."""
+    occupancy = {
+        s.get("entity_id"): {
+            key: attrs[key] for key in ("persons", "device_trackers") if key in attrs
+        }
+        for s in states
+        if isinstance(s, dict) and isinstance(attrs := s.get("attributes"), dict)
+    }
+    return [{**row, **occupancy.get(row.get("entity_id"), {})} for row in rows]
 
 
 def _shape_component_zone_rows(result: dict[str, Any]) -> list[dict[str, Any]]:

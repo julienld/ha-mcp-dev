@@ -6,10 +6,6 @@ codes, static client_id/client_secret authentication, the root ``/authorize``
 + ``/token`` views, ``bind_legacy_views`` route-ownership/rebind semantics,
 and the credential-minting helper in ``embedded_entry.py`` that provisions
 the legacy client_id/client_secret/signing_key on first use.
-
-Home Assistant / aiohttp are stubbed via ``_embedded_stubs`` (same convention
-as ``test_embedded_setup.py`` / ``test_embedded_entry.py``). URL handling uses
-the real yarl dependency supplied by the test environment's aiohttp.
 """
 
 from __future__ import annotations
@@ -22,14 +18,9 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 
-from ._embedded_stubs import install
-
-install()
-
-
-import custom_components.ha_mcp_tools.embedded_entry as eentry  # noqa: E402
-from custom_components.ha_mcp_tools import oauth_legacy  # noqa: E402
-from custom_components.ha_mcp_tools.const import (  # noqa: E402
+import custom_components.ha_mcp_tools.embedded_entry as eentry
+from custom_components.ha_mcp_tools import oauth_legacy
+from custom_components.ha_mcp_tools.const import (
     DATA_OAUTH_CLIENT_ID,
     DATA_OAUTH_CLIENT_SECRET,
     DATA_OAUTH_SIGNING_KEY,
@@ -39,6 +30,8 @@ from custom_components.ha_mcp_tools.const import (  # noqa: E402
     OPT_OAUTH_REGENERATE,
     WEBHOOK_AUTH_LEGACY,
 )
+
+from ._embedded_helpers import response_json
 
 CLIENT_ID = "test-client-id"
 CLIENT_SECRET = "test-client-secret"
@@ -683,7 +676,7 @@ class TestTokenViewPost:
         request.post = AsyncMock(return_value={})
         response = await view.post(request)
         assert response.status == 404
-        assert response.json_body == {"error": "not_found"}
+        assert response_json(response) == {"error": "not_found"}
 
     async def test_basic_auth_authenticates_a_raw_unencoded_secret(self):
         """#2219 review round 3: the behavior this PR exists for, driven
@@ -702,7 +695,7 @@ class TestTokenViewPost:
 
         # Past the client gate: the probe grant fails, not the credentials.
         assert response.status == 400
-        assert response.json_body["error"] == "unsupported_grant_type"
+        assert response_json(response)["error"] == "unsupported_grant_type"
 
     async def test_consent_post_undecodable_body_returns_400_not_500(self):
         """The consent POST is the fourth guarded call site — reverting its
@@ -730,7 +723,7 @@ class TestTokenViewPost:
         response = await view.post(request)
 
         assert response.status == 400
-        assert response.json_body["error"] == "invalid_request"
+        assert response_json(response)["error"] == "invalid_request"
 
     async def test_non_string_form_credentials_return_401_not_500(self):
         """#2219 review round 3: request.post() yields str | bytes |
@@ -747,7 +740,7 @@ class TestTokenViewPost:
         response = await view.post(request)
 
         assert response.status == 401
-        assert response.json_body["error"] == "invalid_client"
+        assert response_json(response)["error"] == "invalid_client"
 
     async def test_invalid_client_credentials_returns_401(self):
         provider = _make_provider()
@@ -759,7 +752,7 @@ class TestTokenViewPost:
         )
         response = await view.post(request)
         assert response.status == 401
-        assert response.json_body["error"] == "invalid_client"
+        assert response_json(response)["error"] == "invalid_client"
 
     async def test_authorization_code_grant_returns_valid_tokens(self):
         provider = _make_provider()
@@ -780,9 +773,9 @@ class TestTokenViewPost:
         )
         response = await view.post(request)
         assert response.status == 200
-        assert response.json_body["token_type"] == "Bearer"
-        access = response.json_body["access_token"]
-        refresh = response.json_body["refresh_token"]
+        assert response_json(response)["token_type"] == "Bearer"
+        access = response_json(response)["access_token"]
+        refresh = response_json(response)["refresh_token"]
         assert provider.validate_access_token(access) is True
         assert provider.validate_refresh_token(refresh) is True
         # RFC 6749 §5.1: the token body carries credentials and must not be cached.
@@ -806,7 +799,7 @@ class TestTokenViewPost:
         )
         response = await view.post(request)
         assert response.status == 400
-        assert response.json_body["error"] == "invalid_grant"
+        assert response_json(response)["error"] == "invalid_grant"
 
     async def test_refresh_token_grant_returns_new_tokens(self):
         provider = _make_provider()
@@ -824,7 +817,7 @@ class TestTokenViewPost:
         )
         response = await view.post(request)
         assert response.status == 200
-        access = response.json_body["access_token"]
+        access = response_json(response)["access_token"]
         assert provider.validate_access_token(access) is True
         # The refresh grant carries credentials too — same no-cache headers.
         assert response.headers["Cache-Control"] == "no-store"
@@ -844,7 +837,7 @@ class TestTokenViewPost:
         )
         response = await view.post(request)
         assert response.status == 400
-        assert response.json_body["error"] == "unsupported_grant_type"
+        assert response_json(response)["error"] == "unsupported_grant_type"
 
     async def test_authorization_code_grant_missing_param_returns_invalid_request(
         self,
@@ -868,7 +861,7 @@ class TestTokenViewPost:
         )
         response = await view.post(request)
         assert response.status == 400
-        assert response.json_body["error"] == "invalid_request"
+        assert response_json(response)["error"] == "invalid_request"
 
     async def test_refresh_grant_empty_token_returns_invalid_grant(self):
         provider = _make_provider()
@@ -885,7 +878,7 @@ class TestTokenViewPost:
         )
         response = await view.post(request)
         assert response.status == 400
-        assert response.json_body["error"] == "invalid_grant"
+        assert response_json(response)["error"] == "invalid_grant"
 
     async def test_refresh_grant_expired_token_rejected(self):
         provider = _make_provider()
@@ -904,7 +897,7 @@ class TestTokenViewPost:
         )
         response = await view.post(request)
         assert response.status == 400
-        assert response.json_body["error"] == "invalid_grant"
+        assert response_json(response)["error"] == "invalid_grant"
 
 
 # ---------------------------------------------------------------------------

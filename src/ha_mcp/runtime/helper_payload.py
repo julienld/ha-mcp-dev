@@ -22,18 +22,54 @@ _RANGE_KEYS: dict[str, tuple[str, str]] = {"counter": ("minimum", "maximum")}
 _DEFAULT_RANGE_KEYS = ("min", "max")
 
 
-def collection_icon_from_schema(
+def icon_targets_from_schema(
     helper_type: str, action: str, icon: str | None, schemas: dict[str, Any] | None
-) -> str | None:
-    """Keep item icons only where Core declares them; clearing stays explicit."""
-    if icon is None or icon == "" or helper_type == "zone":
-        return icon
+) -> tuple[str | None, str | None]:
+    """Follow Core's dialog: item icons and registry overrides stay separate."""
+    if icon is None:
+        return None, None
     fields = schemas.get(helper_type, {}).get(action) if schemas else None
-    if isinstance(fields, list) and any(
-        isinstance(field, dict) and field.get("name") == "icon" for field in fields
-    ):
-        return icon
-    return None
+    if isinstance(fields, list):
+        if any(
+            isinstance(field, dict) and field.get("name") == "icon" for field in fields
+        ):
+            return icon, None
+        return None, icon
+    if helper_type == "zone":
+        return icon, None
+    return (icon, icon) if icon == "" else (None, icon)
+
+
+def note_hidden_icon(
+    entity_id: str, item_icon: str, override: str | None, warnings: list[str]
+) -> None:
+    """Explain a registry override that hides the icon just stored or cleared."""
+    if not override or override == item_icon:
+        return
+    shown = (
+        f"shows its entity registry icon {override} over the stored icon {item_icon}"
+        if item_icon
+        else f"still shows its entity registry icon {override}"
+    )
+    warnings.append(
+        f"{entity_id} {shown}; clear it with "
+        f"ha_set_entity(entity_id='{entity_id}', icon='')."
+    )
+
+
+def note_kept_icon(
+    helper_type: str,
+    item_icon: str | None,
+    updated_data: dict[str, Any],
+    warnings: list[str],
+) -> None:
+    """A zone update keeps an omitted stored icon, as Core's dialog does."""
+    if item_icon == "" and updated_data.get("icon"):
+        warnings.append(
+            f"Home Assistant kept the {helper_type}'s icon "
+            f"{updated_data['icon']}: its update keeps a stored icon, as the "
+            f"{helper_type} dialog does, so it can be changed but not removed."
+        )
 
 
 def core_fields(
@@ -76,7 +112,6 @@ def merged_update(
     name: str | None,
     icon: str | None,
     fields: dict[str, Any],
-    entity_id: str,
 ) -> dict[str, Any]:
     """The stored item plus the changes: Core's update writes the whole item.
 
@@ -90,8 +125,6 @@ def merged_update(
         body.pop("name", None)
     if name is not None:
         body["name"] = name
-    if helper_type == "zone":
-        icon = _zone_item_icon(stored, icon, entity_id)
     if icon is not None:
         if icon:
             body["icon"] = icon
@@ -99,33 +132,6 @@ def merged_update(
             body.pop("icon", None)
     body.update(fields)
     return body
-
-
-def _zone_item_icon(
-    stored: dict[str, Any], icon: str | None, entity_id: str
-) -> str | None:
-    """The icon to write into a zone's stored item, ``None`` to leave it (#2643).
-
-    The zone entity shows the registry icon over the item's, and Core's zone
-    update merges into the item and rejects an empty icon, so an icon stored
-    there can never be removed. A new icon therefore goes into the item only
-    when it already holds one; otherwise the registry alone carries it and
-    stays clearable. Clearing an icon the item holds is refused.
-    """
-    if not stored.get("icon"):
-        return None
-    if icon == "":
-        raise_failure(
-            create_error_response(
-                ErrorCode.VALIDATION_INVALID_PARAMETER,
-                f"The icon of {entity_id} cannot be removed: the zone's stored "
-                f"icon ({stored['icon']}) is kept by Home Assistant's zone update "
-                "and would show again.",
-                context=_simple_helper_error_context("zone", entity_id=entity_id),
-                suggestions=["Set a different icon instead of an empty one"],
-            )
-        )
-    return icon
 
 
 def _reject(helper_type: str, message: str, **context: Any) -> None:

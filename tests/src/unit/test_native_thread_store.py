@@ -8,10 +8,10 @@ from typing import Any
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+import voluptuous as _REAL_VOL
 
 from ha_mcp.tool_api import ToolFailure
 
-from .test_component_ws_search import _REAL_VOL
 from .test_native_engine_backend import native as native
 from .test_native_radios import call
 from .test_native_radios import radios as radios

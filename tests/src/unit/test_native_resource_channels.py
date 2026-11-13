@@ -6,16 +6,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from custom_components.ha_mcp_tools import native_server
 from ha_mcp._vendor.fastmcp import Client, FastMCP
 from ha_mcp.tool_api import CallContext
 
-from ._embedded_stubs import install
 from .test_native_engine_backend import native as native
 from .test_native_resource_service import resources as resources
-
-install()
-
-from custom_components.ha_mcp_tools import native_server  # noqa: E402
 
 
 @pytest.fixture

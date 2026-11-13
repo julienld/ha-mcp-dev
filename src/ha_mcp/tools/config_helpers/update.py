@@ -56,7 +56,7 @@ async def _execute_legacy_update(
     entity_id: str,
     unique_id: str,
     name: str | None,
-    icon: str | None,
+    item_icon: str | None,
     fields: dict[str, Any],
 ) -> dict[str, Any]:
     """Compatibility result shape over the shared update operation."""
@@ -66,7 +66,7 @@ async def _execute_legacy_update(
         entity_id,
         unique_id,
         name,
-        icon,
+        item_icon,
         None,
         None,
         None,

@@ -3,7 +3,6 @@
 import asyncio
 import importlib
 import json
-import sys
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock
@@ -12,6 +11,7 @@ import pytest
 
 from ha_mcp.tool_api import CallContext
 
+from ._embedded_helpers import response_json
 from .test_native_engine_backend import native as native
 from .test_native_file_access import files as files
 from .test_native_filesystem import filesystem as filesystem
@@ -20,18 +20,7 @@ from .test_native_filesystem import filesystem as filesystem
 @pytest.fixture
 def panel(filesystem, monkeypatch):
     _files, manager, owner, _target = filesystem
-    from ._embedded_stubs import HomeAssistantView, _make_fake_web
-
-    monkeypatch.setitem(
-        sys.modules,
-        "homeassistant.components.http",
-        SimpleNamespace(HomeAssistantView=HomeAssistantView),
-    )
     from custom_components.ha_mcp_tools.native_settings import NativeSettings
-
-    web = _make_fake_web()
-    monkeypatch.setattr("custom_components.ha_mcp_tools.native_settings.web", web)
-    monkeypatch.setattr("custom_components.ha_mcp_tools.native_settings_files.web", web)
 
     manager.is_running = True
     manager.refresh_policy = AsyncMock()
@@ -56,7 +45,7 @@ async def test_panel_paths_persist_and_apply_without_restart(panel, monkeypatch)
         json=AsyncMock(return_value={"paths": ["notes", ".storage", "notes"]}),
     )
     result = await settings.handle(request, "api/settings/fs-custom-paths")
-    data = result.json_body
+    data = response_json(result)
     assert (
         result.status == 200
         and data["paths"] == ["notes"]
@@ -67,7 +56,9 @@ async def test_panel_paths_persist_and_apply_without_restart(panel, monkeypatch)
     view = await settings.handle(
         SimpleNamespace(method="GET"), "api/settings/fs-custom-paths"
     )
-    assert view.json_body["available"] and view.json_body["paths"] == ["notes"]
+    assert response_json(view)["available"] and response_json(view)["paths"] == [
+        "notes"
+    ]
     assert not owner.pending
 
 
@@ -112,7 +103,7 @@ async def test_panel_rejects_invalid_json_input_without_starting_a_write(
     response = await settings.handle(
         SimpleNamespace(method="POST", json=read), "api/settings/fs-custom-paths"
     )
-    assert response.status == 400 and response.json_body["error"]
+    assert response.status == 400 and response_json(response)["error"]
     saved.assert_not_awaited()
     assert not owner.pending
 

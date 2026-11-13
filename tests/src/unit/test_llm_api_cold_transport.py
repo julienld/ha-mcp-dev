@@ -11,13 +11,9 @@ from unittest.mock import AsyncMock
 import anyio
 import pytest
 
-from ._embedded_stubs import install
+from custom_components.ha_mcp_tools import llm_api
 
-install()
-
-from custom_components.ha_mcp_tools import llm_api  # noqa: E402
-
-from ._llm_api_helpers import fake_session, make_api, make_hass  # noqa: E402
+from ._llm_api_helpers import fake_session, make_api, make_hass
 
 
 @pytest.mark.parametrize("operation", ["list", "call-before-list", "call-before-write"])

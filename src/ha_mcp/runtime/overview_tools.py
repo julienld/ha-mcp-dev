@@ -149,6 +149,8 @@ class OverviewTools:
         The response also carries ``ha_mcp_update`` ``{current, latest,
         update_available}`` (PyPI for pip/Docker, the Supervisor store for the
         app) — proactively tell the user when ``update_available`` is true.
+        If it carries ``python_required``, the release needs that Python: give
+        the user ``upgrade_command``.
         Omitted for the ``unknown`` version, when ``HA_MCP_DISABLE_UPDATE_CHECK``
         is set, or when the update check itself failed.
         """

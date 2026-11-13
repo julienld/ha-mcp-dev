@@ -208,7 +208,7 @@ def _item_not_found() -> type[BaseException]:
         from homeassistant.helpers.collection import ItemNotFound
     except ImportError:
         return LookupError
-    return ItemNotFound  # type: ignore[no-any-return]
+    return ItemNotFound
 
 
 def _apply_registry(

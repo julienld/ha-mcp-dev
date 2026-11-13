@@ -12,17 +12,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from ._embedded_stubs import install
-
-install()
-
-from custom_components.ha_mcp_tools import native_visibility  # noqa: E402
-from custom_components.ha_mcp_tools.native_approvals import NativeApprovalGate  # noqa: E402
-from custom_components.ha_mcp_tools.native_settings import NativeSettings  # noqa: E402
-from ha_mcp.policy.model import Policy, Rule  # noqa: E402
-from ha_mcp.runtime import Engine  # noqa: E402
-from ha_mcp.tool_api import CallContext, ToolDefinition, ToolResult  # noqa: E402
-from ha_mcp.visibility.model import VisibilityConfig  # noqa: E402
+from custom_components.ha_mcp_tools import native_visibility
+from custom_components.ha_mcp_tools.native_approvals import NativeApprovalGate
+from custom_components.ha_mcp_tools.native_settings import NativeSettings
+from ha_mcp.policy.model import Policy, Rule
+from ha_mcp.runtime import Engine
+from ha_mcp.tool_api import CallContext, ToolDefinition, ToolResult
+from ha_mcp.visibility.model import VisibilityConfig
 
 
 def runtime(

@@ -9,9 +9,6 @@ import pytest
 
 
 async def test_native_approval_continuation_carries_the_form_request(monkeypatch):
-    from ._embedded_stubs import install
-
-    install()
 
     from custom_components.ha_mcp_tools.native_approvals import (
         MCP_APPROVAL_CONTEXT,

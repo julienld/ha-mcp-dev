@@ -13,6 +13,7 @@ from ha_mcp._vendor.fastmcp.tools import tool
 
 from ..backends.legacy import LegacyBackendTools, legacy_errors
 from ..client.rest_client import (
+    _NO_ANSWER_ERRORS,
     HomeAssistantAPIError,
     HomeAssistantCommandError,
     HomeAssistantCommandTimeout,
@@ -23,6 +24,7 @@ from ..errors import ErrorCode, create_error_response
 from ..runtime.zone_records import (
     _build_zone_result,
     _shape_component_zone_rows,
+    _with_occupancy,
     _with_registry_icons,
     render_zone_snapshot,
 )
@@ -128,24 +130,61 @@ class ZoneTools(LegacyBackendTools, ZoneWriteTools):
             if registry_error
             else []
         )
+        try:
+            states = await self._zone_states(
+                [row["entity_id"] for row in rows if row.get("entity_id")]
+            )
+        except (HomeAssistantAPIError, HomeAssistantConnectionError) as error:
+            states = []
+            warnings.append(f"Who is in each zone (persons) is missing: {error}")
         return {
-            "rows": _with_registry_icons(rows, entries),
+            "rows": _with_occupancy(_with_registry_icons(rows, entries), states),
             "gaps": [],
             "warnings": warnings,
         }
 
-    async def _send_component_zone_list(self) -> dict[str, Any]:
-        """Send one ``ha_mcp_tools/helpers_list`` zone query over the per-client WS."""
-        ws = await get_websocket_client(
+    async def _component_ws(self) -> Any:
+        """The per-client WebSocket the component commands go over."""
+        return await get_websocket_client(
             url=self._client.base_url,
             token=self._client.token,
             verify_ssl=getattr(self._client, "verify_ssl", None),
         )
-        return await ws.send_command(
+
+    async def _send_component_zone_list(self) -> dict[str, Any]:
+        """Send one ``ha_mcp_tools/helpers_list`` zone query over the per-client WS."""
+        ws = await self._component_ws()
+        result: dict[str, Any] = await ws.send_command(
             "ha_mcp_tools/helpers_list",
             helper_types=["zone"],
             include_flow_helpers=False,
         )
+        return result
+
+    async def _zone_states(self, entity_ids: list[str]) -> list[dict[str, Any]]:
+        """The zones' states through the component's targeted read, or every
+        state when the component has no ``states`` command or it fails."""
+        caps = await get_component_caps(self._client)
+        if component_supports(caps, "states"):
+            try:
+                ws = await self._component_ws()
+                raw = await ws.send_command(
+                    "ha_mcp_tools/states", entity_ids=entity_ids
+                )
+                found = (raw.get("result") or {}).get("states")
+                if isinstance(found, dict):
+                    return list(found.values())
+                logger.warning("ha_mcp_tools/states returned a malformed payload")
+            # A raw socket reset reaches here unwrapped (send_command keeps
+            # writes at-most-once), and every state is still readable.
+            except (HomeAssistantCommandError, *_NO_ANSWER_ERRORS) as exc:
+                if is_unknown_command(exc):
+                    invalidate_caps(self._client)
+                logger.warning(
+                    "ha_mcp_tools/states failed; reading all states: %r", exc
+                )
+        states: list[dict[str, Any]] = await self._client.get_states()
+        return states
 
     async def _legacy_zone_result(self, zone_id: str | None) -> dict[str, Any]:
         """Serve ha_get_zone from Core's own commands."""
@@ -156,9 +195,9 @@ class ZoneTools(LegacyBackendTools, ZoneWriteTools):
         """Storage zones from Core's ``zone/list``, then every other zone state.
 
         A storage row is the stored body with its registry icon; the home
-        zone's and YAML zones' rows are their state attributes
-        (``friendly_name`` also as ``name``, plus ``persons`` and
-        ``device_trackers``). Every row carries ``entity_id``,
+        zone's and YAML zones' rows are their state attributes, with
+        ``friendly_name`` as ``name``. Every row carries who is in the zone
+        (``persons``, ``device_trackers``) from its state, ``entity_id``,
         ``editable`` and ``source``, like the component's. The registry links a
         storage zone to its entity (its ``unique_id`` is the zone_id); a zone
         state without such an entry is not stored. Returns the rows and the
@@ -196,19 +235,22 @@ class ZoneTools(LegacyBackendTools, ZoneWriteTools):
             states = await self._client.get_states()
         except (HomeAssistantAPIError, HomeAssistantConnectionError) as exc:
             return rows, [
-                f"Zones outside the zone storage such as 'home' are missing: {exc}"
+                "Zones outside the zone storage such as 'home', and who is in "
+                f"each zone, are missing: {exc}"
             ]
+        rows = _with_occupancy(rows, states)
         stored = set(entity_ids.values())
         for state in states:
             entity_id = state.get("entity_id", "") if isinstance(state, dict) else ""
             if not entity_id.startswith("zone.") or entity_id in stored:
                 continue
-            attrs = state.get("attributes") or {}
+            attrs = dict(state.get("attributes") or {})
             object_id = entity_id.split(".", 1)[1]
+            name = attrs.pop("friendly_name", object_id)
             rows.append(
                 {
                     **attrs,
-                    "name": attrs.get("friendly_name", object_id),
+                    "name": name,
                     "id": object_id,
                     "entity_id": entity_id,
                     "editable": False,

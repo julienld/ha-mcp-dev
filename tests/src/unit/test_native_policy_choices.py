@@ -7,13 +7,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from ._embedded_stubs import install
-
-install()
-
-from custom_components.ha_mcp_tools import ui_panel  # noqa: E402
-from custom_components.ha_mcp_tools.native_settings import NativeSettings  # noqa: E402
-from ha_mcp.policy import value_sources  # noqa: E402
+from custom_components.ha_mcp_tools import ui_panel
+from custom_components.ha_mcp_tools.native_settings import NativeSettings
+from ha_mcp.policy import value_sources
 
 
 @pytest.mark.parametrize(

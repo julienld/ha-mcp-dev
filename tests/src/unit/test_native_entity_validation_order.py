@@ -3,10 +3,10 @@
 from typing import Any
 
 import pytest
+import voluptuous as _REAL_VOL
 
 from ha_mcp.tool_api import CallContext
 
-from .test_component_ws_search import _REAL_VOL
 from .test_native_engine_backend import native as native
 from .test_native_entity_writes import _setup
 

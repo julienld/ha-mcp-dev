@@ -6,19 +6,15 @@ from types import MethodType, SimpleNamespace
 
 import pytest
 
-from ._embedded_stubs import install
-
-install()
-
-from custom_components.ha_mcp_tools import native_server  # noqa: E402
-from custom_components.ha_mcp_tools.native_server_policy import (  # noqa: E402
+from custom_components.ha_mcp_tools import native_server
+from custom_components.ha_mcp_tools.native_server_policy import (
     NativePolicy,
     catalogue_middleware,
     catalogue_transform,
 )
-from ha_mcp._vendor.fastmcp import Client, FastMCP  # noqa: E402
-from ha_mcp._vendor.fastmcp.exceptions import ToolError  # noqa: E402
-from ha_mcp.tool_api import CallContext, ToolDefinition  # noqa: E402
+from ha_mcp._vendor.fastmcp import Client, FastMCP
+from ha_mcp._vendor.fastmcp.exceptions import ToolError
+from ha_mcp.tool_api import CallContext, ToolDefinition
 
 
 @pytest.fixture

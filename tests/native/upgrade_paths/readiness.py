@@ -4,7 +4,12 @@ from typing import Any
 
 
 def endpoint_ready(hass: Any, entry: Any) -> bool:
-    if not hass.is_running or getattr(entry.state, "value", entry.state) != "loaded":
+    from homeassistant.core import CoreState
+
+    if (
+        hass.state is not CoreState.running
+        or getattr(entry.state, "value", entry.state) != "loaded"
+    ):
         return False
     domain = hass.data.get("ha_mcp_tools", {})
     cfg = domain.get("webhook", {})

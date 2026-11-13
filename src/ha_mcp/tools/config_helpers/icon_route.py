@@ -1,28 +1,35 @@
-"""Route a storage helper's icon by the running Core collection's own fields."""
+"""Legacy schema/read adapter for the shared icon policy."""
 
 from typing import Any
 
-from ha_mcp.runtime.helper_payload import collection_icon_from_schema
+from ha_mcp.errors import HomeAssistantError
+from ha_mcp.runtime.helper_payload import icon_targets_from_schema
+from ha_mcp.runtime.helper_payload import note_hidden_icon as _note_hidden_icon
 
 from .. import component_helper_collections
 
 
-async def collection_icon(
+async def icon_targets(
     client: Any, helper_type: str, action: str, icon: str | None
-) -> str | None:
-    """The icon for the stored item, or ``None`` when it goes to the registry.
-
-    The item takes the icon only when Core's ``action`` schema for the type
-    declares an ``icon`` field (person and tag declare none). When the schemas
-    cannot be read (no component, or a failed read) or do not list the type or
-    action, nothing is guessed: the icon is entity-registry metadata, as the
-    entity settings set it.
-
-    A cleared icon ('') is returned as is, so the stored item drops its icon
-    too; clearing only the registry would bring an older stored icon back. A
-    zone's icon is returned as is for the #2643 rule in ``merged_update``.
-    """
-    if icon is None or icon == "" or helper_type == "zone":
-        return icon
+) -> tuple[str | None, str | None]:
+    if icon is None:
+        return None, None
     schemas = await component_helper_collections.fetch_helper_schemas(client)
-    return collection_icon_from_schema(helper_type, action, icon, schemas)
+    return icon_targets_from_schema(helper_type, action, icon, schemas)
+
+
+async def note_hidden_icon(
+    client: Any, entity_id: str | None, item_icon: str | None, warnings: list[str]
+) -> None:
+    """A failed advisory registry read never undoes the successful write."""
+    if item_icon is None or not entity_id:
+        return
+    try:
+        result = await client.send_websocket_message(
+            {"type": "config/entity_registry/get", "entity_id": entity_id}
+        )
+    except (HomeAssistantError, OSError, TimeoutError):
+        return
+    entry = result.get("result") if result.get("success") else None
+    override = entry.get("icon") if isinstance(entry, dict) else None
+    _note_hidden_icon(entity_id, item_icon, override, warnings)

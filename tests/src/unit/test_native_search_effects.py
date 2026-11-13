@@ -5,21 +5,17 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from ._embedded_stubs import install
-
-install()
-
-from custom_components.ha_mcp_tools import native_server  # noqa: E402
-from custom_components.ha_mcp_tools.native_server_policy import (  # noqa: E402
+from custom_components.ha_mcp_tools import native_server
+from custom_components.ha_mcp_tools.native_server_policy import (
     NativePolicy,
     catalogue_transform,
 )
-from ha_mcp._vendor.fastmcp import Client, FastMCP  # noqa: E402
-from ha_mcp.runtime import Engine  # noqa: E402
-from ha_mcp.runtime.catalog import define_tool  # noqa: E402
-from ha_mcp.runtime.helper_listing import HelperListingTools, description_starts_flow  # noqa: E402
-from ha_mcp.tool_api import CallContext, ToolDefinition  # noqa: E402
-from ha_mcp.tools.tool_hints import write_hints  # noqa: E402
+from ha_mcp._vendor.fastmcp import Client, FastMCP
+from ha_mcp.runtime import Engine
+from ha_mcp.runtime.catalog import define_tool
+from ha_mcp.runtime.helper_listing import HelperListingTools, description_starts_flow
+from ha_mcp.tool_api import CallContext, ToolDefinition
+from ha_mcp.tools.tool_hints import write_hints
 
 
 class Backend:

@@ -6,14 +6,11 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from ._embedded_stubs import fake_llm_apis, install
+from custom_components.ha_mcp_tools import llm_api, native_llm, native_llm_import
+from ha_mcp.tool_api import CallContext
 
-install()
-
-from custom_components.ha_mcp_tools import llm_api, native_llm, native_llm_import  # noqa: E402
-from ha_mcp.tool_api import CallContext  # noqa: E402
-
-from ._llm_api_helpers import make_hass  # noqa: E402
+from ._llm_api_helpers import make_hass
+from ._llm_api_helpers import registered_apis as fake_llm_apis
 
 
 @pytest.mark.parametrize("native", [False, True])

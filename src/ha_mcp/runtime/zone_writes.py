@@ -116,8 +116,8 @@ class ZoneWriteTools(ZoneReadTools, HelperStorageTools):
         )
         return result
 
-    async def _resolve_zone(self, zone_id: str) -> tuple[str | None, str, str | None]:
-        """The entity_id, storage zone_id and registry icon of a stored zone,
+    async def _resolve_zone(self, zone_id: str) -> tuple[str | None, str]:
+        """The entity_id and storage zone_id of a stored zone,
         given its entity_id or zone_id.
 
         Resolved as ``stored_target`` resolves it, and so as the zone backups
@@ -125,8 +125,7 @@ class ZoneWriteTools(ZoneReadTools, HelperStorageTools):
         ``zone.<name>`` is the zone whose registry entry has that entity_id. A
         renamed entity can carry another zone's id as its name, so a bare id
         never names an entity, and a repeated removal deletes nothing.
-        Both entity_id and icon are None for a stored zone without a registry
-        entry; the icon is also None when the entry sets none. The
+        The entity_id is None for a stored zone without a registry entry. The
         home zone and YAML zones are not in the storage; Core gives them no
         ``unique_id``, so they have no registry entry.
         """
@@ -136,11 +135,7 @@ class ZoneWriteTools(ZoneReadTools, HelperStorageTools):
         stored = {str(zone.get("id")) for zone in items}
         storage_id, entity = stored_target("zone", zone_id, stored, entries)
         if storage_id is not None and storage_id in stored:
-            icon = next(
-                (e.get("icon") for e in entries if e.get("unique_id") == storage_id),
-                None,
-            )
-            return entity, storage_id, icon
+            return entity, storage_id
         entity_id = zone_id if zone_id.startswith("zone.") else f"zone.{zone_id}"
         # A registry entry links a stored zone, so only a state without one is
         # a YAML or the home zone.
@@ -214,7 +209,7 @@ class ZoneWriteTools(ZoneReadTools, HelperStorageTools):
         icon: Annotated[
             str | None,
             Field(
-                description="Material Design Icon (e.g., 'mdi:briefcase'). On update, '' clears it, except an icon stored in the zone itself (as the Home Assistant UI stores it; ha_get_zone shows it), which cannot be removed",
+                description="Material Design Icon (e.g., 'mdi:briefcase'), stored in the zone as the Home Assistant zone dialog stores it. Home Assistant keeps a zone's stored icon on update: it can be changed but not removed, so '' leaves it. An icon override in the entity registry (ha_get_zone's entity_icon) is set or cleared with ha_set_entity",
                 default=None,
             ),
         ] = None,
@@ -297,10 +292,7 @@ class ZoneWriteTools(ZoneReadTools, HelperStorageTools):
                             context={"zone_id": zone_id},
                         )
                     )
-                entity_id, storage_id, registry_icon = await self._resolve_zone(zone_id)
-                # The helper write path merges into the stored zone and keeps a
-                # new icon in the registry, where it stays clearable, unless the
-                # zone already stores one (#2643). It takes the storage id first.
+                entity_id, storage_id = await self._resolve_zone(zone_id)
                 result = await self._update_zone(
                     "zone",
                     entity_id or storage_id,
@@ -315,19 +307,13 @@ class ZoneWriteTools(ZoneReadTools, HelperStorageTools):
                     fields,
                 )
                 response = _zone_write_response(result, storage_id, "updated")
-                # The reply holds the stored zone plus the registry fields this
-                # write set; the entity shows its registry icon over the stored
-                # one, as ha_get_zone reports it. An icon this write set or
-                # cleared ('') is already in the reply.
-                if icon is None and registry_icon:
-                    response["zone_data"]["icon"] = registry_icon
                 response["updated_fields"] = updated
                 return response
 
-            if name is None or latitude is None or longitude is None:
+            if name is None:
                 return raise_failure(
                     create_validation_error(
-                        "name, latitude, and longitude are required when creating a zone.",
+                        "name is required when creating a zone.",
                     )
                 )
             result = await self._create_zone(
@@ -382,7 +368,7 @@ class ZoneWriteTools(ZoneReadTools, HelperStorageTools):
                 suggestions=["Use ha_get_zone() to find existing zone_ids"],
                 context={"operation": "remove_zone"},
             )
-            entity_id, storage_id, _ = await self._resolve_zone(zone_id)
+            entity_id, storage_id = await self._resolve_zone(zone_id)
             result = await self._remove_stored_zone(storage_id, entity_id)
             if not result.get("success"):
                 return raise_failure(

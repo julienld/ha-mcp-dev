@@ -8,17 +8,13 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from homeassistant.helpers.llm import ToolAnnotations as LlmToolAnnotations
 
+from custom_components.ha_mcp_tools import llm_projection, native_llm
+from custom_components.ha_mcp_tools.native_server_policy import NativePolicy
+from ha_mcp.runtime import Engine
 from ha_mcp.tool_api import ToolDefinition, ToolResult
 from ha_mcp.tool_api.llm_projection import describe_tool, result_envelope
-
-from ._embedded_stubs import LlmToolAnnotations, install
-
-install()
-
-from custom_components.ha_mcp_tools import llm_projection, native_llm  # noqa: E402
-from custom_components.ha_mcp_tools.native_server_policy import NativePolicy  # noqa: E402
-from ha_mcp.runtime import Engine  # noqa: E402
 
 
 @pytest.mark.parametrize("target", ["neutral", "native_adapter"])
@@ -27,8 +23,6 @@ def test_projection_imports_without_sdk_or_legacy_runtime(target: str) -> None:
         import sys
         from importlib.abc import MetaPathFinder
         if TARGET == 'native_adapter':
-            from tests.src.unit._embedded_stubs import install
-            install()
             from types import ModuleType
             from pathlib import Path
             package = ModuleType('custom_components.ha_mcp_tools')

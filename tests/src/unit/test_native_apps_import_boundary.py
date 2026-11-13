@@ -17,8 +17,6 @@ class Boundary(importlib.abc.MetaPathFinder):
         if fullname.startswith(('ha_mcp.client', 'ha_mcp.tools.helpers', 'aiohasupervisor', 'homeassistant.components.hassio')):
             raise AssertionError('Native app import crossed boundary: ' + fullname)
 sys.meta_path.insert(0, Boundary())
-from tests.src.unit._embedded_stubs import install
-install()
 package = ModuleType('custom_components.ha_mcp_tools')
 package.__path__ = [str(Path.cwd() / 'custom_components' / 'ha_mcp_tools')]
 sys.modules[package.__name__] = package

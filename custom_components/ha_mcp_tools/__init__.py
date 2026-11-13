@@ -16,7 +16,7 @@ import posixpath
 import re
 import secrets
 import shutil
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Coroutine
 from datetime import datetime
 from io import StringIO
 from pathlib import Path, PurePosixPath
@@ -777,7 +777,7 @@ def _caller_token_ok(hass: HomeAssistant, call: ServiceCall) -> bool:
 
 def _build_edit_yaml_config_handler(
     hass: HomeAssistant,
-) -> Callable[[ServiceCall], Awaitable[dict[str, Any]]]:
+) -> Callable[[ServiceCall], Coroutine[Any, Any, dict[str, Any]]]:
     """Build and return the async handle_edit_yaml_config handler.
 
     Extracted to module level so it can be tested without registering
@@ -906,7 +906,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
 def _build_list_files_handler(
     hass: HomeAssistant,
-) -> Callable[[ServiceCall], Awaitable[ServiceResponse]]:
+) -> Callable[[ServiceCall], Coroutine[Any, Any, ServiceResponse]]:
     """Keep the service credential boundary around the component file owner."""
     owner = service_file_access(hass)
 
@@ -925,7 +925,7 @@ def _build_list_files_handler(
 
 def _build_read_file_handler(
     hass: HomeAssistant,
-) -> Callable[[ServiceCall], Awaitable[ServiceResponse]]:
+) -> Callable[[ServiceCall], Coroutine[Any, Any, ServiceResponse]]:
     """Keep the service credential boundary around the component file owner."""
     owner = service_file_access(hass)
 
@@ -948,7 +948,7 @@ def _build_read_file_handler(
 
 def _build_write_file_handler(
     hass: HomeAssistant,
-) -> Callable[[ServiceCall], Awaitable[ServiceResponse]]:
+) -> Callable[[ServiceCall], Coroutine[Any, Any, ServiceResponse]]:
     """Keep the service credential boundary around the component file owner."""
     owner = service_file_access(hass)
 
@@ -970,7 +970,7 @@ def _build_write_file_handler(
 
 def _build_delete_file_handler(
     hass: HomeAssistant,
-) -> Callable[[ServiceCall], Awaitable[ServiceResponse]]:
+) -> Callable[[ServiceCall], Coroutine[Any, Any, ServiceResponse]]:
     """Keep the service credential boundary around the component file owner."""
     owner = service_file_access(hass)
 
@@ -987,7 +987,7 @@ def _build_delete_file_handler(
 
 def _build_get_caller_token_handler(
     hass: HomeAssistant,
-) -> Callable[[ServiceCall], Awaitable[ServiceResponse]]:
+) -> Callable[[ServiceCall], Coroutine[Any, Any, ServiceResponse]]:
     """Build the handle_get_caller_token service handler."""
 
     async def handle_get_caller_token(call: ServiceCall) -> ServiceResponse:
@@ -1053,10 +1053,10 @@ def _build_get_caller_token_handler(
 
 def _build_get_allowed_paths_handler(
     hass: HomeAssistant,
-) -> Callable[[ServiceCall], Awaitable[ServiceResponse]]:
+) -> Callable[[ServiceCall], Coroutine[Any, Any, dict[str, Any]]]:
     """Build the handle_get_allowed_paths service handler."""
 
-    async def handle_get_allowed_paths(call: ServiceCall) -> ServiceResponse:
+    async def handle_get_allowed_paths(call: ServiceCall) -> dict[str, Any]:
         """Return the user-configurable extra directories plus the built-in
         allowlists and the non-overridable deny floor (issue #1567).
 
@@ -1079,10 +1079,10 @@ def _build_get_allowed_paths_handler(
 
 def _build_set_allowed_paths_handler(
     hass: HomeAssistant,
-) -> Callable[[ServiceCall], Awaitable[ServiceResponse]]:
+) -> Callable[[ServiceCall], Coroutine[Any, Any, dict[str, Any]]]:
     """Build the handle_set_allowed_paths service handler."""
 
-    async def handle_set_allowed_paths(call: ServiceCall) -> ServiceResponse:
+    async def handle_set_allowed_paths(call: ServiceCall) -> dict[str, Any]:
         """Replace the user-configurable extra directories (issues #1567, #1586).
 
         Receives the FULL replacement list. Each entry is validated and
@@ -1115,10 +1115,10 @@ def _build_set_allowed_paths_handler(
 
 def _build_get_extra_yaml_keys_handler(
     hass: HomeAssistant,
-) -> Callable[[ServiceCall], Awaitable[ServiceResponse]]:
+) -> Callable[[ServiceCall], Coroutine[Any, Any, dict[str, Any]]]:
     """Build the handle_get_extra_yaml_keys service handler (#1887)."""
 
-    async def handle_get_extra_yaml_keys(call: ServiceCall) -> ServiceResponse:
+    async def handle_get_extra_yaml_keys(call: ServiceCall) -> dict[str, Any]:
         """Return the component-configured extra YAML write keys plus the
         non-overridable deny floor.
 
@@ -1140,10 +1140,10 @@ def _build_get_extra_yaml_keys_handler(
 
 def _build_set_extra_yaml_keys_handler(
     hass: HomeAssistant,
-) -> Callable[[ServiceCall], Awaitable[ServiceResponse]]:
+) -> Callable[[ServiceCall], Coroutine[Any, Any, dict[str, Any]]]:
     """Build the handle_set_extra_yaml_keys service handler (#1887)."""
 
-    async def handle_set_extra_yaml_keys(call: ServiceCall) -> ServiceResponse:
+    async def handle_set_extra_yaml_keys(call: ServiceCall) -> dict[str, Any]:
         """Replace the component-configured extra YAML write keys.
 
         Receives the FULL replacement list. Each entry is stripped and
@@ -1173,12 +1173,12 @@ def _build_set_extra_yaml_keys_handler(
 
 def _build_list_legacy_backups_handler(
     hass: HomeAssistant,
-) -> Callable[[ServiceCall], Awaitable[ServiceResponse]]:
+) -> Callable[[ServiceCall], Coroutine[Any, Any, dict[str, Any]]]:
     """Build the handle_list_legacy_backups service handler."""
     config_dir = Path(hass.config.config_dir)
     legacy_backup_dir = config_dir / _LEGACY_BACKUP_DIRNAME
 
-    async def handle_list_legacy_backups(call: ServiceCall) -> ServiceResponse:
+    async def handle_list_legacy_backups(call: ServiceCall) -> dict[str, Any]:
         """List pre-#1579 YAML backups in .ha_mcp_tools_backups/ (read-only)."""
         if not _caller_token_ok(hass, call):
             return _unauthorized_response(SERVICE_LIST_LEGACY_BACKUPS, backups=[])
@@ -1196,7 +1196,7 @@ def _build_list_legacy_backups_handler(
 
 def _build_read_legacy_backup_handler(
     hass: HomeAssistant,
-) -> Callable[[ServiceCall], Awaitable[ServiceResponse]]:
+) -> Callable[[ServiceCall], Coroutine[Any, Any, ServiceResponse]]:
     """Build the handle_read_legacy_backup service handler."""
     config_dir = Path(hass.config.config_dir)
 

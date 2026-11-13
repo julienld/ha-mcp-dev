@@ -14,6 +14,7 @@ import httpx
 from .._version import is_running_in_addon
 from ..client.supervisor_client import make_supervisor_httpx_client
 from ..config import get_global_settings
+from ..runtime.report_environment import detect_platform as detect_platform
 from .bug_report_redaction import KnownIdentifiers, _sanitize_log_text
 from .coercion import ANSI_ESCAPE_RE
 from .helpers import get_connected_ws_client

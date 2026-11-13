@@ -18,8 +18,6 @@ def test_first_native_start_rejects_component_interfaces_from_an_older_import(
         import sys
         from pathlib import Path
         from types import ModuleType, SimpleNamespace
-        from tests.src.unit._embedded_stubs import install
-        install()
         package = ModuleType('custom_components.ha_mcp_tools')
         package.__path__ = [str(Path.cwd() / 'custom_components' / 'ha_mcp_tools')]
         sys.modules[package.__name__] = package
@@ -100,8 +98,6 @@ def test_legacy_switch_never_replaces_native_resource_generation(
         import sys
         from pathlib import Path
         from types import ModuleType
-        from tests.src.unit._embedded_stubs import install
-        install()
         package = ModuleType('custom_components.ha_mcp_tools')
         package.__path__ = [str(Path.cwd() / 'custom_components' / 'ha_mcp_tools')]
         sys.modules[package.__name__] = package

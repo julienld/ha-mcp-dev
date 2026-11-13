@@ -18,8 +18,6 @@ class RejectLegacy(importlib.abc.MetaPathFinder):
         if any(fullname == name or fullname.startswith(name + '.') for name in denied):
             raise AssertionError('Native administrator binding loaded legacy authority: ' + fullname)
 sys.meta_path.insert(0, RejectLegacy())
-from tests.src.unit._embedded_stubs import install
-install()
 package = ModuleType('custom_components.ha_mcp_tools')
 package.__path__ = [str(Path.cwd() / 'custom_components' / 'ha_mcp_tools')]
 sys.modules[package.__name__] = package

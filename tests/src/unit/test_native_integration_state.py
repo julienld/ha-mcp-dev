@@ -7,13 +7,13 @@ from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
+import voluptuous as vol
 
 from ha_mcp.runtime.flows.session import FlowSession
 from ha_mcp.runtime.integration_state import set_entry_enabled, set_log_level
 from ha_mcp.tool_api import CallContext, ToolFailure
 
 from .test_component_helper_collections import FakeCollection, _hass
-from .test_component_ws_search import _REAL_VOL as vol
 from .test_native_engine_backend import authorize
 from .test_native_engine_backend import native as native
 

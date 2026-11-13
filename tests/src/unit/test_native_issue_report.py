@@ -1,21 +1,22 @@
 """Native reports use Core observations, retained operation records and safe text."""
 
-import asyncio
 import importlib
 import json
-import sys
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from homeassistant.config_entries import ConfigEntryState
+from homeassistant.const import KEY_DATA_LOGGING
+from homeassistant.const import __version__ as CORE_VERSION
+from homeassistant.core import HomeAssistant
+from pytest_homeassistant.common import MockConfigEntry
 
 from ha_mcp.tool_api import CallContext, ToolFailure
 
-from .test_native_engine_backend import native as native
-
 
 @pytest.fixture
-def reporter(native, tmp_path, monkeypatch):
+def reporter(hass: HomeAssistant, tmp_path, monkeypatch):
     module = importlib.import_module(
         "custom_components.ha_mcp_tools.native_operations.issue_report"
     )
@@ -25,15 +26,20 @@ def reporter(native, tmp_path, monkeypatch):
     webhook = "fixture_native_webhook_capability_67890"
     target = tmp_path / "home-assistant.log"
     target.write_text(f"ERROR request /api/webhook/{webhook} failed; token={secret}\n")
-    monkeypatch.setitem(
-        sys.modules,
-        "homeassistant.const",
-        SimpleNamespace(__version__="2026.10.2", KEY_DATA_LOGGING="log-path"),
+    hass.states.async_set("sensor.report_one", "1")
+    hass.states.async_set("sensor.report_two", "2")
+    hass.data[KEY_DATA_LOGGING] = str(target)
+    entry = MockConfigEntry(
+        domain="ha_mcp_tools",
+        data={"oauth_client_secret": secret, "webhook_id": webhook},
+        options={"webhook_auth": "ha_auth"},
     )
+    entry.add_to_hass(hass)
+    entry.mock_state(hass, ConfigEntryState.LOADED)
     monkeypatch.setattr(module, "detect_installed_version", lambda: "native-fixture")
     monkeypatch.setattr(
         module,
-        "_detect_platform",
+        "detect_platform",
         lambda: {
             "os": "Fixture",
             "os_release": "1",
@@ -43,21 +49,8 @@ def reporter(native, tmp_path, monkeypatch):
         },
     )
     manager = SimpleNamespace(
-        hass=SimpleNamespace(
-            config=SimpleNamespace(
-                components=set(), location_name="Fixture Home", time_zone="UTC"
-            ),
-            data={"ha_mcp_tools": {}, "log-path": str(target)},
-            states=SimpleNamespace(async_all=lambda: [object(), object()]),
-            async_add_executor_job=lambda fn, *args: asyncio.ensure_future(
-                asyncio.to_thread(fn, *args)
-            ),
-        ),
-        entry=SimpleNamespace(
-            data={"oauth_client_secret": secret, "webhook_id": webhook},
-            options={"webhook_auth": "ha_auth"},
-            state=SimpleNamespace(value="loaded"),
-        ),
+        hass=hass,
+        entry=entry,
         settings_ui=SimpleNamespace(worker_id="fixture-owner"),
         policy=NativePolicy(),
         engine=SimpleNamespace(
@@ -94,7 +87,7 @@ async def test_native_report_uses_actual_owners_and_scrubs_entry_credentials(
     )
     serialized = json.dumps(result)
     assert result["success"] and secret not in serialized and webhook not in serialized
-    assert result["diagnostic_info"]["home_assistant_version"] == "2026.10.2"
+    assert result["diagnostic_info"]["home_assistant_version"] == CORE_VERSION
     assert result["diagnostic_info"]["entity_count"] == 2
     assert result["diagnostic_info"]["installation_method"] == "native"
     assert result["recent_logs"][0]["operation_id"] == "operation-fixture"
@@ -113,6 +106,7 @@ async def test_native_report_uses_actual_owners_and_scrubs_entry_credentials(
 
 async def test_native_report_withholds_results_when_authority_changes_during_render(
     reporter,
+    monkeypatch,
 ):
     report, manager, *_ = reporter
     original = manager.hass.async_add_executor_job
@@ -123,7 +117,7 @@ async def test_native_report_withholds_results_when_authority_changes_during_ren
             manager.backend.authorize.side_effect = PermissionError("revoked")
         return value
 
-    manager.hass.async_add_executor_job = revoke
+    monkeypatch.setattr(manager.hass, "async_add_executor_job", revoke)
     with pytest.raises(ToolFailure) as raised:
         await report.report(fields="diagnostic_info")
     assert raised.value.code == "AUTH_FORBIDDEN"

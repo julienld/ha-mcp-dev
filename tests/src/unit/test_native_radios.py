@@ -10,13 +10,13 @@ from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
+import voluptuous as _REAL_VOL
 
 from ha_mcp.runtime import Engine
 from ha_mcp.runtime.radio_specs import SUPPORTED
 from ha_mcp.tool_api import CallContext
 from ha_mcp.utils.registry_update_lock import registry_update_lock
 
-from .test_component_ws_search import _REAL_VOL
 from .test_native_engine_backend import native as native
 
 

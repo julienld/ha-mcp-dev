@@ -2677,37 +2677,45 @@
         "ha_mcp_tools/helpers_list",
         "ha_mcp_tools/helpers_list (zone) connection error; fell back to legacy: %r",
         "ha_mcp_tools/helpers_list (zone) failed; fell back to legacy: %r",
+        "ha_mcp_tools/states",
+        "ha_mcp_tools/states failed; reading all states: %r",
+        "ha_mcp_tools/states returned a malformed payload",
         "zone/list"
       ],
       "client_call_candidates": [
         {
-          "line": 139,
+          "line": 148,
           "call": "get_websocket_client",
           "wire_literals": []
         },
         {
-          "line": 167,
+          "line": 186,
+          "call": "self._client.get_states",
+          "wire_literals": []
+        },
+        {
+          "line": 206,
           "call": "self._client.send_websocket_message",
           "wire_literals": [
             "zone/list"
           ]
         },
         {
-          "line": 222,
+          "line": 264,
           "call": "self._client.send_websocket_message",
           "wire_literals": [
             "config/entity_registry/list"
           ]
         },
         {
-          "line": 256,
+          "line": 298,
           "call": "self._client.send_websocket_message",
           "wire_literals": [
             "zone/list"
           ]
         },
         {
-          "line": 196,
+          "line": 235,
           "call": "self._client.get_states",
           "wire_literals": []
         }
@@ -3809,37 +3817,45 @@
         "ha_mcp_tools/helpers_list",
         "ha_mcp_tools/helpers_list (zone) connection error; fell back to legacy: %r",
         "ha_mcp_tools/helpers_list (zone) failed; fell back to legacy: %r",
+        "ha_mcp_tools/states",
+        "ha_mcp_tools/states failed; reading all states: %r",
+        "ha_mcp_tools/states returned a malformed payload",
         "zone/list"
       ],
       "client_call_candidates": [
         {
-          "line": 139,
+          "line": 148,
           "call": "get_websocket_client",
           "wire_literals": []
         },
         {
-          "line": 167,
+          "line": 186,
+          "call": "self._client.get_states",
+          "wire_literals": []
+        },
+        {
+          "line": 206,
           "call": "self._client.send_websocket_message",
           "wire_literals": [
             "zone/list"
           ]
         },
         {
-          "line": 222,
+          "line": 264,
           "call": "self._client.send_websocket_message",
           "wire_literals": [
             "config/entity_registry/list"
           ]
         },
         {
-          "line": 256,
+          "line": 298,
           "call": "self._client.send_websocket_message",
           "wire_literals": [
             "zone/list"
           ]
         },
         {
-          "line": 196,
+          "line": 235,
           "call": "self._client.get_states",
           "wire_literals": []
         }
@@ -3869,24 +3885,24 @@
       ],
       "client_call_candidates": [
         {
-          "line": 360,
+          "line": 361,
           "call": "self._client.call_service",
           "wire_literals": []
         },
         {
-          "line": 412,
+          "line": 413,
           "call": "self._client.send_websocket_message",
           "wire_literals": [
             "config_entries/get"
           ]
         },
         {
-          "line": 463,
+          "line": 464,
           "call": "self._client.get_config",
           "wire_literals": []
         },
         {
-          "line": 481,
+          "line": 482,
           "call": "self._client.get_states",
           "wire_literals": []
         }
@@ -4334,37 +4350,45 @@
         "ha_mcp_tools/helpers_list",
         "ha_mcp_tools/helpers_list (zone) connection error; fell back to legacy: %r",
         "ha_mcp_tools/helpers_list (zone) failed; fell back to legacy: %r",
+        "ha_mcp_tools/states",
+        "ha_mcp_tools/states failed; reading all states: %r",
+        "ha_mcp_tools/states returned a malformed payload",
         "zone/list"
       ],
       "client_call_candidates": [
         {
-          "line": 139,
+          "line": 148,
           "call": "get_websocket_client",
           "wire_literals": []
         },
         {
-          "line": 167,
+          "line": 186,
+          "call": "self._client.get_states",
+          "wire_literals": []
+        },
+        {
+          "line": 206,
           "call": "self._client.send_websocket_message",
           "wire_literals": [
             "zone/list"
           ]
         },
         {
-          "line": 222,
+          "line": 264,
           "call": "self._client.send_websocket_message",
           "wire_literals": [
             "config/entity_registry/list"
           ]
         },
         {
-          "line": 256,
+          "line": 298,
           "call": "self._client.send_websocket_message",
           "wire_literals": [
             "zone/list"
           ]
         },
         {
-          "line": 196,
+          "line": 235,
           "call": "self._client.get_states",
           "wire_literals": []
         }
@@ -4482,22 +4506,22 @@
       "functions": [
         {
           "name": "_do_dashboards",
-          "line": 41,
+          "line": 43,
           "async": false
         },
         {
           "name": "_dashboards_prep",
-          "line": 122,
+          "line": 124,
           "async": true
         },
         {
           "name": "_dashboard_edit_prep",
-          "line": 750,
+          "line": 752,
           "async": true
         },
         {
           "name": "_do_dashboard_edit",
-          "line": 758,
+          "line": 760,
           "async": false
         }
       ],
@@ -4508,12 +4532,12 @@
       "functions": [
         {
           "name": "_logbook_events_prep",
-          "line": 137,
+          "line": 129,
           "async": true
         },
         {
           "name": "_do_logbook_events",
-          "line": 157,
+          "line": 149,
           "async": false
         }
       ],
@@ -4570,22 +4594,22 @@
       "functions": [
         {
           "name": "_do_oauth_callbacks",
-          "line": 78,
+          "line": 77,
           "async": false
         },
         {
           "name": "_do_oauth_callbacks_update",
-          "line": 84,
+          "line": 83,
           "async": false
         },
         {
           "name": "_oauth_callbacks_update_prep",
-          "line": 91,
+          "line": 90,
           "async": true
         },
         {
           "name": "command_specs",
-          "line": 126,
+          "line": 121,
           "async": false
         }
       ],
@@ -4670,37 +4694,37 @@
       "functions": [
         {
           "name": "_template_diagnose_prep",
-          "line": 47,
+          "line": 48,
           "async": true
         },
         {
           "name": "_do_template_diagnose",
-          "line": 62,
+          "line": 63,
           "async": false
         },
         {
           "name": "_do_info",
-          "line": 72,
+          "line": 73,
           "async": false
         },
         {
           "name": "_do_system_snapshot",
-          "line": 156,
+          "line": 157,
           "async": false
         },
         {
           "name": "_do_server_entry",
-          "line": 257,
+          "line": 258,
           "async": false
         },
         {
           "name": "_do_server_entry_update",
-          "line": 288,
+          "line": 289,
           "async": false
         },
         {
           "name": "_server_entry_update_prep",
-          "line": 303,
+          "line": 304,
           "async": true
         }
       ],

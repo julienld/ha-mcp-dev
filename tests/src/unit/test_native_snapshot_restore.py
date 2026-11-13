@@ -10,10 +10,6 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from ._embedded_stubs import install
-
-install()
-
 
 @pytest.fixture
 def runtime(tmp_path, monkeypatch):

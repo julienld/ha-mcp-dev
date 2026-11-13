@@ -9,13 +9,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from ._embedded_stubs import install
-
-install()
-
-from custom_components.ha_mcp_tools.native_server_policy import load_policy  # noqa: E402
-from custom_components.ha_mcp_tools.native_settings import NativeSettings  # noqa: E402
-from ha_mcp.policy.persistence import load_policy as load_approval_policy  # noqa: E402
+from custom_components.ha_mcp_tools.native_server_policy import load_policy
+from custom_components.ha_mcp_tools.native_settings import NativeSettings
+from ha_mcp.policy.persistence import load_policy as load_approval_policy
 
 
 def settings(tmp_path: Path) -> NativeSettings:

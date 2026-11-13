@@ -4,14 +4,12 @@ import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-from ._embedded_stubs import LlmToolResult, install
+from homeassistant.helpers.llm import ToolResult as LlmToolResult
 
-install()
-
-from custom_components.ha_mcp_tools import native_llm_import  # noqa: E402
-from custom_components.ha_mcp_tools.const import OPT_NATIVE_IMPORT_APIS  # noqa: E402
-from ha_mcp.runtime import Engine  # noqa: E402
-from ha_mcp.tool_api import CallContext  # noqa: E402
+from custom_components.ha_mcp_tools import native_llm_import
+from custom_components.ha_mcp_tools.const import OPT_NATIVE_IMPORT_APIS
+from ha_mcp.runtime import Engine
+from ha_mcp.tool_api import CallContext
 
 
 async def test_imported_arguments_use_the_validator_after_final_authorization(

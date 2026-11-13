@@ -6,19 +6,15 @@ import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-from ._embedded_stubs import install
-
-install()
-
-from custom_components.ha_mcp_tools.native_llm import exposed_catalog  # noqa: E402
-from custom_components.ha_mcp_tools.native_server_policy import (  # noqa: E402
+from custom_components.ha_mcp_tools.native_llm import exposed_catalog
+from custom_components.ha_mcp_tools.native_server_policy import (
     NativePolicy,
     catalogue_transform,
     filter_catalogue,
 )
-from ha_mcp._vendor.fastmcp import Client, FastMCP  # noqa: E402
-from ha_mcp.tool_api import ToolDefinition  # noqa: E402
-from ha_mcp.transforms import CategorizedSearchTransform  # noqa: E402
+from ha_mcp._vendor.fastmcp import Client, FastMCP
+from ha_mcp.tool_api import ToolDefinition
+from ha_mcp.transforms import CategorizedSearchTransform
 
 
 async def test_read_only_catalogue_keeps_mixed_tools_for_their_read_operations() -> (

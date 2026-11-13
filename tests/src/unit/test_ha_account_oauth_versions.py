@@ -8,7 +8,7 @@ from urllib.parse import parse_qs
 
 import pytest
 
-from ._embedded_stubs import make_request
+from ._embedded_helpers import make_request
 from .test_mcp_webhook import _live_hass, _none_live_hass, mw
 from .test_native_oauth import core_auth as core_auth
 from .test_oauth_autoapprove import (

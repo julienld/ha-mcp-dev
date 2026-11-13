@@ -8,10 +8,6 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from ._embedded_stubs import install
-
-install()
-
 
 async def runtime(tmp_path, monkeypatch, *, persistent=False):
     from custom_components.ha_mcp_tools.native_code import NativeCode

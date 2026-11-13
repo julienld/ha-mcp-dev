@@ -8,8 +8,8 @@ from typing import Any
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+import voluptuous as vol
 
-from .test_component_ws_search import _REAL_VOL as vol
 from .test_component_ws_search import FakeHass
 
 

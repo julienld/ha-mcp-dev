@@ -8,15 +8,11 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from ._embedded_stubs import install
-
-install()
-
-from custom_components.ha_mcp_tools.native_server_policy import NativePolicy  # noqa: E402
-from custom_components.ha_mcp_tools.native_settings import NativeSettings  # noqa: E402
-from custom_components.ha_mcp_tools.native_snapshots import NativeSnapshots  # noqa: E402
-from ha_mcp.runtime import Engine  # noqa: E402
-from ha_mcp.tool_api import CallContext, ToolResult  # noqa: E402
+from custom_components.ha_mcp_tools.native_server_policy import NativePolicy
+from custom_components.ha_mcp_tools.native_settings import NativeSettings
+from custom_components.ha_mcp_tools.native_snapshots import NativeSnapshots
+from ha_mcp.runtime import Engine
+from ha_mcp.tool_api import CallContext, ToolResult
 
 
 @pytest.fixture(autouse=True)

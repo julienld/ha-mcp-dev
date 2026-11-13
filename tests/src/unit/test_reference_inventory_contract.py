@@ -14,13 +14,13 @@ from typing import Any
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+import voluptuous as _REAL_VOL
 
 from ha_mcp.errors import HomeAssistantCommandError
 from ha_mcp.tools import component_config_reads, reference_validator
 from ha_mcp.tools.component_api import ComponentCaps
 
 from .test_component_ws_search import (
-    _REAL_VOL,
     FakeHass,
     FakeServices,
     FakeState,

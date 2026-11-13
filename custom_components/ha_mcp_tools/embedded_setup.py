@@ -323,6 +323,19 @@ def _dedup_hosts(primary: str | None, extra: list[str] | None) -> list[str]:
     return ordered
 
 
+def _cloud_remote_url(hass: HomeAssistant) -> str | None:
+    """The Nabu Casa remote URL, when the cloud integration is set up + logged in."""
+    if "cloud" not in hass.config.components:
+        return None
+    from .optional_integrations import loaded_integration_module
+
+    cloud = loaded_integration_module(hass, "cloud")
+    try:
+        return str(cloud.async_remote_ui_url(hass))
+    except cloud.CloudNotAvailable:
+        return None  # Cloud not logged in / remote UI off - no remote URL to show.
+
+
 def _resolve_local_url(hass: HomeAssistant) -> tuple[str | None, str | None]:
     """The get_url internal base URL and its host, or ``(None, None)``."""
     from homeassistant.helpers.network import NoURLAvailableError, get_url
@@ -377,16 +390,8 @@ def build_connect_urls(
         # external URL leads the list (any reverse proxy, not just Nabu Casa).
         urls.append(f"{external}/api/webhook/{webhook_id}")
 
-    # Nabu Casa remote URL (only when the cloud integration is set up + logged in).
-    if webhook_id and "cloud" in hass.config.components:
-        from .optional_integrations import loaded_integration_module
-
-        cloud = loaded_integration_module(hass, "cloud")
-        try:
-            cloud_base = cloud.async_remote_ui_url(hass)
-            urls.append(f"{cloud_base}/api/webhook/{webhook_id}")
-        except cloud.CloudNotAvailable:
-            pass  # Cloud not logged in / remote UI off - no remote URL to show.
+    if webhook_id and (cloud_base := _cloud_remote_url(hass)):
+        urls.append(f"{cloud_base}/api/webhook/{webhook_id}")
 
     local_base, local_host = _resolve_local_url(hass)
 

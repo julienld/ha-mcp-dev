@@ -14,7 +14,7 @@ from ha_mcp.runtime.redaction import (
     scrub_text,
     with_serialized_variants,
 )
-from ha_mcp.runtime.report_environment import _CONFIG_TOGGLE_FIELDS, _detect_platform
+from ha_mcp.runtime.report_environment import _CONFIG_TOGGLE_FIELDS, detect_platform
 from ha_mcp.runtime.report_rendering import render_report
 from ha_mcp.runtime.report_templates import _ReportText, _sanitize_log_text
 from ha_mcp.tool_api import CallContext
@@ -239,7 +239,7 @@ class NativeIssueReport:
             )
             installed = detect_installed_version()
             diagnostics.update(
-                platform=_detect_platform(),
+                platform=detect_platform(),
                 installed_version=installed,
                 version_mismatch=version_mismatch(installed),
             )

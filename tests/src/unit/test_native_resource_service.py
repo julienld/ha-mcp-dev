@@ -7,11 +7,11 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+import voluptuous as vol
 
 from ha_mcp.runtime import Engine
 from ha_mcp.tool_api import CallContext, ToolFailure
 
-from .test_component_ws_search import _REAL_VOL as vol
 from .test_native_engine_backend import native as native
 
 

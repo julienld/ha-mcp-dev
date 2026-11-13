@@ -9,12 +9,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from ._embedded_stubs import install
-
-install()
-
-from custom_components.ha_mcp_tools import native_server  # noqa: E402
-from custom_components.ha_mcp_tools.const import (  # noqa: E402
+from custom_components.ha_mcp_tools import native_server
+from custom_components.ha_mcp_tools.const import (
     DATA_NATIVE_OWNER_ID,
     DATA_WEBHOOK,
     DATA_WEBHOOK_ID,

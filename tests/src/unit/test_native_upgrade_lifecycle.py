@@ -4,6 +4,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from homeassistant.core import HomeAssistant
 
 from tests.native.upgrade_paths import run as bench
 from tests.native.upgrade_paths.contracts import PHASES, PROFILES
@@ -66,6 +67,7 @@ async def test_candidate_restarts_retain_installation_and_capture_every_complete
     monkeypatch.setattr(bench, "ready", ready)
     monkeypatch.setattr(bench, "phase", phase)
     monkeypatch.setattr(bench, "command", Mock())
+    monkeypatch.setattr(bench, "free_port", Mock(side_effect=[8123, 9584]))
     monkeypatch.setattr(
         bench,
         "seed_profile",
@@ -145,31 +147,34 @@ async def test_candidate_restarts_retain_installation_and_capture_every_complete
     "mode,provider",
     [("none", None), ("ha_auth", "resource_server"), ("legacy", "oauth_provider")],
 )
-def test_running_manager_does_not_imply_ready_webhook_and_authentication(
-    mode, provider
+async def test_running_manager_does_not_imply_ready_webhook_and_authentication(
+    hass: HomeAssistant, mode, provider
 ):
-    entry = SimpleNamespace(
-        state="setup_in_progress",
+    from homeassistant.components import webhook
+    from homeassistant.config_entries import ConfigEntryState
+    from homeassistant.core import CoreState
+    from pytest_homeassistant.common import MockConfigEntry
+
+    entry = MockConfigEntry(
+        domain="ha_mcp_tools",
         data={"webhook_id": "w"},
         options={"webhook_auth": mode},
     )
+    entry.add_to_hass(hass)
+    entry.mock_state(hass, ConfigEntryState.SETUP_IN_PROGRESS)
     cfg = {"webhook_id": "w", "auth_mode": mode}
-    hass = SimpleNamespace(
-        is_running=False,
-        data={
-            "ha_mcp_tools": {"webhook": cfg},
-            "webhook": {"w": SimpleNamespace(domain="ha_mcp_tools")},
-        },
-    )
+    hass.data["ha_mcp_tools"] = {"webhook": cfg}
+    webhook.async_register(hass, "ha_mcp_tools", "Upgrade readiness", "w", AsyncMock())
+    hass.set_state(CoreState.starting)
     assert not endpoint_ready(hass, entry)
-    entry.state = "loaded"
+    entry.mock_state(hass, ConfigEntryState.LOADED)
     if provider:
         assert not endpoint_ready(hass, entry)
         cfg[provider] = object()
     assert not endpoint_ready(hass, entry)
-    hass.is_running = True
+    hass.set_state(CoreState.running)
     assert endpoint_ready(hass, entry)
-    hass.data["webhook"].clear()
+    webhook.async_unregister(hass, "w")
     assert not endpoint_ready(hass, entry)
 
 

@@ -187,7 +187,7 @@ async def test_unknown_command_never_calls_a_registered_extension_handler(native
 async def test_core_validator_refuses_unknown_command_fields_before_read(
     native, monkeypatch
 ):
-    from .test_component_ws_search import _REAL_VOL
+    import voluptuous as _REAL_VOL
 
     read = AsyncMock(side_effect=AssertionError("owner read after refusal"))
     monkeypatch.setitem(

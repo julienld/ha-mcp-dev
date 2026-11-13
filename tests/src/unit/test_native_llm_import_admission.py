@@ -6,15 +6,12 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from homeassistant.helpers.llm import ToolResult as LlmToolResult
 
-from ._embedded_stubs import LlmToolResult, install
-
-install()
-
-from custom_components.ha_mcp_tools import native_llm_import  # noqa: E402
-from custom_components.ha_mcp_tools.const import OPT_NATIVE_IMPORT_APIS  # noqa: E402
-from ha_mcp.runtime import Engine  # noqa: E402
-from ha_mcp.tool_api import CallContext  # noqa: E402
+from custom_components.ha_mcp_tools import native_llm_import
+from custom_components.ha_mcp_tools.const import OPT_NATIVE_IMPORT_APIS
+from ha_mcp.runtime import Engine
+from ha_mcp.tool_api import CallContext
 
 
 @pytest.mark.parametrize(

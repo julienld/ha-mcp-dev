@@ -19,7 +19,7 @@ _CONFIG_TOGGLE_FIELDS: tuple[str, ...] = (
 )
 
 
-def _detect_platform() -> dict[str, str]:
+def detect_platform() -> dict[str, str]:
     """Detect platform information."""
     return {
         "os": platform.system(),  # Windows, Darwin, Linux

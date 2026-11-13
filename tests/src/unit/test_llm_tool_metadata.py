@@ -6,18 +6,15 @@ from types import SimpleNamespace
 
 import pytest
 
-from ._embedded_stubs import LlmToolAnnotations, LlmToolResult, install
-
-install()
-
-from custom_components.ha_mcp_tools import llm_api  # noqa: E402
-from custom_components.ha_mcp_tools.const import (  # noqa: E402
+from custom_components.ha_mcp_tools import llm_api
+from custom_components.ha_mcp_tools.const import (
     DOMAIN,
     EXPOSURE_TOOL_SEARCH,
 )
 
-from ._llm_api_helpers import (  # noqa: E402
+from ._llm_api_helpers import (
     fake_session,
+    llm_context,
     make_api,
     make_hass,
     tool_entry,
@@ -56,14 +53,12 @@ class TestCoreToolMetadata:
         }
         fake_session(monkeypatch, tools=[_annotated_entry(sdk, **hints)])
 
-        instance = await make_api(make_hass()).async_get_api_instance(
-            llm_api.llm.LLMContext()
-        )
+        instance = await make_api(make_hass()).async_get_api_instance(llm_context())
 
         (tool,) = instance.tools
         assert tool.title == "Get Entity State"
         assert tool.integration == DOMAIN
-        assert tool.annotations == LlmToolAnnotations(
+        assert tool.annotations == llm_api.llm.ToolAnnotations(
             read_only=True, destructive=False, idempotent=True, open_world=False
         )
 
@@ -72,11 +67,11 @@ class TestCoreToolMetadata:
     ) -> None:
         fake_session(monkeypatch, tools=[_annotated_entry("v2", readOnlyHint=True)])
 
-        instance = await make_api(make_hass()).async_get_api_instance(
-            llm_api.llm.LLMContext()
-        )
+        instance = await make_api(make_hass()).async_get_api_instance(llm_context())
 
-        assert instance.tools[0].annotations == LlmToolAnnotations(read_only=True)
+        assert instance.tools[0].annotations == llm_api.llm.ToolAnnotations(
+            read_only=True
+        )
 
     @pytest.mark.parametrize("is_error", [True, False])
     async def test_call_returns_a_tool_result_flagging_errors(
@@ -100,10 +95,10 @@ class TestCoreToolMetadata:
         result = await tool.async_call(
             make_hass(),
             llm_api.llm.ToolInput("ha_search", {}),
-            llm_api.llm.LLMContext(),
+            llm_context(),
         )
 
-        assert isinstance(result, LlmToolResult)
+        assert isinstance(result, llm_api.llm.ToolResult)
         assert result.error is is_error
         assert result.data["isError"] is is_error
 
@@ -113,19 +108,31 @@ class TestCoreToolMetadata:
         fake_session(monkeypatch, tools=[tool_entry("ha_get_state")])
         instance = await make_api(
             make_hass(), mode=EXPOSURE_TOOL_SEARCH
-        ).async_get_api_instance(llm_api.llm.LLMContext())
+        ).async_get_api_instance(llm_context())
         search, call = instance.tools
 
-        assert search.annotations == LlmToolAnnotations(
+        assert search.annotations == llm_api.llm.ToolAnnotations(
             read_only=True, destructive=False, idempotent=True, open_world=False
         )
         # The dispatcher can run any exposed tool: Core's least-safe default.
-        assert call.annotations == LlmToolAnnotations()
+        assert call.annotations == llm_api.llm.ToolAnnotations()
         assert {search.integration, call.integration} == {DOMAIN}
 
         unknown = await call.async_call(
             make_hass(),
             llm_api.llm.ToolInput("ha_call_tool", {"name": "ha_nope"}),
-            llm_api.llm.LLMContext(),
+            llm_context(),
         )
         assert unknown.error is True
+
+    async def test_older_core_gets_plain_results_and_no_annotations(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delattr(llm_api.llm, "ToolResult", raising=False)
+        monkeypatch.delattr(llm_api.llm, "ToolAnnotations", raising=False)
+        fake_session(monkeypatch, tools=[_annotated_entry("v2", readOnlyHint=True)])
+
+        instance = await make_api(make_hass()).async_get_api_instance(llm_context())
+
+        assert "annotations" not in vars(instance.tools[0])
+        assert instance.tools[0].title == "Get Entity State"

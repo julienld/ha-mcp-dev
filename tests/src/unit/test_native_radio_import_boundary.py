@@ -18,8 +18,6 @@ class Boundary(importlib.abc.MetaPathFinder):
         if fullname.startswith(('ha_mcp.client', 'homeassistant.components.zha', 'homeassistant.components.zwave_js', 'homeassistant.components.matter', 'homeassistant.components.otbr', 'homeassistant.components.thread')):
             raise AssertionError('Cold radio binding crossed optional boundary: ' + fullname)
 sys.meta_path.insert(0, Boundary())
-from tests.src.unit._embedded_stubs import install
-install()
 package = ModuleType('custom_components.ha_mcp_tools')
 package.__path__ = [str(Path.cwd() / 'custom_components' / 'ha_mcp_tools')]
 sys.modules[package.__name__] = package
