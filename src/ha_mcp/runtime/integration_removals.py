@@ -298,7 +298,7 @@ class IntegrationRemovalTools(EntryRemovalTools):
         return None  # py/mixed-returns: explicit terminal; error handlers above always raise (NoReturn), unreachable
 
     async def _require_remove_type(self, helper_type: str) -> None:
-        from .flows.helpers import _raise_unknown_helper_type
+        from .helper_flows import _raise_unknown_helper_type
 
         types = await self.backend.execute(
             "helpers.flow.types", {"helper_type": helper_type}, self.context

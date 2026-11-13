@@ -140,7 +140,7 @@ class HelperListingTools(BackendTools):
             "helpers.flow.types", {"helper_type": helper_type}, self.context
         )
         if helper_type not in result["types"]:
-            from .flows.helpers import _raise_unknown_helper_type
+            from .helper_flows import _raise_unknown_helper_type
 
             _raise_unknown_helper_type(helper_type, frozenset(result["types"]))
 
