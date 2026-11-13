@@ -2,7 +2,7 @@
 
 import asyncio
 import json
-from typing import Any
+from typing import Any, cast
 
 from homeassistant.core import HomeAssistant
 
@@ -77,7 +77,7 @@ async def _diagnostics_value(hass: HomeAssistant, arguments: dict[str, Any]) -> 
         if platforms is not None and entry is not None
         else None
     )
-    if info is None:
+    if entry is None or info is None:
         raise HomeAssistantAPIError("Diagnostics not available", status_code=404)
     issues = [
         issue.to_json()
@@ -111,7 +111,8 @@ async def _diagnostics_value(hass: HomeAssistant, arguments: dict[str, Any]) -> 
         raise HomeAssistantAPIError(
             "Diagnostics serialization failed", status_code=response.status
         )
-    return json.loads(response.text)
+    # Core's successful formatter always supplies a JSON text body.
+    return json.loads(cast(str, response.text))
 
 
 DIRECT_OPERATIONS = {

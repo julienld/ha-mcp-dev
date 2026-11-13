@@ -31,7 +31,8 @@ def config_view(hass: HomeAssistant, domain: str) -> Any:
     except (ImportError, AttributeError) as error:
         raise UnsupportedOperation(f"config.{domain}.read") from error
     for route in hass.http.app.router.routes():
-        if route.method != "GET" or route.resource.canonical != path:
+        resource = route.resource
+        if route.method != "GET" or resource is None or resource.canonical != path:
             continue
         try:
             owner = inspect.getclosurevars(route.handler).nonlocals.get("view")

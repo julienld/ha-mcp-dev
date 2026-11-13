@@ -39,7 +39,12 @@ def _token_owner(hass: HomeAssistant) -> Any:
     from homeassistant.components.auth import TokenView
 
     for route in hass.http.app.router.routes():
-        if route.method != "POST" or route.resource.canonical != "/auth/token":
+        resource = route.resource
+        if (
+            route.method != "POST"
+            or resource is None
+            or resource.canonical != "/auth/token"
+        ):
             continue
         try:
             owner = inspect.getclosurevars(route.handler).nonlocals.get("view")
