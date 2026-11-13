@@ -205,5 +205,5 @@ async def execute_template(backend: Any, data: Any, actor: CallContext) -> Any:
     # The legacy API helper decodes JSON first, then preserves non-JSON text.
     try:
         return json.loads(rendered)
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         return rendered

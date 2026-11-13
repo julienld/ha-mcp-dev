@@ -176,7 +176,7 @@ class FlowSession(BackendTools):
             return self._captured_entries[key]
         try:
             current = await self.get_config_entry(entry_id)
-        except (HomeAssistantAuthError, PermissionError, ToolFailure):
+        except HomeAssistantAuthError, PermissionError, ToolFailure:
             raise
         except Exception as error:  # noqa: BLE001 - best-effort capture, before mutation
             return self._capture_unavailable(key, error, "reading the config entry")
@@ -186,7 +186,7 @@ class FlowSession(BackendTools):
 
             try:
                 kinds = await helper_flow_types(self)
-            except (HomeAssistantAuthError, PermissionError, ToolFailure):
+            except HomeAssistantAuthError, PermissionError, ToolFailure:
                 raise
             except Exception as error:  # noqa: BLE001 - capture classification is best effort
                 return self._capture_unavailable(

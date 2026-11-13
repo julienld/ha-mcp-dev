@@ -293,7 +293,7 @@ async def exercise_recovery(
     lost.cancel()
     try:
         await lost
-    except (asyncio.CancelledError, httpx.ReadError):
+    except asyncio.CancelledError, httpx.ReadError:
         # Abandoning this response is the fault under test; inspect without replay.
         pass
     await control("release_archive", {})

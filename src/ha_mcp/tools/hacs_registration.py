@@ -191,7 +191,7 @@ async def _poll_queue_for_registration(
                 repo = await _repo_from_matching_dispatch(
                     ws_client, event, full_name, full_name_lower
                 )
-            except (HomeAssistantConnectionError, HomeAssistantCommandTimeout, OSError):
+            except HomeAssistantConnectionError, HomeAssistantCommandTimeout, OSError:
                 logger.debug("Registration lookup lost its WebSocket connection")
                 return None
             if repo is not None:

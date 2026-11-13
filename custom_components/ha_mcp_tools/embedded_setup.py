@@ -616,7 +616,7 @@ def _read_min_component_version() -> str | None:
     """
     try:
         from ha_mcp.component_contract import MIN_COMPONENT_VERSION
-    except (ImportError, AttributeError):
+    except ImportError, AttributeError:
         return None
     return str(MIN_COMPONENT_VERSION)
 

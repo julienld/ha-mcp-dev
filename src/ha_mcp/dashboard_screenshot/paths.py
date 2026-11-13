@@ -133,7 +133,7 @@ async def resolve_dashboard_render_target(
         except ToolError as error:
             try:
                 payload = json.loads(str(error))
-            except (ValueError, TypeError):
+            except ValueError, TypeError:
                 raise error from None
             if not isinstance(payload, dict) or not isinstance(
                 payload.get("error"), dict

@@ -12,7 +12,7 @@ def _release_catalog(releases: Iterable[Any]) -> dict[Version, Any]:
     for release in releases:
         try:
             version = Version(release.tag_name)
-        except (InvalidVersion, AttributeError):
+        except InvalidVersion, AttributeError:
             continue
         if not version.is_prerelease:
             catalog[version] = getattr(release, "body", None)

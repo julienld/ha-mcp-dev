@@ -178,7 +178,7 @@ def _build_ws_result(
     for msg in collected:
         try:
             parsed_messages.append(json.loads(msg))
-        except (json.JSONDecodeError, ValueError):
+        except json.JSONDecodeError, ValueError:
             parsed_messages.append(msg)
 
     sliced_messages, pagination = _slice_ws_messages(

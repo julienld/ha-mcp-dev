@@ -91,7 +91,7 @@ def _local_evidence() -> InstallationEvidence:
             direct = json.loads(dist.read_text("direct_url.json") or "{}")
             editable = direct.get("dir_info", {}).get("editable") is True
             direct_reference = bool(direct.get("url"))
-        except (ValueError, AttributeError):
+        except ValueError, AttributeError:
             # Malformed optional metadata cannot establish a direct/editable owner.
             pass
     prefix = Path(sys.prefix)

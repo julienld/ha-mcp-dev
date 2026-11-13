@@ -81,7 +81,7 @@ async def _read_config(
             raise
         row["config_status"] = "failed"
         return
-    except (TimeoutError, OSError):
+    except TimeoutError, OSError:
         row["config_status"] = "failed"
         return
     if not isinstance(result, dict):

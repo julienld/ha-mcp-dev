@@ -53,7 +53,7 @@ def _follow_include(loader: yaml.Loader, node: yaml.nodes.Node) -> Any:
                 return sub.get_single_data()
             finally:
                 sub.dispose()
-    except (OSError, yaml.YAMLError):
+    except OSError, yaml.YAMLError:
         return None
 
 
@@ -120,7 +120,7 @@ def _load_package_dir_markers_tracked(config_path: str) -> tuple[set[str], list[
                 data = loader.get_single_data()
             finally:
                 loader.dispose()
-    except (OSError, yaml.YAMLError):
+    except OSError, yaml.YAMLError:
         return set(), opened
     return _extract_package_dir_markers(data), opened
 

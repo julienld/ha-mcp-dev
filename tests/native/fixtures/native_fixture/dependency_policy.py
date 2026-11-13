@@ -43,7 +43,7 @@ def _versions(
         normalized[name] = raw_version
         try:
             parsed[name] = Version(raw_version)
-        except (InvalidVersion, TypeError):
+        except InvalidVersion, TypeError:
             errors.append(
                 {
                     "reason": "invalid_version",
@@ -122,7 +122,7 @@ def _active_constraints(
             applies = requirement.marker is None or requirement.marker.evaluate(
                 environment={**environment, "extra": ""}
             )
-        except (KeyError, ValueError, TypeError):
+        except KeyError, ValueError, TypeError:
             errors.append({"reason": "unsupported_core_marker", "line": line_number})
             continue
         if not applies:

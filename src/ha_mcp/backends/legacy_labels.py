@@ -285,7 +285,7 @@ class LegacyLabels:
         """Return the tool's structured JSON payload, or None if it isn't one."""
         try:
             parsed = json.loads(str(err))
-        except (TypeError, ValueError):
+        except TypeError, ValueError:
             return None
         if isinstance(parsed, dict) and isinstance(parsed.get("error"), dict):
             return parsed

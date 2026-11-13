@@ -149,7 +149,7 @@ class NativeStoredRestorePorts:
                 )
             async with registry_update_lock("entity", entity["entity_id"]):
                 await self._change_registry(entity["entity_id"], {"icon": value})
-        except (BackupRestoreError, PermissionError, ToolFailure):
+        except BackupRestoreError, PermissionError, ToolFailure:
             return [
                 f"The {self.domain} was restored, but its registry icon was not: the registry changed or administrator admission was revoked."
             ]

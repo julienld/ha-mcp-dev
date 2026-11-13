@@ -73,7 +73,7 @@ class BulkOperationValues:
             return None
         try:
             timeout = float(value)
-        except (TypeError, ValueError, OverflowError):
+        except TypeError, ValueError, OverflowError:
             # OverflowError: an int too large for float must skip the row,
             # not abort the batch through the generic exception handler.
             return None

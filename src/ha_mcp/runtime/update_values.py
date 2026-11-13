@@ -12,7 +12,7 @@ def _parse_version(version_str: str) -> tuple[int, ...] | None:
         return None
     try:
         return tuple(int(x) for x in version_str.split("."))
-    except (ValueError, AttributeError):
+    except ValueError, AttributeError:
         return None
 
 

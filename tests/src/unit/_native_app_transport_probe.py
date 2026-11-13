@@ -97,6 +97,6 @@ async def exchange(transport: Any, route: Any, case: str) -> None:
             await transport.http_exchange(route, "GET", None)
         else:
             await transport.ws_exchange(route, {"command": "go"}, None, 0, True)
-    except (RuntimeError, aiohttp.ClientError, WebSocketException):
+    except RuntimeError, aiohttp.ClientError, WebSocketException:
         return
     raise AssertionError("Failed app transport was accepted")

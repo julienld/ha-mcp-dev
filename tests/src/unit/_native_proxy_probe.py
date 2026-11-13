@@ -203,7 +203,7 @@ class Probe:
             self.valid = False
         try:
             await client.call_tool("native_write", {})
-        except (MCPError, ToolError, RuntimeError, TimeoutError):
+        except MCPError, ToolError, RuntimeError, TimeoutError:
             pass
         else:
             raise AssertionError("A revoked or lost write was reported as success")

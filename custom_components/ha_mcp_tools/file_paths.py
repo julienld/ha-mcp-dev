@@ -39,7 +39,7 @@ def _is_within_config_dir(config_dir: Path, normalized: str) -> bool:
     try:
         resolved = (config_dir / normalized).resolve()
         config_resolved = config_dir.resolve()
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return False
     return resolved == config_resolved or resolved.is_relative_to(config_resolved)
 
@@ -76,7 +76,7 @@ def _violates_deny_floor(config_dir: Path, normalized: str) -> bool:
     try:
         resolved = (config_dir / normalized).resolve()
         rel_parts = resolved.relative_to(config_dir.resolve()).parts
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return True
     if any(seg.lower() in DENY_PATH_SEGMENTS for seg in rel_parts):
         return True
@@ -131,7 +131,7 @@ def _resolves_within(base: Path, raw_path: str) -> bool:
         candidate = Path(raw_path) if raw_path.startswith("/") else base / raw_path
         real = candidate.resolve()
         base_real = base.resolve()
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return False
     return real == base_real or real.is_relative_to(base_real)
 
@@ -154,7 +154,7 @@ def _violates_volume_deny_floor(abs_path: str) -> bool:
         return True
     try:
         resolved = Path(abs_path).resolve()
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return True
     if any(seg.lower() in DENY_PATH_SEGMENTS for seg in resolved.parts):
         return True

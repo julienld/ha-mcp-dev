@@ -517,7 +517,7 @@ def remove_resources(nonce: str) -> None:
             identifiers = command(
                 "docker", *listing, "--filter", f"label={LABEL}={nonce}"
             ).splitlines()
-        except (OSError, subprocess.SubprocessError):
+        except OSError, subprocess.SubprocessError:
             failed = True
             continue
         for identifier in identifiers:
@@ -527,7 +527,7 @@ def remove_resources(nonce: str) -> None:
                     command("docker", "rm", "--force", "--volumes", identifier)
                 else:
                     command("docker", "network", "rm", identifier)
-            except (OSError, subprocess.SubprocessError):
+            except OSError, subprocess.SubprocessError:
                 failed = True
     if failed:
         raise RuntimeError("cleanup_incomplete")
@@ -671,7 +671,7 @@ def finish_run(
     for process in workers.values():
         try:
             stop_process(process, group=True)
-        except (OSError, subprocess.SubprocessError):
+        except OSError, subprocess.SubprocessError:
             report["worker_cleanup_failed"] = True
     try:
         if state.exists():
@@ -682,11 +682,11 @@ def finish_run(
                 if path.exists():
                     status = json.loads(path.read_bytes())
                     report["worker_status"][role] = sanitize_status(status)
-    except (OSError, ValueError, KeyError):
+    except OSError, ValueError, KeyError:
         report["worker_diagnostics_incomplete"] = True
     try:
         report["cleanup_complete"] = cleanup(state)
-    except (OSError, ValueError, RuntimeError, subprocess.SubprocessError):
+    except OSError, ValueError, RuntimeError, subprocess.SubprocessError:
         report["cleanup_complete"] = False
     report["complete"] = bool(
         report["complete"]
@@ -826,7 +826,7 @@ def main() -> int:
     if args.command == "cleanup":
         try:
             return 0 if cleanup(args.state) else 1
-        except (OSError, ValueError, RuntimeError, subprocess.SubprocessError):
+        except OSError, ValueError, RuntimeError, subprocess.SubprocessError:
             print("Protocol cleanup failed; private state retained for retry")
             return 1
     # Cancellation uses the same cleanup path as a failing comparison.

@@ -80,7 +80,7 @@ def _hacs_legacy_errors(function: Any) -> Any:
     async def invoke(*args: Any, **kwargs: Any) -> Any:
         try:
             return await function(*args, **kwargs)
-        except (ToolError, ToolFailure):
+        except ToolError, ToolFailure:
             raise
         except Exception as error:
             bound = inspect.signature(function).bind_partial(*args, **kwargs)

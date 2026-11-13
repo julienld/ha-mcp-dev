@@ -127,7 +127,7 @@ class NativeVisibility:
                 load_native_visibility, self.manager.settings_ui.directory
             )
             self.last_good_config = config
-        except (OSError, ValueError):
+        except OSError, ValueError:
             _LOGGER.warning(
                 "Native visibility config could not be loaded; retaining the last known boundary",
                 exc_info=True,

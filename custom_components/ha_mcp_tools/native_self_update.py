@@ -315,7 +315,7 @@ class NativeSelfUpdate:
             self._pin(owner, before, entry_image)
             check_mutation_admission(actor)
             pin_install_service(owner.access, owner.repository, prepared)
-        except (Exception, asyncio.CancelledError):
+        except Exception, asyncio.CancelledError:
             await self._io(write_receipt, self.directory, receipt)
             raise
         return await self._dispatch(owner, actor, prepared, receipt)

@@ -55,13 +55,13 @@ def _read_blueprint_file(hass: HomeAssistant, domain: str, path: str) -> _Bluepr
         candidate = Path(path) if path.startswith("/") else base / path
         real = candidate.resolve()
         base_real = base.resolve()
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return _UNREADABLE_BLUEPRINT
     if not (real == base_real or real.is_relative_to(base_real)):
         return _UNREADABLE_BLUEPRINT
     try:
         text = real.read_text(encoding="utf-8")
-    except (OSError, ValueError):
+    except OSError, ValueError:
         return _UNREADABLE_BLUEPRINT
     return _BlueprintFile(text, parse_blueprint_body(text))
 

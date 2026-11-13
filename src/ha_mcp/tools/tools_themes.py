@@ -229,7 +229,7 @@ class ThemesTools:
                     "default_dark_theme": listing.get("default_dark_theme"),
                 },
             }
-        except (ToolError, ToolFailure):
+        except ToolError, ToolFailure:
             raise
         except Exception as e:  # noqa: BLE001
             exception_to_structured_error(

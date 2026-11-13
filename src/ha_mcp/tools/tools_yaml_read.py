@@ -88,7 +88,7 @@ class LegacyYamlRead:
                 yaml_path, file, include_content, include_parsed
             )
 
-        except (ToolError, ToolFailure):
+        except ToolError, ToolFailure:
             raise
         except Exception as e:  # noqa: BLE001
             exception_to_structured_error(
