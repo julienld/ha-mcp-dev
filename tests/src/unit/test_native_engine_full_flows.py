@@ -15,10 +15,10 @@ from ha_mcp.tool_api import CallContext, ToolFailure
 from ha_mcp.utils.registry_update_lock import registry_update_lock
 from tests.src.e2e.utilities.cleanup import CleanupSteps
 
+from ._native_backend_module import native as native
 from .test_component_helper_collections import FakeCollection, _hass
 from .test_component_ws_search import FakeRegEntry, make_view
 from .test_native_engine_backend import authorize
-from .test_native_engine_backend import native as native
 from .test_native_engine_flows import InvalidData
 from .test_native_engine_flows import flows as flows
 from .test_native_engine_helpers import helper_engine

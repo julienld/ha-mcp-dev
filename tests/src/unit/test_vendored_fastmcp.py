@@ -30,7 +30,7 @@ _VENDORED_DISTRIBUTIONS = {"fastmcp", "fastmcp-slim", "mcp", "mcp-types", "rich"
 # code; ha-mcp must not pin the shared copy (#2135/#2146).
 _NOT_DECLARED = {"websockets"}
 _SHARED_RICH_USERS = {
-    "src/ha_mcp/_rich_compat.py",
+    "src/ha_mcp/rich_compat.py",
     "tests/src/unit/test_rich_compat.py",
     "tests/src/unit/test_vendored_fastmcp.py",
     "tests/addon/test_addon_startup.py",

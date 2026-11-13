@@ -32,6 +32,7 @@ class _RegistryView:
     floor: Any = None
     label: Any = None
     device: Any = None
+    hass: HomeAssistant | None = None
     _access_failures: set[str] = dataclass_field(
         default_factory=set, init=False, repr=False, compare=False
     )
@@ -58,6 +59,7 @@ def _resolve_registries(hass: HomeAssistant) -> _RegistryView:
         floor=_safe(fr.async_get, hass),
         label=_safe(lr.async_get, hass),
         device=_safe(dr.async_get, hass),
+        hass=hass,
     )
 
 
@@ -441,6 +443,13 @@ def _timestamp(value: Any) -> float | None:
         except Exception:  # pragma: no cover - defensive  # noqa: BLE001
             return None
     return float(value) if isinstance(value, (int, float)) else None
+
+
+def _composed_entity_name(view: _RegistryView, reg: Any) -> str | None:
+    """Use Core's displayed name, including parent-device and area placement."""
+    if reg is None or view.hass is None:
+        return None
+    return er.async_get_full_entity_name(view.hass, reg) or None
 
 
 def _reg_name(reg: Any) -> str | None:

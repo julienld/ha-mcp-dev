@@ -18,7 +18,6 @@ sys.meta_path.insert(0,Boundary())
 package=ModuleType('custom_components.ha_mcp_tools')
 package.__path__=[str(Path.cwd()/'custom_components'/'ha_mcp_tools')]
 sys.modules[package.__name__]=package
-sys.modules['homeassistant.helpers.json']=SimpleNamespace(json_bytes=lambda value:json.dumps(value).encode())
 from custom_components.ha_mcp_tools.native_backup_tools import backup_definition
 from ha_mcp.runtime.backup_tools import BackupFacade
 from ha_mcp.runtime.backup_controls import gate_backup_combo

@@ -7,9 +7,9 @@ from ...backends.legacy import legacy_errors_sync
 from ...runtime.search_response import (
     _ALWAYS_KEEP_PROJECTION,
     _CONFIG_BUCKETS,
-    _ENTITIES_BRANCH_SKIP_KEYS,
     _INTENT_SKIP_WARNING,
     _VALID_SEARCH_TYPES,
+    ENTITIES_BRANCH_SKIP_KEYS,
     _apply_by_domain_grouping,
     _apply_result_fields_to_response,
     _apply_search_outcome,
@@ -70,7 +70,7 @@ async def _prefetch_shared_search_snapshots(
 __all__ = [
     "_ALWAYS_KEEP_PROJECTION",
     "_CONFIG_BUCKETS",
-    "_ENTITIES_BRANCH_SKIP_KEYS",
+    "ENTITIES_BRANCH_SKIP_KEYS",
     "_INTENT_SKIP_WARNING",
     "_ResolvedSearch",
     "_VALID_SEARCH_TYPES",

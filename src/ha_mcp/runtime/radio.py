@@ -4,6 +4,8 @@ from typing import Any
 
 from ha_mcp.tool_api import Backend, CallContext, ToolFailure
 
+from .error_text import core_error_message
+
 
 async def _optional_radio(
     backend: Backend,
@@ -23,7 +25,7 @@ async def _optional_radio(
             "UNSUPPORTED_OPERATION",
         }:
             raise
-        warnings.append(f"{label} unavailable: {error}")
+        warnings.append(f"{label} unavailable: {core_error_message(error)}")
         return False, None
 
 

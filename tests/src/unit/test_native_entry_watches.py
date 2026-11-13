@@ -11,8 +11,8 @@ import pytest
 
 from ha_mcp.tool_api import CallContext, ToolFailure
 
+from ._native_backend_module import native as native
 from .test_component_helper_collections import FakeCollection, _hass
-from .test_native_engine_backend import native as native
 
 
 def _watcher(monkeypatch: pytest.MonkeyPatch, *, limit: int = 32) -> tuple:

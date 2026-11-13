@@ -4,36 +4,22 @@ import asyncio
 import logging
 from typing import Any
 
-from ha_mcp.runtime.helper_listing_shape import enrich_helper_records
+from ha_mcp.backends.legacy_flows import legacy_helper_flow
+from ha_mcp.runtime.helper_names import (
+    _NEAR_DUPLICATES_UNCHECKED as _NEAR_DUPLICATES_UNCHECKED,
+)
+from ha_mcp.runtime.helper_names import (
+    _check_name_collision as _shared_check_name_collision,
+)
 
-from ...backends.legacy import legacy_errors_sync
 from ...client.rest_client import HomeAssistantAPIError, HomeAssistantAuthError
 from ...errors import ErrorCode, create_auth_error, create_error_response
-from ...runtime.helper_storage import _name_slug as _slugify_helper_name
-from ...runtime.registry_references import (
-    _raise_if_unknown_area as _shared_raise_if_unknown_area,
-)
-from ...runtime.registry_references import (
-    _raise_if_unknown_category as _shared_raise_if_unknown_category,
-)
-from ...runtime.registry_references import (
-    _raise_if_unknown_floor as _shared_raise_if_unknown_floor,
-)
-from ...runtime.registry_references import (
-    _raise_if_unknown_labels as _shared_raise_if_unknown_labels,
-)
 from ...utils.registry_update_lock import registry_update_lock
 from ..component_registry_lookup import fetch_entities_for_config_entry_via_component
 from ..config_write_helpers import apply_entity_category
 from ..helpers import exception_to_structured_error, raise_tool_error
-from .schemas import SIMPLE_HELPER_TYPES, _simple_helper_error_context
 
 logger = logging.getLogger(__name__)
-
-_raise_if_unknown_labels = legacy_errors_sync(_shared_raise_if_unknown_labels)
-_raise_if_unknown_area = legacy_errors_sync(_shared_raise_if_unknown_area)
-_raise_if_unknown_category = legacy_errors_sync(_shared_raise_if_unknown_category)
-_raise_if_unknown_floor = legacy_errors_sync(_shared_raise_if_unknown_floor)
 
 
 async def _ws_registry_lookup(
@@ -66,6 +52,15 @@ async def _ws_registry_lookup(
     return False, [], None, None
 
 
+def _registry_id_values(items: list[dict[str, Any]], field: str) -> list[str]:
+    """Pull non-empty string values of `field` from a list of registry dicts."""
+    return [
+        v
+        for it in items
+        if isinstance(it, dict) and isinstance((v := it.get(field)), str)
+    ]
+
+
 def _ws_error_msg(response: dict[str, Any]) -> str:
     """Extract a human-readable error message from a failed WS response dict."""
     error_detail = response.get("error", {})
@@ -73,6 +68,92 @@ def _ws_error_msg(response: dict[str, Any]) -> str:
         msg: str = error_detail.get("message", "Unknown error")
         return msg
     return str(error_detail) if error_detail else "Unknown error"
+
+
+def _raise_if_unknown_labels(
+    ws_labels: list[dict[str, Any]], labels: list[str] | None
+) -> None:
+    """Raise VALIDATION_INVALID_PARAMETER if any label_id is not in the registry."""
+    valid_label_ids = _registry_id_values(ws_labels, "label_id")
+    # An empty string inside a non-empty list is NOT the clear sentinel
+    # (that's the empty list itself) — treat it as an unknown ID so it can't
+    # ride along into the registry write.
+    unknown = [
+        label_id
+        for label_id in labels or []
+        if not label_id or label_id not in valid_label_ids
+    ]
+    if unknown:
+        raise_tool_error(
+            create_error_response(
+                ErrorCode.VALIDATION_INVALID_PARAMETER,
+                f"Unknown label_id(s): {unknown}. These do not exist in "
+                "the label registry.",
+                context={"labels": labels, "unknown_labels": unknown},
+                suggestions=[
+                    "Use ha_config_get_label() to list valid label IDs.",
+                    "Use ha_config_set_label() to create a new label.",
+                    f"Available label_ids: {sorted(valid_label_ids)}",
+                ],
+            )
+        )
+
+
+def _raise_if_unknown_area(areas: list[dict[str, Any]], area_id: str) -> None:
+    """Raise VALIDATION_INVALID_PARAMETER if area_id is not in the registry."""
+    valid_area_ids = _registry_id_values(areas, "area_id")
+    if area_id not in valid_area_ids:
+        raise_tool_error(
+            create_error_response(
+                ErrorCode.VALIDATION_INVALID_PARAMETER,
+                f"area_id={area_id!r} does not exist in the area registry.",
+                context={"area_id": area_id},
+                suggestions=[
+                    "Use ha_list_floors_areas() to list valid area IDs.",
+                    'Pass area_id="" to clear the area assignment.',
+                    f"Available area_ids: {sorted(valid_area_ids)}",
+                ],
+            )
+        )
+
+
+def _raise_if_unknown_category(
+    ws_categories: list[dict[str, Any]], category: str, scope: str
+) -> None:
+    """Raise VALIDATION_INVALID_PARAMETER if category is not in the scope's registry."""
+    valid_category_ids = _registry_id_values(ws_categories, "category_id")
+    if category not in valid_category_ids:
+        raise_tool_error(
+            create_error_response(
+                ErrorCode.VALIDATION_INVALID_PARAMETER,
+                f"category={category!r} does not exist in the {scope} "
+                "category registry.",
+                context={"category": category, "scope": scope},
+                suggestions=[
+                    f"Use ha_config_get_category(scope='{scope}') to list valid category IDs.",
+                    "Use ha_config_set_category() to create a new category.",
+                    f"Available category_ids: {sorted(valid_category_ids)}",
+                ],
+            )
+        )
+
+
+def _raise_if_unknown_floor(floors: list[dict[str, Any]], floor_id: str) -> None:
+    """Raise VALIDATION_INVALID_PARAMETER if floor_id is not in the registry."""
+    valid_floor_ids = _registry_id_values(floors, "floor_id")
+    if floor_id not in valid_floor_ids:
+        raise_tool_error(
+            create_error_response(
+                ErrorCode.VALIDATION_INVALID_PARAMETER,
+                f"floor_id={floor_id!r} does not exist in the floor registry.",
+                context={"floor_id": floor_id},
+                suggestions=[
+                    "Use ha_list_floors_areas() to list valid floor IDs.",
+                    'Pass floor_id="" to clear the floor assignment.',
+                    f"Available floor_ids: {sorted(valid_floor_ids)}",
+                ],
+            )
+        )
 
 
 # kind -> (param name used in messages/context, registry name used in messages)
@@ -266,14 +347,14 @@ async def validate_registry_ids(
 
 
 async def _find_collision_in_flow_helpers(
-    client: Any, helper_type: str, target_slug: str
+    client: Any, helper_type: str, name: str
 ) -> str | None:
-    """Search config-entry registry for a flow helper whose title slugifies to target_slug."""
+    """The config entry of a flow helper titled ``name``, read from Core."""
     try:
         result = await client.send_websocket_message(
             {"type": "config_entries/get", "domain": helper_type}
         )
-    except (HomeAssistantAPIError, ConnectionError, TimeoutError):
+    except HomeAssistantAPIError, ConnectionError, TimeoutError:
         # Connectivity issue — fail open so a transient outage doesn't block legit creates;
         # HA will auto-suffix duplicates on its own.
         return None
@@ -284,7 +365,7 @@ async def _find_collision_in_flow_helpers(
         if not isinstance(entry, dict):
             continue
         title = entry.get("title")
-        if isinstance(title, str) and _slugify_helper_name(title) == target_slug:
+        if title == name:
             return entry.get("entry_id") or entry.get("id")
     return None
 
@@ -327,27 +408,22 @@ def _flatten_helper_list_result(result: Any) -> list[Any]:
 
 
 async def _find_collision_in_simple_helpers(
-    client: Any, helper_type: str, target_slug: str
+    client: Any, helper_type: str, name: str
 ) -> str | None:
-    """Search simple-helper {type}/list for an entry whose id or name slug matches target_slug."""
+    """The id of a storage helper whose id or name is ``name``, read from
+    Core's ``{type}/list``."""
     try:
         result = await client.send_websocket_message({"type": f"{helper_type}/list"})
-    except (HomeAssistantAPIError, ConnectionError, TimeoutError):
+    except HomeAssistantAPIError, ConnectionError, TimeoutError:
         # Connectivity issue — fail open so a transient outage doesn't block legit creates;
         # HA will auto-suffix duplicates on its own.
         return None
     for item in _flatten_helper_list_result(result):
         if not isinstance(item, dict):
             continue
-        existing_slug = item.get("id") or item.get("tag_id")
-        if isinstance(existing_slug, str) and existing_slug == target_slug:
-            return existing_slug
-        existing_name = item.get("name")
-        if (
-            isinstance(existing_name, str)
-            and _slugify_helper_name(existing_name) == target_slug
-        ):
-            return item.get("id") or item.get("tag_id") or target_slug
+        item_id = item.get("id") or item.get("tag_id")
+        if isinstance(item_id, str) and name in (item_id, item.get("name")):
+            return item_id
     return None
 
 
@@ -411,76 +487,31 @@ async def _enrich_helpers_with_current_registry(
             )
             return [_REGISTRY_JOIN_STALE_WARNING]
         registry = reg_result["result"]
-        enrich_helper_records(helper_type, items, registry)
+        reg_by_uid = {
+            entry["unique_id"]: entry
+            for entry in registry
+            if isinstance(entry, dict)
+            and entry.get("platform") == helper_type
+            and entry.get("unique_id")
+        }
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            entry = reg_by_uid.get(item.get("id"))
+            if entry is None:
+                continue
+            item["entity_id"] = entry.get("entity_id")
+            item["original_name"] = item.get("name")
+            item["name"] = (
+                entry.get("name") or entry.get("original_name") or item.get("name")
+            )
     except Exception as e:  # noqa: BLE001
         logger.debug(f"list_helpers registry enrichment failed: {e}")
         return [_REGISTRY_JOIN_STALE_WARNING]
     return []
 
 
-async def _check_name_collision(
-    client: Any,
-    helper_type: str,
-    name: str | None,
-) -> None:
-    """Reject create requests whose name collides with an existing helper (Bug 12).
-
-    HA's create endpoints auto-suffix duplicate names with `_2` / `_3` etc., so
-    a caller asking to "create" a helper that already exists silently gets a
-    duplicate entity instead of updating the original. Detect and reject before
-    we send the create message, pointing the caller at the existing helper_id.
-
-    Empty / missing / whitespace-only `name` is left to the existing
-    name-required check downstream so the user sees the standard "name is
-    required" error rather than a spurious collision miss (or a wasted WS
-    round-trip on a name the validator is about to reject anyway).
-    """
-    if not name or not name.strip():
-        return
-    target_slug = _slugify_helper_name(name)
-    if not target_slug:
-        # Name normalises to empty (e.g. all punctuation). HA's create call
-        # will reject; let it surface that error rather than guessing.
-        return
-
-    # ha_config_set_helper checked the type: not storage means a helper flow.
-    if helper_type not in SIMPLE_HELPER_TYPES:
-        existing_id = await _find_collision_in_flow_helpers(
-            client, helper_type, target_slug
-        )
-    else:
-        existing_id = await _find_collision_in_simple_helpers(
-            client, helper_type, target_slug
-        )
-
-    if existing_id is None:
-        return
-
-    raise_tool_error(
-        create_error_response(
-            ErrorCode.VALIDATION_INVALID_PARAMETER,
-            f"A {helper_type} helper named {name!r} already exists "
-            f"(id: {existing_id!r}). Pass helper_id={existing_id!r} to update it, "
-            f"or use a different name to create a new helper.",
-            context=_simple_helper_error_context(
-                helper_type,
-                name=name,
-                existing_helper_id=existing_id,
-            )
-            if helper_type in SIMPLE_HELPER_TYPES
-            else {
-                "helper_type": helper_type,
-                "name": name,
-                "existing_helper_id": existing_id,
-            },
-            suggestions=[
-                f"To update the existing helper, pass helper_id={existing_id!r} "
-                "(and omit `name`).",
-                "To create a separate helper, pick a name whose slug does not "
-                f"already exist (current collision: {target_slug!r}).",
-            ],
-        )
-    )
+_check_name_collision = legacy_helper_flow(_shared_check_name_collision)
 
 
 async def _get_entities_for_config_entry(
@@ -681,8 +712,3 @@ async def _apply_registry_updates_to_entity(
     )
     _process_cat_apply_result(cat_result, entity_id, applied, warnings)
     return applied
-
-
-__all__ = [
-    "validate_registry_ids",
-]

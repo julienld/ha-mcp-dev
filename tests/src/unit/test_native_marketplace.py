@@ -10,7 +10,7 @@ import pytest
 
 from ha_mcp.tool_api import CallContext
 
-from .test_native_engine_backend import native as native
+from ._native_backend_module import native as native
 from .test_native_hacs import Repository, call
 from .test_native_hacs import hacs as hacs
 

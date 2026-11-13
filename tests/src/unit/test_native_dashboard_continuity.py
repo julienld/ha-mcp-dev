@@ -5,10 +5,10 @@ import copy
 from ha_mcp.tool_api import CallContext
 from ha_mcp.utils.config_hash import compute_config_hash
 
+from ._native_backend_module import native as native
 from .test_native_dashboard_effects import describe_runtime as describe_runtime
 from .test_native_dashboard_storage import dashboards as dashboards
 from .test_native_dashboards import service as service
-from .test_native_engine_backend import native as native
 from .test_native_resource_service import resources as resources
 
 

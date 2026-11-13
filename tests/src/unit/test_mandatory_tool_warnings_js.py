@@ -5,10 +5,9 @@ import re
 
 import pytest
 
-from ha_mcp.settings_ui import _SETTINGS_HTML
-
-from ._js_harness import extract_script_body, run_script
-from .test_settings_ui_js_behavior import DEFAULT_FETCHES, MIN_DOM, _assert_clean_init
+from ._astro_setup_wizard import _assert_clean_init
+from ._js_harness import run_script
+from ._settings_ui_dom import DEFAULT_FETCHES, MIN_DOM
 
 
 @pytest.mark.parametrize("env_disabled", [False, True])
@@ -17,10 +16,10 @@ from .test_settings_ui_js_behavior import DEFAULT_FETCHES, MIN_DOM, _assert_clea
     "name", ["ha_manage_backup", "ha_get_state", "ha_get_skill_guide"]
 )
 def test_ignored_disable_renders_enabled_and_roundtrips(
-    env_disabled: bool, read_only: bool, name: str
+    env_disabled: bool, read_only: bool, name: str, settings_script: str
 ) -> None:
     result = run_script(
-        extract_script_body(_SETTINGS_HTML),
+        settings_script,
         initial_html=MIN_DOM,
         fetch_map={
             **DEFAULT_FETCHES,

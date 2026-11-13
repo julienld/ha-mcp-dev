@@ -18,8 +18,8 @@ from ha_mcp.runtime.integration_writes import (
 )
 from ha_mcp.tool_api import CallContext, ToolFailure
 
+from ._native_backend_module import native as native
 from .test_component_ws_search import FakeEntityReg, FakeRegEntry, make_view, wsapi
-from .test_native_engine_backend import native as native
 from .test_native_engine_flows import flows as flows
 from .test_native_engine_full_flows import _setup
 

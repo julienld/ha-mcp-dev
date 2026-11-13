@@ -25,8 +25,8 @@ from ..config import get_global_settings
 from ..errors import ErrorCode, create_error_response
 from ..runtime.yaml_tools import YamlConfigTools as YamlContractTools
 from ..runtime.yaml_values import (
-    _YAML_PACKAGES_FLAG_BY_KEY,
     _YAML_SKILL_FILES,
+    YAML_PACKAGES_FLAG_BY_KEY,
     _append_yaml_result_warnings,
     _validate_yaml_action_and_content,
 )
@@ -101,12 +101,12 @@ def _disabled_packages_keys(settings: Any) -> list[str]:
     irrelevant on the wire.
 
     Uses ``getattr`` without a default so a future rename that breaks the
-    ``_YAML_PACKAGES_FLAG_BY_KEY`` → ``Settings`` mapping raises loudly
+    ``YAML_PACKAGES_FLAG_BY_KEY`` → ``Settings`` mapping raises loudly
     instead of silently treating the key as disabled (a dead toggle).
     """
     return sorted(
         key
-        for key, flag in _YAML_PACKAGES_FLAG_BY_KEY.items()
+        for key, flag in YAML_PACKAGES_FLAG_BY_KEY.items()
         if not getattr(settings, flag)
     )
 

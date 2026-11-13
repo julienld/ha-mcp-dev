@@ -34,6 +34,9 @@ REGISTRY_OPERATIONS = frozenset(
         "assist.exposure",
         "devices.resolve",
         "devices.single_snapshot",
+        "devices.linked",
+        "devices.entries",
+        "devices.composite_splits",
         "devices.list_snapshot",
         "entities.registry.read",
         "entities.registry.list",
@@ -67,6 +70,32 @@ async def _radio_read(client: Any, operation: str, arguments: dict[str, Any]) ->
 
 
 async def _device_read(client: Any, operation: str, arguments: dict[str, Any]) -> Any:
+    if operation in {"devices.entries", "devices.composite_splits"}:
+        from ha_mcp.tools.helpers import raise_core_refusal
+
+        command, message = {
+            "devices.entries": ("config_entries/get", "Failed to read config entries"),
+            "devices.composite_splits": (
+                "config/device_registry/list_composite_splits",
+                "Failed to read composite device splits",
+            ),
+        }[operation]
+        reply = await client.send_websocket_message({"type": command})
+        if not reply.get("success"):
+            raise_core_refusal(message, reply)
+        return reply["result"]
+    if operation == "devices.linked":
+        from ha_mcp.tools.helpers import raise_core_refusal
+
+        reply = await client.send_websocket_message(
+            {
+                "type": "config/device_registry/list_linked_devices",
+                "device_id": arguments["device_id"],
+            }
+        )
+        if not reply.get("success"):
+            raise_core_refusal("Failed to read linked devices", reply)
+        return reply["result"]["linked_devices"]
     from ha_mcp.tools import tools_registry as registry
 
     if operation == "devices.resolve":
@@ -124,6 +153,9 @@ async def execute_registry_operation(
     if operation in {
         "devices.resolve",
         "devices.single_snapshot",
+        "devices.linked",
+        "devices.entries",
+        "devices.composite_splits",
         "devices.list_snapshot",
     }:
         return await _device_read(client, operation, arguments)

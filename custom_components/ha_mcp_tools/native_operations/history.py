@@ -84,14 +84,16 @@ class NativeHistory:
             start, end = policy._parse_time_range(
                 start_time, end_time, policy._DEFAULT_START_HOURS_BY_SOURCE[source], now
             )
+            timezone_name = self.hass.config.time_zone
+            timezone, resolved_name = resolve_local_timezone(timezone_name)
+            start = start.replace(tzinfo=start.tzinfo or timezone)
+            end = end.replace(tzinfo=end.tzinfo or timezone)
             policy._validate_time_range(
                 start,
                 end,
                 end_time_was_provided=end_time is not None,
                 reject_zero_length=self.guardrails,
             )
-            timezone_name = self.hass.config.time_zone
-            timezone, resolved_name = resolve_local_timezone(timezone_name)
             if (
                 self.guardrails
                 and source == "statistics"

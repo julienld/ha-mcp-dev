@@ -37,6 +37,9 @@ class RemoteBackend:
             "config.entries.close",
             "config.subentries.list",
             "config.flow.settings",
+            "config.flow.record",
+            "config.flow.outline",
+            "component.capabilities",
             "helpers.flow.types",
             "helpers.flow.core_types",
             "config.reload.watch",
@@ -104,6 +107,20 @@ class RemoteBackend:
     async def _flow_operation(
         self, operation: str, arguments: dict[str, Any], context: CallContext
     ) -> Any:
+        if operation == "component.capabilities":
+            from ha_mcp.tools.component_api import get_component_caps
+
+            caps = await get_component_caps(self.client)
+            return {"capabilities": list(caps.capabilities) if caps else []}
+        if operation in {"config.flow.record", "config.flow.outline"}:
+            from ha_mcp.tools.component_api import ask_component
+
+            command = {
+                "config.flow.record": "flow_record",
+                "config.flow.outline": "flow_outline",
+            }[operation]
+            return await ask_component(self.client, command, **arguments)
+
         from .remote_flow_ops import RemoteFlows, read_flow_operation
 
         if operation in {

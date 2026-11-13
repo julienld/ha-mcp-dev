@@ -10,6 +10,7 @@ import time
 from typing import Any, Literal, NoReturn, overload
 
 from ha_mcp._vendor.fastmcp import Context
+from ha_mcp.runtime.error_text import core_error_message as core_error_message
 from ha_mcp.runtime.error_text import (
     extract_structured_error_reason,
     extract_tool_error_message,
@@ -22,13 +23,14 @@ from ..errors import (
     ErrorCode,
     create_auth_error,
     create_connection_error,
+    create_error_response,
 )
 from ..redaction import scrub_known_secrets
 from ..runtime.action_params import (
     _parse_json_dict_param as _shared_parse_json_dict_param,
 )
 from ..runtime.error_classification import classified_error
-from ..tool_api.parameters import HIDDEN_PARAM, hidden_param_names
+from ..tool_api.parameters import HIDDEN_PARAM
 from ..utils.tool_errors import raise_tool_error
 from ..utils.tool_errors import tool_error_from_response as tool_error_from_response
 from ..utils.usage_logger import log_tool_call
@@ -264,6 +266,26 @@ async def safe_progress(
     )
 
 
+def raise_core_refusal(
+    what: str,
+    result: dict[str, Any],
+    context: dict[str, Any] | None = None,
+    suggestions: list[str] | None = None,
+    suffix: str = "",
+) -> NoReturn:
+    """Raise a failed WebSocket command as ``{what}: <error>{suffix}``, the
+    error without the client's prefix, coded by :func:`ws_failure_code` with
+    Core's own code kept as ``ha_error_code``."""
+    raise_tool_error(
+        create_error_response(
+            ws_failure_code(result),
+            f"{what}: {core_error_message(result.get('error', 'Unknown error'))}{suffix}",
+            suggestions=suggestions,
+            context={**(context or {}), "ha_error_code": result.get("error_code")},
+        )
+    )
+
+
 def clear_or_keep(value: str | None, param_name: str) -> str | None:
     """Preserve None-as-omitted and the historical ToolError facade."""
     from ha_mcp.runtime.validation import clear_or_keep as clear
@@ -284,18 +306,13 @@ def register_tool_methods(mcp: Any, instance: Any) -> None:
 
     Discovers methods bearing a ``__fastmcp__`` attribute (set by the outermost
     ``@tool`` decorator — must be listed above ``@log_tool_usage``) and registers
-    them via ``mcp.add_tool()``, dropping ``HIDDEN_PARAM`` parameters from the
-    published schema.
+    them via ``mcp.add_tool()``.
     """
     count = 0
     for attr in dir(instance):
         method = getattr(instance, attr)
         if callable(method) and hasattr(method, "__fastmcp__"):
-            registered = mcp.add_tool(method)
-            properties = getattr(registered, "parameters", {}).get("properties")
-            if isinstance(properties, dict):
-                for name in hidden_param_names(method):
-                    properties.pop(name, None)
+            mcp.add_tool(method)
             count += 1
     if count == 0:
         logger.warning(f"No @tool-decorated methods found on {type(instance).__name__}")

@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from ._native_backend_module import native as native
 from .test_component_ws_search import _FakeConnection, _FakeWSApi, _Unauthorized, wsapi
-from .test_native_engine_backend import native as native
 from .test_native_hacs import hacs as hacs
 from .test_native_marketplace import marketplace as marketplace
 

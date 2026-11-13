@@ -52,7 +52,7 @@ _CONFIG_BUCKETS: tuple[str, ...] = (
 # area_filter at 1, message at 2), so callers verifiably depend on them.
 # All are documented as top-level keys + retained in
 # ``_ALWAYS_KEEP_PROJECTION``.
-_ENTITIES_BRANCH_SKIP_KEYS: tuple[str, ...] = (
+ENTITIES_BRANCH_SKIP_KEYS: tuple[str, ...] = (
     "results",
     "total_matches",
     "has_more",
@@ -488,7 +488,7 @@ def _apply_search_outcome(
         _merge_payload_metadata(
             response,
             payload,
-            skip_keys=_ENTITIES_BRANCH_SKIP_KEYS,
+            skip_keys=ENTITIES_BRANCH_SKIP_KEYS,
         )
     elif label == "configs":
         for bucket in _CONFIG_BUCKETS:

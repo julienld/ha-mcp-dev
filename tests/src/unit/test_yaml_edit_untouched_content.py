@@ -12,20 +12,23 @@ Covers both layers of the fix:
 - the emitter no longer wraps long lines at all (values survive), and
 - the handler's round-trip guard refuses to write when re-serialization
   would alter parsed content (simulated by forcing a narrow width).
+
+The service runs on a real ``hass`` whose config directory is the test's
+``tmp_path``.
 """
 
-import asyncio
 from io import StringIO
 from pathlib import Path
-from unittest.mock import AsyncMock
-from unittest.mock import MagicMock as MM
+from typing import Any
 
 import pytest
+from homeassistant.core import HomeAssistant
 from ruamel.yaml import YAML
 
 from custom_components.ha_mcp_tools import (
     CALLER_TOKEN_FIELD,
-    _build_edit_yaml_config_handler,
+    SERVICE_GET_CALLER_TOKEN,
+    SERVICE_READ_FILE,
 )
 from custom_components.ha_mcp_tools.const import DOMAIN
 from custom_components.ha_mcp_tools.yaml_rt import make_yaml
@@ -33,7 +36,7 @@ from custom_components.ha_mcp_tools.yaml_rt import (
     yaml_dumps as real_yaml_dumps,
 )
 
-_TEST_CALLER_TOKEN = "test-caller-token-untouched-content"
+from ._edit_yaml import EditYaml, make_edit_yaml
 
 # Reporter's scenario: a hand-authored template sensor with >-folded Jinja
 # blocks whose long, more-indented lines contain quoted strftime literals,
@@ -80,41 +83,16 @@ daily_bill_ac:
 """
 
 
-@pytest.fixture(autouse=True)
-def _stub_config_check(monkeypatch):
-    """The post-write config check passes (valid config)."""
-    monkeypatch.setattr(
-        "custom_components.ha_mcp_tools.yaml_editing.async_check_ha_config_file",
-        AsyncMock(return_value=None),
-        raising=False,
-    )
+@pytest.fixture
+def hass_config_dir(hass_tmp_config_dir: str) -> str:
+    """Core's config directory is this test's ``tmp_path``."""
+    return hass_tmp_config_dir
 
 
 @pytest.fixture
-def hass(tmp_path):
-    """Minimal hass mock that runs executor jobs synchronously."""
-    h = MM()
-    h.config = MM()
-    h.config.config_dir = str(tmp_path)
-    h.data = {DOMAIN: {"caller_token": _TEST_CALLER_TOKEN}}
-
-    async def _run(fn, *args):
-        return fn(*args)
-
-    h.async_add_executor_job = AsyncMock(side_effect=_run)
-    h.services = MM()
-    h.services.async_call = AsyncMock(return_value=None)
-    return h
-
-
-@pytest.fixture
-def call_factory():
-    def _make(data):
-        call = MM()
-        call.data = {**data, CALLER_TOKEN_FIELD: _TEST_CALLER_TOKEN}
-        return call
-
-    return _make
+async def edit_yaml(hass: HomeAssistant) -> EditYaml:
+    """Call ``ha_mcp_tools.edit_yaml_config`` the way ha-mcp does."""
+    return await make_edit_yaml(hass)
 
 
 def _template_attributes(text: str) -> dict[str, str]:
@@ -123,46 +101,38 @@ def _template_attributes(text: str) -> dict[str, str]:
     return {k: str(v) for k, v in sensor["attributes"].items()}
 
 
-def _add_utility_meter_call(call_factory):
-    return call_factory(
-        {
-            "file": "configuration.yaml",
-            "action": "add",
-            "yaml_path": "utility_meter",
-            "content": UTILITY_METER_CONTENT,
-        }
-    )
+ADD_UTILITY_METER = {
+    "file": "configuration.yaml",
+    "action": "add",
+    "yaml_path": "utility_meter",
+    "content": UTILITY_METER_CONTENT,
+}
 
 
 class TestUntouchedContentPreserved:
     """add on one key leaves every other parsed value in the file intact."""
 
-    def _run(self, coro):
-        return asyncio.run(coro)
-
-    def test_unrelated_add_preserves_folded_scalar_values(
-        self, tmp_path, hass, call_factory
-    ):
-        cfg = Path(tmp_path) / "configuration.yaml"
+    async def test_unrelated_add_preserves_folded_scalar_values(
+        self, tmp_path: Path, edit_yaml: EditYaml
+    ) -> None:
+        cfg = tmp_path / "configuration.yaml"
         cfg.write_text(ISSUE_1720_CONFIG)
         before = _template_attributes(ISSUE_1720_CONFIG)
 
-        handler = _build_edit_yaml_config_handler(hass)
-        result = self._run(handler(_add_utility_meter_call(call_factory)))
+        result = await edit_yaml(ADD_UTILITY_METER)
 
         assert result["success"] is True, result
         written = cfg.read_text()
         assert "monthly_bill_ac" in written  # requested edit landed
         assert _template_attributes(written) == before
 
-    def test_long_folded_scalar_line_not_split_on_disk(
-        self, tmp_path, hass, call_factory
-    ):
-        cfg = Path(tmp_path) / "configuration.yaml"
+    async def test_long_folded_scalar_line_not_split_on_disk(
+        self, tmp_path: Path, edit_yaml: EditYaml
+    ) -> None:
+        cfg = tmp_path / "configuration.yaml"
         cfg.write_text(ISSUE_1720_CONFIG)
 
-        handler = _build_edit_yaml_config_handler(hass)
-        result = self._run(handler(_add_utility_meter_call(call_factory)))
+        result = await edit_yaml(ADD_UTILITY_METER)
 
         assert result["success"] is True, result
         assert (
@@ -174,16 +144,13 @@ class TestRoundTripGuard:
     """If re-serialization would alter parsed content anywhere in the file,
     the handler must refuse to write rather than corrupt silently."""
 
-    def _run(self, coro):
-        return asyncio.run(coro)
-
-    def test_write_aborted_when_serialization_would_alter_content(
-        self, tmp_path, hass, call_factory, monkeypatch
-    ):
-        cfg = Path(tmp_path) / "configuration.yaml"
+    async def test_write_aborted_when_serialization_would_alter_content(
+        self, tmp_path: Path, edit_yaml: EditYaml, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        cfg = tmp_path / "configuration.yaml"
         cfg.write_text(ISSUE_1720_CONFIG)
 
-        def _narrow_dumps(ry, data):
+        def _narrow_dumps(ry: YAML, data: Any) -> str:
             # Pre-fix emitter behavior: default ~80-column wrapping.
             narrow = YAML(typ="rt")
             narrow.preserve_quotes = True
@@ -193,8 +160,7 @@ class TestRoundTripGuard:
             "custom_components.ha_mcp_tools.yaml_editing.yaml_dumps", _narrow_dumps
         )
 
-        handler = _build_edit_yaml_config_handler(hass)
-        result = self._run(handler(_add_utility_meter_call(call_factory)))
+        result = await edit_yaml(ADD_UTILITY_METER)
 
         assert result["success"] is False, result
         assert "outside the requested edit" in result["error"]
@@ -205,31 +171,28 @@ class TestRoundTripGuard:
 class TestDiffInResponse:
     """Every write response carries a unified diff of the actual change."""
 
-    def _run(self, coro):
-        return asyncio.run(coro)
-
-    def test_success_response_includes_diff_and_written(
-        self, tmp_path, hass, call_factory
-    ):
-        cfg = Path(tmp_path) / "configuration.yaml"
+    async def test_success_response_includes_diff_and_written(
+        self, tmp_path: Path, edit_yaml: EditYaml
+    ) -> None:
+        cfg = tmp_path / "configuration.yaml"
         cfg.write_text(ISSUE_1720_CONFIG)
 
-        handler = _build_edit_yaml_config_handler(hass)
-        result = self._run(handler(_add_utility_meter_call(call_factory)))
+        result = await edit_yaml(ADD_UTILITY_METER)
 
         assert result["success"] is True, result
         assert result["written"] is True
         assert "+utility_meter:" in result["diff"]
         assert "(before)" in result["diff"] and "(after)" in result["diff"]
 
-    def test_pure_add_diff_has_no_removals(self, tmp_path, hass, call_factory):
+    async def test_pure_add_diff_has_no_removals(
+        self, tmp_path: Path, edit_yaml: EditYaml
+    ) -> None:
         """With width + indent-style preservation, adding a new key to an
         HA-docs-style file must not touch any existing line."""
-        cfg = Path(tmp_path) / "configuration.yaml"
+        cfg = tmp_path / "configuration.yaml"
         cfg.write_text(ISSUE_1720_CONFIG)
 
-        handler = _build_edit_yaml_config_handler(hass)
-        result = self._run(handler(_add_utility_meter_call(call_factory)))
+        result = await edit_yaml(ADD_UTILITY_METER)
 
         removals = [
             line
@@ -238,23 +201,20 @@ class TestDiffInResponse:
         ]
         assert removals == [], result["diff"]
 
-    def test_diff_is_truncated_for_huge_changes(self, tmp_path, hass, call_factory):
-        cfg = Path(tmp_path) / "configuration.yaml"
+    async def test_diff_is_truncated_for_huge_changes(
+        self, tmp_path: Path, edit_yaml: EditYaml
+    ) -> None:
+        cfg = tmp_path / "configuration.yaml"
         cfg.write_text("default_config:\n")
         big = "\n".join(f"meter_{i}:\n  source: sensor.s{i}" for i in range(300))
 
-        handler = _build_edit_yaml_config_handler(hass)
-        result = self._run(
-            handler(
-                call_factory(
-                    {
-                        "file": "configuration.yaml",
-                        "action": "add",
-                        "yaml_path": "utility_meter",
-                        "content": big,
-                    }
-                )
-            )
+        result = await edit_yaml(
+            {
+                "file": "configuration.yaml",
+                "action": "add",
+                "yaml_path": "utility_meter",
+                "content": big,
+            }
         )
 
         assert result["success"] is True, result
@@ -262,31 +222,23 @@ class TestDiffInResponse:
         assert len(result["diff"].splitlines()) <= 210
 
 
-def _confirm_call(call_factory, token=None):
-    data = {
-        "file": "configuration.yaml",
-        "action": "add",
-        "yaml_path": "utility_meter",
-        "content": UTILITY_METER_CONTENT,
-        "require_confirm": True,
-    }
+def _confirm_call(token: str | None = None) -> dict[str, Any]:
+    data: dict[str, Any] = {**ADD_UTILITY_METER, "require_confirm": True}
     if token is not None:
         data["confirm_token"] = token
-    return call_factory(data)
+    return data
 
 
 class TestConfirmFlow:
     """require_confirm=True turns the first call into a no-write preview."""
 
-    def _run(self, coro):
-        return asyncio.run(coro)
-
-    def test_first_call_previews_without_writing(self, tmp_path, hass, call_factory):
-        cfg = Path(tmp_path) / "configuration.yaml"
+    async def test_first_call_previews_without_writing(
+        self, tmp_path: Path, edit_yaml: EditYaml
+    ) -> None:
+        cfg = tmp_path / "configuration.yaml"
         cfg.write_text(ISSUE_1720_CONFIG)
 
-        handler = _build_edit_yaml_config_handler(hass)
-        result = self._run(handler(_confirm_call(call_factory)))
+        result = await edit_yaml(_confirm_call())
 
         assert result["success"] is True, result
         assert result["preview"] is True
@@ -295,32 +247,30 @@ class TestConfirmFlow:
         assert result["confirm_token"]
         assert cfg.read_text() == ISSUE_1720_CONFIG  # nothing written
 
-    def test_confirm_with_token_writes(self, tmp_path, hass, call_factory):
-        cfg = Path(tmp_path) / "configuration.yaml"
+    async def test_confirm_with_token_writes(
+        self, tmp_path: Path, edit_yaml: EditYaml
+    ) -> None:
+        cfg = tmp_path / "configuration.yaml"
         cfg.write_text(ISSUE_1720_CONFIG)
-        handler = _build_edit_yaml_config_handler(hass)
 
-        preview = self._run(handler(_confirm_call(call_factory)))
-        result = self._run(
-            handler(_confirm_call(call_factory, token=preview["confirm_token"]))
-        )
+        preview = await edit_yaml(_confirm_call())
+        result = await edit_yaml(_confirm_call(preview["confirm_token"]))
 
         assert result["success"] is True, result
         assert result["written"] is True
         assert "monthly_bill_ac" in cfg.read_text()
 
-    def test_stale_token_re_previews(self, tmp_path, hass, call_factory):
+    async def test_stale_token_re_previews(
+        self, tmp_path: Path, edit_yaml: EditYaml
+    ) -> None:
         """File changed between preview and confirm → token mismatch, no
         write, fresh token issued."""
-        cfg = Path(tmp_path) / "configuration.yaml"
+        cfg = tmp_path / "configuration.yaml"
         cfg.write_text(ISSUE_1720_CONFIG)
-        handler = _build_edit_yaml_config_handler(hass)
 
-        preview = self._run(handler(_confirm_call(call_factory)))
+        preview = await edit_yaml(_confirm_call())
         cfg.write_text(ISSUE_1720_CONFIG + "input_boolean:\n  x: {}\n")
-        result = self._run(
-            handler(_confirm_call(call_factory, token=preview["confirm_token"]))
-        )
+        result = await edit_yaml(_confirm_call(preview["confirm_token"]))
 
         assert result["preview"] is True
         assert result["written"] is False
@@ -328,20 +278,21 @@ class TestConfirmFlow:
         assert result["confirm_token"] != preview["confirm_token"]
         assert "monthly_bill_ac" not in cfg.read_text()
 
-    def test_absent_flag_keeps_single_call_behavior(self, tmp_path, hass, call_factory):
+    async def test_absent_flag_keeps_single_call_behavior(
+        self, tmp_path: Path, edit_yaml: EditYaml
+    ) -> None:
         """Old servers never send require_confirm — writes stay one-call."""
-        cfg = Path(tmp_path) / "configuration.yaml"
+        cfg = tmp_path / "configuration.yaml"
         cfg.write_text(ISSUE_1720_CONFIG)
 
-        handler = _build_edit_yaml_config_handler(hass)
-        result = self._run(handler(_add_utility_meter_call(call_factory)))
+        result = await edit_yaml(ADD_UTILITY_METER)
 
         assert result["written"] is True
         assert "monthly_bill_ac" in cfg.read_text()
 
 
-def _remove_template_call(call_factory, token=None):
-    data = {
+def _remove_template_call(token: str | None = None) -> dict[str, Any]:
+    data: dict[str, Any] = {
         "file": "configuration.yaml",
         "action": "remove",
         "yaml_path": "template",
@@ -349,36 +300,33 @@ def _remove_template_call(call_factory, token=None):
     }
     if token is not None:
         data["confirm_token"] = token
-    return call_factory(data)
+    return data
 
 
 class TestConfirmFlowRemove:
     """remove — the most destructive action — must preview like add/replace."""
 
-    def _run(self, coro):
-        return asyncio.run(coro)
-
-    def test_remove_previews_without_writing(self, tmp_path, hass, call_factory):
-        cfg = Path(tmp_path) / "configuration.yaml"
+    async def test_remove_previews_without_writing(
+        self, tmp_path: Path, edit_yaml: EditYaml
+    ) -> None:
+        cfg = tmp_path / "configuration.yaml"
         cfg.write_text(ISSUE_1720_CONFIG)
 
-        handler = _build_edit_yaml_config_handler(hass)
-        preview = self._run(handler(_remove_template_call(call_factory)))
+        preview = await edit_yaml(_remove_template_call())
 
         assert preview["preview"] is True, preview
         assert preview["written"] is False
         assert "-template:" in preview["diff"]
         assert cfg.read_text() == ISSUE_1720_CONFIG  # nothing removed
 
-    def test_remove_confirm_applies(self, tmp_path, hass, call_factory):
-        cfg = Path(tmp_path) / "configuration.yaml"
+    async def test_remove_confirm_applies(
+        self, tmp_path: Path, edit_yaml: EditYaml
+    ) -> None:
+        cfg = tmp_path / "configuration.yaml"
         cfg.write_text(ISSUE_1720_CONFIG)
-        handler = _build_edit_yaml_config_handler(hass)
 
-        preview = self._run(handler(_remove_template_call(call_factory)))
-        result = self._run(
-            handler(_remove_template_call(call_factory, token=preview["confirm_token"]))
-        )
+        preview = await edit_yaml(_remove_template_call())
+        result = await edit_yaml(_remove_template_call(preview["confirm_token"]))
 
         assert result["written"] is True, result
         assert "template:" not in cfg.read_text()
@@ -398,15 +346,13 @@ sensor:
 
 
 class TestMixedStyleReindent:
-    def _run(self, coro):
-        return asyncio.run(coro)
-
-    def test_mixed_style_add_warns_about_reindent(self, tmp_path, hass, call_factory):
-        cfg = Path(tmp_path) / "configuration.yaml"
+    async def test_mixed_style_add_warns_about_reindent(
+        self, tmp_path: Path, edit_yaml: EditYaml
+    ) -> None:
+        cfg = tmp_path / "configuration.yaml"
         cfg.write_text(MIXED_STYLE_CONFIG)
 
-        handler = _build_edit_yaml_config_handler(hass)
-        result = self._run(handler(_add_utility_meter_call(call_factory)))
+        result = await edit_yaml(ADD_UTILITY_METER)
 
         assert result["success"] is True, result
         assert result["written"] is True
@@ -415,54 +361,84 @@ class TestMixedStyleReindent:
         # ...and the collateral is surfaced, not silent
         assert any("re-indented" in w for w in result.get("warnings", []))
 
-    def test_uniform_style_add_has_no_reindent_warning(
-        self, tmp_path, hass, call_factory
-    ):
-        cfg = Path(tmp_path) / "configuration.yaml"
+    async def test_uniform_style_add_has_no_reindent_warning(
+        self, tmp_path: Path, edit_yaml: EditYaml
+    ) -> None:
+        cfg = tmp_path / "configuration.yaml"
         cfg.write_text(ISSUE_1720_CONFIG)
 
-        handler = _build_edit_yaml_config_handler(hass)
-        result = self._run(handler(_add_utility_meter_call(call_factory)))
+        result = await edit_yaml(ADD_UTILITY_METER)
 
         assert result["success"] is True, result
         assert not any("re-indented" in w for w in result.get("warnings", []))
 
-    def test_style_does_not_leak_across_calls(self, tmp_path, hass, call_factory):
+    async def test_style_does_not_leak_across_calls(
+        self, tmp_path: Path, edit_yaml: EditYaml, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Two edits on one (thread-cached) instance: the second file keeps
         ITS OWN style, not the first file's."""
-        cfg = Path(tmp_path) / "configuration.yaml"
+        # Core's executor may run the two edits on different threads, each
+        # with its own cached instance; one instance makes them share it.
+        shared = make_yaml()
+        monkeypatch.setattr("custom_components.ha_mcp_tools.make_yaml", lambda: shared)
+        cfg = tmp_path / "configuration.yaml"
         cfg.write_text(ISSUE_1720_CONFIG)  # HA-docs style -> (4, 2)
-        pkg = Path(tmp_path) / "packages" / "compact.yaml"
+        pkg = tmp_path / "packages" / "compact.yaml"
         pkg.parent.mkdir(parents=True)
         pkg.write_text("sensor:\n- platform: rest\n")  # compact -> (2, 0)
 
-        handler = _build_edit_yaml_config_handler(hass)
-        first = self._run(handler(_add_utility_meter_call(call_factory)))
+        first = await edit_yaml(ADD_UTILITY_METER)
         assert first["success"] is True, first
-        second = self._run(
-            handler(
-                call_factory(
-                    {
-                        "file": "packages/compact.yaml",
-                        "action": "add",
-                        "yaml_path": "binary_sensor",
-                        "content": "- platform: template\n  sensors: {}\n",
-                    }
-                )
-            )
+        second = await edit_yaml(
+            {
+                "file": "packages/compact.yaml",
+                "action": "add",
+                "yaml_path": "binary_sensor",
+                "content": "- platform: template\n  sensors: {}\n",
+            }
         )
 
         assert second["success"] is True, second
         assert "- platform: rest" in pkg.read_text().splitlines()  # still col 0
 
 
-def test_extract_yaml_subtree_ignores_leaked_style():
-    """The backup-snapshot subtree extractor must not inherit a sequence
-    style a prior edit applied to the thread-cached YAML instance."""
-    from custom_components.ha_mcp_tools import _extract_yaml_subtree
-    from custom_components.ha_mcp_tools.yaml_rt import apply_seq_indent, make_yaml
+async def test_read_subtree_ignores_leaked_style(
+    hass: HomeAssistant,
+    edit_yaml: EditYaml,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The backup snapshot ``read_file`` takes of a key must not inherit a
+    sequence style a prior edit applied to the thread-cached YAML instance."""
+    from custom_components.ha_mcp_tools.yaml_rt import apply_seq_indent
 
-    content = "sensor:\n- platform: rest\n- platform: template\n"
-    baseline = _extract_yaml_subtree(content, "sensor")
-    apply_seq_indent(make_yaml(), (4, 2))  # simulate a prior styled dump
-    assert _extract_yaml_subtree(content, "sensor") == baseline
+    # Core's executor may serve the two reads on different threads, each with
+    # its own cached instance; one instance makes them share it.
+    shared = make_yaml()
+    monkeypatch.setattr("custom_components.ha_mcp_tools.make_yaml", lambda: shared)
+    (tmp_path / "configuration.yaml").write_text(
+        "sensor:\n- platform: rest\n- platform: template\n"
+    )
+    bootstrap = await hass.services.async_call(
+        DOMAIN, SERVICE_GET_CALLER_TOKEN, {}, blocking=True, return_response=True
+    )
+    assert bootstrap is not None
+
+    async def subtree() -> Any:
+        response = await hass.services.async_call(
+            DOMAIN,
+            SERVICE_READ_FILE,
+            {
+                "path": "configuration.yaml",
+                "yaml_path": "sensor",
+                CALLER_TOKEN_FIELD: bootstrap["token"],
+            },
+            blocking=True,
+            return_response=True,
+        )
+        assert response is not None and response["success"] is True, response
+        return response["subtree"]
+
+    baseline = await subtree()
+    apply_seq_indent(shared, (4, 2))  # simulate a prior styled dump
+    assert await subtree() == baseline

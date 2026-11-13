@@ -21,7 +21,7 @@ from .schemas import (
 )
 
 
-async def _stored_item(
+async def stored_item(
     client: Any, helper_type: str, entity_id: str, unique_id: str
 ) -> dict[str, Any]:
     """The stored item from ``<type>/list`` (person nests its storage items)."""

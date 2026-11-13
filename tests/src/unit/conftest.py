@@ -21,6 +21,8 @@ from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from homeassistant.core import HomeAssistant
+from pytest_homeassistant.typing import WebSocketGenerator
 
 if TYPE_CHECKING:
     from ha_mcp.tools.component_api import ComponentCaps
@@ -29,7 +31,14 @@ if TYPE_CHECKING:
 # socket/thread/task checks. pyproject.toml blocks its entry point so the E2E
 # tree never loads it. Nothing above imports Home Assistant: the plugin patches
 # Core's JSON and time helpers before Core is first imported.
-pytest_plugins = ["pytest_homeassistant.plugins", "tests.core_stand_in_guard"]
+# ``_core_client`` holds the ``core_client`` fixtures, in a module of its own
+# so the private-access check this file is listed for applies to them.
+pytest_plugins = [
+    "pytest_homeassistant.plugins",
+    "tests.core_stand_in_guard",
+    "tests.src.unit._core_client",
+    "tests.src.unit._settings_script",
+]
 
 # quickjs starts its shared worker thread on import; importing it here starts
 # that thread before any test, so Core's leftover-thread check never sees it.
@@ -123,14 +132,14 @@ def _unit_test_env(tmp_path_factory, monkeypatch):
         monkeypatch.delenv(name)
     monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
     monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
-    from ha_mcp.config import _reset_global_settings
+    from ha_mcp.config import reset_global_settings
     from ha_mcp.utils.data_paths import get_data_dir
 
     get_data_dir.cache_clear()
-    _reset_global_settings()
+    reset_global_settings()
     yield
     get_data_dir.cache_clear()
-    _reset_global_settings()
+    reset_global_settings()
 
 
 def _uses_js_harness(module: object) -> bool:
@@ -347,6 +356,17 @@ def mock_client():
         return client
 
 
+@pytest.fixture
+def no_flow_outline(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No component describes a flow's declared steps, for a test whose client
+    is a test double: a form then says only what its own step reports."""
+    from ha_mcp.tools.config_helpers import describe
+
+    monkeypatch.setattr(describe, "flow_outline", AsyncMock(return_value=None))
+    # The component is there; it has no declaration for the test's flow.
+    monkeypatch.setattr(describe, "component_serves", AsyncMock(return_value=True))
+
+
 @pytest.fixture(autouse=True)
 def opened_flows(
     monkeypatch: pytest.MonkeyPatch,
@@ -373,7 +393,7 @@ def redact_on(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture
-async def component_ws(hass: Any, hass_ws_client: Any) -> Any:
+async def component_ws(hass: HomeAssistant, hass_ws_client: WebSocketGenerator) -> Any:
     """A WebSocket client of a real ``hass`` with the ``ha_mcp_tools/*`` commands.
 
     The caller is an admin; ``component_ws_read_only`` is the same for a
@@ -388,7 +408,9 @@ async def component_ws(hass: Any, hass_ws_client: Any) -> Any:
 
 @pytest.fixture
 async def component_ws_read_only(
-    hass: Any, hass_ws_client: Any, hass_read_only_access_token: str
+    hass: HomeAssistant,
+    hass_ws_client: WebSocketGenerator,
+    hass_read_only_access_token: str,
 ) -> Any:
     """``component_ws`` for a user who is not an admin."""
     from custom_components.ha_mcp_tools import websocket_api

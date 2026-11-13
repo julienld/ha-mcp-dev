@@ -16,6 +16,7 @@ import pytest
 from ha_mcp.runtime import Engine
 from ha_mcp.tool_api import CallContext
 
+from ._native_backend_module import native as native
 from .test_component_ws_search import FakeHass, FakeLabel
 from .test_native_catalog_contract import (
     _ANNOTATIONS,
@@ -25,7 +26,6 @@ from .test_native_catalog_contract import (
 )
 from .test_native_catalog_contract_area_writes import _Area, _Registry
 from .test_native_engine_backend import authorize
-from .test_native_engine_backend import native as native
 
 _STAMP = datetime(2026, 1, 1, tzinfo=UTC)
 _CONTRACT = (

@@ -1,5 +1,7 @@
 """Canonical device writes use the actual registry and integration callbacks."""
 
+import inspect
+import logging
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -185,9 +187,6 @@ class NativeDevices:
         device = self._target(registry, device_id)
         command = "config/device_registry/remove"
         payload = {"device_id": device_id}
-        if command not in self.hass.data.get("websocket_api", {}):
-            command = "config/device_registry/remove_config_entry"
-            payload["config_entry_id"] = device.config_entry_id
         _validated_payload(self.hass, command, payload)
         before = registry_json(device.dict_repr)
         entry = self.hass.config_entries.async_get_entry(device.config_entry_id)
@@ -224,8 +223,7 @@ class NativeDevices:
             "success": True,
             "device_id": device_id,
             "device_name": before.get("name_by_user") or before.get("name"),
-            "config_entries_removed": 1,
-            "message": "Successfully removed device from 1 config entry/entries",
+            "message": "Device removed",
         }
         if warnings:
             result["warnings"] = warnings
@@ -249,27 +247,6 @@ class NativeDevices:
             )
         return device
 
-    async def _invoke_remove(
-        self,
-        component: Any,
-        registry: Any,
-        entry: Any,
-        device: Any,
-        before: dict[str, Any],
-    ) -> bool:
-        # This runs inside the owned task. Its scheduling must precede the final
-        # actor/identity checks, otherwise revocation can race callback startup.
-        await admit_registry_write(self.actor, self.authorize)
-        device = self._remove_target(registry, entry, device, before)
-        check_mutation_admission(self.actor)
-        try:
-            accepted: bool = await component.async_remove_config_entry_device(
-                self.hass, entry, device
-            )
-            return accepted
-        except Exception as error:  # noqa: BLE001 - the integration callback has started
-            return registry_outcome_unknown("device", "remove", error)
-
     async def _dispatch_remove(
         self,
         component: Any,
@@ -278,61 +255,69 @@ class NativeDevices:
         device: Any,
         before: dict[str, Any],
     ) -> None:
-        device_id = device.id
-        anchor = self._removal_anchor(device)
-        accepted = await await_owned_io(
-            self._invoke_remove(component, registry, entry, device, before)
+        from homeassistant.components.config import device_registry as core
+        from homeassistant.components.websocket_api.connection import (
+            ActiveConnection,
+            current_connection,
         )
-        try:
-            if not accepted:
-                failure = ToolFailure(
-                    "OUTCOME_UNKNOWN",
-                    "The integration rejected removal after its callback was dispatched; inspect the device before retrying.",
-                    status="outcome_unknown",
-                )
-                failure.data["integration_rejected"] = True
-                raise failure
-            # The integration callback can remove the device itself. Never remove
-            # an ID recreated during that await, nor dispatch a second mutation
-            # after revocation. Admission failures here cannot undo the callback.
-            await admit_registry_write(self.actor, self.authorize)
-            current_owner = self._owner()
-            current = registered_device(current_owner, device_id)
-            if (
-                current_owner is not registry
-                or self.hass.config_entries.async_get_entry(entry.entry_id) is not entry
-            ):
-                raise RuntimeError(
-                    "Device or config-entry owner changed during integration callback"
-                )
-            if current is not None:
-                current_anchor = self._removal_anchor(current)
-                if current_anchor[0] is not anchor[0] or not json_values_equal(
-                    current_anchor[1], anchor[1]
-                ):
-                    raise RuntimeError(
-                        "Device identity changed during integration callback"
-                    )
-                check_mutation_admission(self.actor)
-                registry.async_remove_device(device_id)
-            if registry.async_get(device_id) is not None:
-                raise RuntimeError("Core did not confirm the device removal")
-        except ToolFailure as error:
-            if error.status == "outcome_unknown":
-                raise
-            registry_outcome_unknown("device", "remove", error)
-        except Exception as error:  # noqa: BLE001 - integration and registry may have already changed state
-            registry_outcome_unknown("device", "remove", error)
+        from homeassistant.components.websocket_api.http import WebSocketAdapter
 
-    @staticmethod
-    def _removal_anchor(device: Any) -> tuple[type, dict[str, Any]]:
-        row = registry_json(device.dict_repr)
-        if any(row.get(key) is None for key in ("id", "created_at", "config_entry_id")):
-            raise UnsupportedOperation("devices.remove.identity")
-        return type(device), {
-            key: row.get(key)
-            for key in ("id", "created_at", "config_entry_id", "parent_device_id")
-        }
+        handler = inspect.unwrap(core.websocket_remove_device)
+        if not inspect.iscoroutinefunction(handler):
+            raise UnsupportedOperation("devices.remove.core_owner")
+        if self.actor.user_id is None:
+            raise ToolFailure(
+                "AUTH_FORBIDDEN",
+                "A human administrator is required.",
+                status="not_started",
+            )
+        user = await self.hass.auth.async_get_user(self.actor.user_id)
+        if user is None:
+            raise ToolFailure(
+                "AUTH_FORBIDDEN",
+                "The device caller no longer exists.",
+                status="not_started",
+            )
+        replies: list[bytes | str | dict[str, Any]] = []
+        token = current_connection.set(None)
+        try:
+            connection = ActiveConnection(
+                WebSocketAdapter(
+                    logging.getLogger(__name__), {"connid": "native-device-removal"}
+                ),
+                self.hass,
+                replies.append,
+                user,
+                None,
+                None,
+            )
+            await admit_registry_write(self.actor, self.authorize)
+            self._remove_target(registry, entry, device, before)
+            payload = _validated_payload(
+                self.hass, "config/device_registry/remove", {"device_id": device.id}
+            )
+            try:
+                # One admitted Core command owns the integration callback and
+                # removal. There is no second mutation orchestrated by Native.
+                await await_owned_io(
+                    handler(
+                        self.hass,
+                        connection,
+                        {"id": 1, "type": "config/device_registry/remove", **payload},
+                    )
+                )
+                if not any(
+                    isinstance(reply, dict) and reply.get("success") is True
+                    for reply in replies
+                ):
+                    raise RuntimeError("Core did not confirm the device removal")
+                await authorize_actor(self.actor, self.authorize)
+                if self._owner().async_get(device.id) is not None:
+                    raise RuntimeError("The removed device is still registered")
+            except Exception as error:  # noqa: BLE001 - Core may already have dispatched the integration callback
+                registry_outcome_unknown("device", "remove", error)
+        finally:
+            current_connection.reset(token)
 
     async def read_snapshot(self, device_id: str) -> dict[str, Any] | None:
         await authorize_actor(self.actor, self.authorize)

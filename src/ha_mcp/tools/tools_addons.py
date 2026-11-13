@@ -1354,7 +1354,7 @@ def _parse_response_body(response: httpx.Response) -> Any:
     if "application/json" in content_type:
         try:
             return response.json()
-        except (json.JSONDecodeError, ValueError):
+        except json.JSONDecodeError, ValueError:
             return response.text
     return response.text
 
@@ -1921,7 +1921,7 @@ class AddOnTools(AppTools, AppDispatch):
         """Return the code from a serialized structured ToolError."""
         try:
             payload = json.loads(error_text)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             return None
         err = payload.get("error") if isinstance(payload, dict) else None
         if not isinstance(err, dict):
@@ -1934,7 +1934,7 @@ class AddOnTools(AppTools, AppDispatch):
         """Return the write outcome from a serialized structured ToolError."""
         try:
             payload = json.loads(error_text)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             return None
         if not isinstance(payload, dict):
             return None
@@ -1952,7 +1952,7 @@ class AddOnTools(AppTools, AppDispatch):
         rather than other serialized error metadata."""
         try:
             payload = json.loads(error_text)
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             return error_text
         err = payload.get("error") if isinstance(payload, dict) else None
         if isinstance(err, dict):

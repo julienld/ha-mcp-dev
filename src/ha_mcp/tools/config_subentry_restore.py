@@ -1,7 +1,18 @@
-"""Compatibility facade over the shared complete-subentry restore walker."""
+"""Legacy exception facade over the shared Core flow implementation."""
 
-from ha_mcp.backends.legacy_flows import legacy_flow
-from ha_mcp.runtime.flows import subentry_restore as _shared
+import ha_mcp.runtime.flows.subentry_restore as _shared
+from ha_mcp.backends.legacy_flows import legacy_helper_flow
 
-restore_config_subentry = legacy_flow(_shared.restore_config_subentry)
-recreate_config_subentry = legacy_flow(_shared.recreate_config_subentry)
+_SubentryFlowProgress = _shared._SubentryFlowProgress
+_feed_title_as_name = legacy_helper_flow(_shared._feed_title_as_name)
+_walk_snapshot = legacy_helper_flow(_shared._walk_snapshot)
+recreate_config_subentry = legacy_helper_flow(_shared.recreate_config_subentry)
+restore_config_subentry = legacy_helper_flow(_shared.restore_config_subentry)
+
+__all__ = [
+    "_feed_title_as_name",
+    "_SubentryFlowProgress",
+    "_walk_snapshot",
+    "recreate_config_subentry",
+    "restore_config_subentry",
+]

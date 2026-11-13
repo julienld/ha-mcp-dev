@@ -11,9 +11,9 @@ from ha_mcp.runtime.blueprint_substitute import take_control_config
 from ha_mcp.runtime.config_write_context import ConfigWriteContext
 from ha_mcp.tool_api import CallContext, ToolFailure, UnsupportedOperation
 
+from ._native_backend_module import native as native
 from .test_component_ws_search import FakeHass
 from .test_native_engine_backend import authorize
-from .test_native_engine_backend import native as native
 
 
 class _BlueprintFailure(Exception):

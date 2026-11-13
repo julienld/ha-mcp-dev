@@ -13,9 +13,9 @@ from ha_mcp.runtime import Engine
 from ha_mcp.runtime.bulk_selection import SelectorTopology
 from ha_mcp.tool_api import CallContext
 
+from ._native_backend_module import native as native
 from .test_component_ws_search import FakeState
 from .test_native_bulk_dispatch import bulk as bulk
-from .test_native_engine_backend import native as native
 
 
 @pytest.fixture

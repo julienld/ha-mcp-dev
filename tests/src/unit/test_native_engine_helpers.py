@@ -11,10 +11,10 @@ from ha_mcp.runtime.catalog import define_tool
 from ha_mcp.runtime.helper_tools import HelperConfigTools
 from ha_mcp.tool_api import CallContext
 
+from ._native_backend_module import native as native
 from .test_component_helper_collections import FakeCollection, FakeRegistry, _hass
 from .test_component_ws_search import FakeRegEntry, make_view, wsapi
 from .test_native_engine_backend import authorize
-from .test_native_engine_backend import native as native
 from .test_native_engine_flows import flows as flows
 
 

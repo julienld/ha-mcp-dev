@@ -1,20 +1,14 @@
-"""ha_config_set_helper's ``config`` argument folded into the typed fields."""
+"""Core's storage-helper field lists, served to one ha_config_set_helper call."""
 
 import contextlib
 from collections.abc import AsyncIterator
 from typing import Any
 
-from ...backends.legacy import legacy_errors_sync
-from ...runtime.helper_params import (
-    _prepare_typed_params as _shared_prepare_typed_params,
-)
 from ..component_helper_collections import fetch_helper_schemas
 from .schemas import (
     _CORE_HELPER_SCHEMAS,
     SIMPLE_HELPER_TYPES,
 )
-
-_prepare_typed_params = legacy_errors_sync(_shared_prepare_typed_params)
 
 
 @contextlib.asynccontextmanager
@@ -32,8 +26,3 @@ async def _core_schema_context(
     finally:
         if token is not None:
             _CORE_HELPER_SCHEMAS.reset(token)
-
-
-__all__ = [
-    "_prepare_typed_params",
-]

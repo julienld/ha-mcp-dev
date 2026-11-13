@@ -10,7 +10,6 @@ from ha_mcp.errors import ErrorCode, create_error_response
 from ha_mcp.tool_api import BackendTools, ToolFailure
 
 from .device_records import (
-    _device_config_entries,
     _get_device_info,
     _list_devices_result,
 )
@@ -20,6 +19,10 @@ from .radio import enrich_matter_diagnostics, enrich_zha_metrics, enrich_zwave_s
 
 class DeviceDiscoveryTools(BackendTools):
     _get_device_info = staticmethod(_get_device_info)
+
+    async def _entry_domains(self) -> dict[str, str]:
+        rows = await self.backend.execute("devices.entries", {}, self.context)
+        return {row["entry_id"]: row["domain"] for row in rows}
 
     def _raise_device_error(self, error: Exception) -> NoReturn:
         raise_failure(create_error_response(ErrorCode.INTERNAL_ERROR, str(error)))
@@ -65,32 +68,19 @@ class DeviceDiscoveryTools(BackendTools):
         """Return the full-detail single-device response dict."""
         device = next((d for d in all_devices if d.get("id") == device_id), None)
         if not device:
-            raise_failure(
-                create_error_response(
-                    ErrorCode.RESOURCE_NOT_FOUND,
-                    f"Device not found: {device_id}",
-                    suggestions=["Use ha_get_device() to find valid device IDs"],
-                    context={
-                        "device_id": device_id,
-                        "available_device_ids": [
-                            d.get("id") for d in all_devices[:10] if d.get("id")
-                        ],
-                    },
-                )
+            from .device_records import raise_device_not_found
+
+            splits = await self.backend.execute(
+                "devices.composite_splits", {}, self.context
             )
+            raise_device_not_found(device_id, all_devices, splits)
             return {}
         enrichment_warnings: list[str] = []
-        device_info = self._get_device_info(device)
+        device_info = self._get_device_info(device, await self._entry_domains())
+        device_info["linked_devices"] = await self.backend.execute(
+            "devices.linked", {"device_id": device_id}, self.context
+        )
         device_info["entities"] = device_to_entities.get(device_id, [])
-        device_info["name_by_user"] = device.get("name_by_user")
-        device_info["default_name"] = device.get("name")
-        device_info["hw_version"] = device.get("hw_version")
-        device_info["serial_number"] = device.get("serial_number")
-        device_info["disabled_by"] = device.get("disabled_by")
-        device_info["labels"] = device.get("labels", [])
-        device_info["config_entries"] = _device_config_entries(device)
-        device_info["connections"] = device.get("connections", [])
-        device_info["identifiers"] = device.get("identifiers", [])
         if device_info.get("integration_type") == "zha" and device_info.get(
             "ieee_address"
         ):
@@ -214,6 +204,7 @@ class DeviceDiscoveryTools(BackendTools):
             )
             return _list_devices_result(
                 all_devices,
+                await self._entry_domains(),
                 device_to_entities,
                 integration,
                 area_id,

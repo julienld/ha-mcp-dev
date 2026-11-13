@@ -65,7 +65,7 @@ jobs:
         with:
           # renovate: datasource=github-releases depName=astral-sh/uv
           version: "0.13.4"
-          python-version: '3.13'
+          python-version: '3.14'
       - name: Overlay identical tests and qualification fixtures only
         run: |
           mkdir -p source/tests/src/e2e/continuity source/tests/fixtures

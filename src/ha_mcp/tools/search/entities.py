@@ -10,9 +10,18 @@ from typing import Any
 
 from ...errors import create_validation_error
 from ...runtime.search_records import (
+    _COMPOSED_NAME_FIELD as _COMPOSED_NAME_FIELD,
+)
+from ...runtime.search_records import (
+    ComponentNaming as ComponentNaming,
+)
+from ...runtime.search_records import (
     _add_membership_fields,
     _requested_enrichment,
     _requested_membership,
+)
+from ...runtime.search_records import (
+    _composed_name_notes as _composed_name_notes,
 )
 from ...utils.device_registry_semantics import (
     build_device_registry_snapshot,

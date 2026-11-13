@@ -3,8 +3,8 @@
 import json
 from pathlib import Path
 
+from ._native_backend_module import native as native
 from .test_native_catalog_contract import _ANNOTATIONS, _changed_inputs
-from .test_native_engine_backend import native as native
 from .test_native_resource_service import resources as resources
 
 

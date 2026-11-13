@@ -41,11 +41,12 @@ class PythonSandboxExecutionError(PythonSandboxError):
 # can carry tokens / passwords / device addresses, and Python's default
 # repr happily embeds dict and list values into KeyError/TypeError text.
 # 240 chars is enough to identify the failure (exception type + a short
-# snippet) without pasting the input config back to the caller.
-_EXECUTION_ERROR_TEXT_LIMIT = 240
+# snippet) without pasting the input config back to the caller. Public so
+# tests can check the cap.
+EXECUTION_ERROR_TEXT_LIMIT = 240
 
 
-def _truncate_for_error(text: str, limit: int = _EXECUTION_ERROR_TEXT_LIMIT) -> str:
+def _truncate_for_error(text: str, limit: int = EXECUTION_ERROR_TEXT_LIMIT) -> str:
     if len(text) <= limit:
         return text
     return text[: limit - 3] + "..."
@@ -137,6 +138,7 @@ SAFE_NODES = {
 # evaluable on any Python. Unmapped keys fall through to the generic
 # "Forbidden node type: X" message in `_validate_node`.
 _NODE_SUGGESTIONS: dict[str, str] = {
+    "Assert": "to require one match or a value, unpack a filtered list: [a] = [x for x in items if ...]",
     "Try": "validate inputs with isinstance/in/.get() instead of try/except",
     "TryStar": "validate inputs with isinstance/in/.get() instead of try/except",
     "ExceptHandler": "validate inputs with isinstance/in/.get() instead of try/except",
@@ -232,8 +234,9 @@ BLOCKED_FUNCTIONS = {
 # transforms — type checks, length, numeric/string coercion, simple
 # collection helpers. Expanding this list is fine if another pure builtin
 # is genuinely needed; adding anything that touches the filesystem, network,
-# or interpreter state is not.
-_SAFE_BUILTINS: dict[str, Any] = {
+# or interpreter state is not. Public, like SAFE_METHODS, so tests can check
+# the security documentation against it.
+SAFE_BUILTINS: dict[str, Any] = {
     "isinstance": isinstance,
     "len": len,
     "range": range,
@@ -382,7 +385,7 @@ def safe_execute_expression(
         )
 
     safe_globals: dict[str, Any] = {
-        "__builtins__": dict(_SAFE_BUILTINS),
+        "__builtins__": dict(SAFE_BUILTINS),
         "__name__": "__main__",
         "__doc__": None,
     }
@@ -390,7 +393,7 @@ def safe_execute_expression(
 
     try:
         exec(expr, safe_globals, safe_locals)
-    except (MemoryError, RecursionError):
+    except MemoryError, RecursionError:
         # Resource exhaustion — let the host decide. Reframing
         # "ran out of memory" as "your transform was bad" would
         # mislead the agent into rewriting an expression that
@@ -478,6 +481,14 @@ def format_sandbox_error(
             "Use .get(key, default) to handle missing keys",
             f"Expression: {preview}",
         ]
+        # Python 3.14 adds ", got N" only for a plain list, tuple or dict.
+        if "unpack (expected 1)" in str(error) or "unpack (expected 1," in str(error):
+            suggestions.insert(
+                0,
+                "A single-target unpack needs exactly one item. If this is a "
+                "`[a] = [...]` guard, it matched no item or several: re-read the "
+                "input and correct the filter or the expected value.",
+            )
     else:
         message = f"Expression validation failed: {error}"
         suggestions = [
@@ -529,6 +540,9 @@ PYTHON TRANSFORM SECURITY:
 - Dict unpacking (**) in calls and dict literals: {**d, 'k': v}
 - Keyword arguments: func(key=value)
 - Lambdas (e.g. for `key=`): sorted(items, key=lambda x: x['score'])
+- Guards (a failed guard raises and the config is not changed):
+  one match: [a] = [a for a in config['actions'] if a.get('alias') == 'Y']
+  a value: [a] = [a for a in [config['actions'][2]] if a['data']['v'] == 1]
 - String methods: startswith, endswith, lower, upper, strip, lstrip, rstrip,
   removeprefix, removesuffix, split, join, replace, count, index
 - Safe builtins: isinstance, len, range, enumerate, zip, sorted, reversed,

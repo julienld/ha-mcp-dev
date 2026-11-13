@@ -60,4 +60,5 @@ DIRECT_OPERATIONS = {
     "integrations.identity.unique_id": (identity_unique_id, False),
     "integrations.identity.domain_unique_ids": (domain_unique_ids, False),
     "config.entries.list": (list_entries, False),
+    "devices.entries": (list_entries, False),
 }

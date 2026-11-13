@@ -56,7 +56,7 @@ jobs:
         with:
           # renovate: datasource=github-releases depName=astral-sh/uv
           version: "0.13.4"
-          python-version: '3.13'
+          python-version: '3.14'
 
       - name: Build both profiles from the supplied release coordinates
         id: build

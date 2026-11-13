@@ -57,7 +57,7 @@ class EnergyTools(EnergyChanges):
     # ------------------------------------------------------------------
 
     @property
-    def energy(self) -> "EnergyTools":
+    def energy(self) -> EnergyTools:
         return self
 
     async def read(
@@ -314,7 +314,7 @@ class EnergyTools(EnergyChanges):
         """
         try:
             parsed = json.loads(str(exc))
-        except (json.JSONDecodeError, TypeError, ValueError):
+        except json.JSONDecodeError, TypeError, ValueError:
             return False
         if not isinstance(parsed, dict):
             return False

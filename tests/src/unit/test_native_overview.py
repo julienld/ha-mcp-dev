@@ -15,9 +15,9 @@ from ha_mcp.runtime.overview_tools import OverviewTools
 from ha_mcp.tool_api import CallContext
 from ha_mcp.visibility.model import VisibilityConfig
 
+from ._native_backend_module import native as native
 from .test_component_ws_search import FakeHass, FakeServices, FakeState
 from .test_native_engine_backend import authorize
-from .test_native_engine_backend import native as native
 
 
 def _setup(native: Any, monkeypatch: pytest.MonkeyPatch) -> tuple:

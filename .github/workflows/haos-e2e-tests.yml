@@ -171,6 +171,10 @@ jobs:
           # Full history so merge-ref git operations resolve cleanly.
           fetch-depth: 0
 
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "${{ env.PYTHON_VERSION }}"
+
       - name: Compute image cache key
         id: key
         # Cache invalidates when ANY input that gets baked into the qcow2
@@ -285,7 +289,7 @@ jobs:
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           # renovate: datasource=github-releases depName=astral-sh/uv
-          version: "0.13.4"
+          version: "0.13.7"
 
       - name: Set up Python
         run: uv python install ${{ env.PYTHON_VERSION }}
@@ -425,6 +429,10 @@ jobs:
           # Full history so merge-ref git operations resolve cleanly.
           fetch-depth: 0
 
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "${{ env.PYTHON_VERSION }}"
+
       - name: Compute image cache key
         id: key
         # Shared with every other HAOS lane in this file (``haos-e2e``,
@@ -525,7 +533,7 @@ jobs:
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           # renovate: datasource=github-releases depName=astral-sh/uv
-          version: "0.13.4"
+          version: "0.13.7"
 
       - name: Set up Python
         run: uv python install ${{ env.PYTHON_VERSION }}
@@ -671,6 +679,10 @@ jobs:
           # Full history so merge-ref git operations resolve cleanly.
           fetch-depth: 0
 
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "${{ env.PYTHON_VERSION }}"
+
       - name: Compute image cache key
         id: key
         # Shared with the ``haos-e2e`` lane and every other HAOS lane in
@@ -780,7 +792,7 @@ jobs:
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           # renovate: datasource=github-releases depName=astral-sh/uv
-          version: "0.13.4"
+          version: "0.13.7"
 
       - name: Set up Python
         run: uv python install ${{ env.PYTHON_VERSION }}
@@ -959,6 +971,10 @@ jobs:
           # key deterministic.
           fetch-depth: 0
 
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "${{ env.PYTHON_VERSION }}"
+
       - name: Compute image cache key
         id: key
         run: |
@@ -1034,7 +1050,7 @@ jobs:
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           # renovate: datasource=github-releases depName=astral-sh/uv
-          version: "0.13.4"
+          version: "0.13.7"
 
       - name: Set up Python
         run: uv python install ${{ env.PYTHON_VERSION }}
@@ -1162,6 +1178,10 @@ jobs:
           # Full history so merge-ref git operations resolve cleanly.
           fetch-depth: 0
 
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "${{ env.PYTHON_VERSION }}"
+
       - name: Compute image cache key
         id: key
         # Shared with the ``haos-e2e``, ``haos-e2e-inaddon``,
@@ -1265,7 +1285,7 @@ jobs:
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           # renovate: datasource=github-releases depName=astral-sh/uv
-          version: "0.13.4"
+          version: "0.13.7"
 
       - name: Set up Python
         run: uv python install ${{ env.PYTHON_VERSION }}
@@ -1416,6 +1436,10 @@ jobs:
           # Full history so merge-ref git operations resolve cleanly.
           fetch-depth: 0
 
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "${{ env.PYTHON_VERSION }}"
+
       - name: Compute image cache key
         id: key
         # Shared with the ``haos-e2e`` lane and every other HAOS lane in this
@@ -1527,7 +1551,7 @@ jobs:
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           # renovate: datasource=github-releases depName=astral-sh/uv
-          version: "0.13.4"
+          version: "0.13.7"
 
       - name: Set up Python
         run: uv python install ${{ env.PYTHON_VERSION }}

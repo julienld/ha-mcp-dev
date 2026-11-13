@@ -159,7 +159,8 @@ class SearchFacade:
                 description=(
                     "Project each entity-registry record to only the specified "
                     'keys (e.g. ["entity_id", "state"]). None = full records. '
-                    "Base keys: entity_id, friendly_name, domain, state, score, "
+                    "Base keys: entity_id, name (composed by Core when the component "
+                    "serves the search), friendly_name (legacy), domain, state, score, "
                     "match_type. Opt-in enrichment/membership keys (computed on request): "
                     "area, floor, labels, aliases, is_group, member_entity_ids. "
                     "Membership is recognized only when HA explicitly exposes a "

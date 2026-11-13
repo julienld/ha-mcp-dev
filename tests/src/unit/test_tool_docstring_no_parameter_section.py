@@ -18,24 +18,24 @@ from typing import Any
 
 import pytest
 
-from .test_container_param_coercion_complete import _all_registered_tools
+from ._registered_tools import all_registered_tools
 
 
 @pytest.fixture
 def all_tools() -> dict[str, Any]:
     """Every registered tool, dev mode included (``ha_dev_*`` are not flags)."""
-    from ha_mcp.config import _reset_global_settings
+    from ha_mcp.config import reset_global_settings
 
     previous = os.environ.get("HAMCP_ENABLE_DEV_MODE")
     os.environ["HAMCP_ENABLE_DEV_MODE"] = "true"
     try:
-        return _all_registered_tools()
+        return all_registered_tools()
     finally:
         if previous is None:
             os.environ.pop("HAMCP_ENABLE_DEV_MODE", None)
         else:
             os.environ["HAMCP_ENABLE_DEV_MODE"] = previous
-        _reset_global_settings()
+        reset_global_settings()
 
 
 def test_no_tool_docstring_has_a_parameter_section(

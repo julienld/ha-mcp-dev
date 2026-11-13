@@ -9,13 +9,13 @@ module only adds what Core does not do itself.
 
 from __future__ import annotations
 
-import uuid
 from typing import Any
 
 from ha_mcp.errors import ErrorCode, create_error_response
 
 from .errors import raise_failure
 from .helper_schema import _simple_helper_error_context
+from .validation import clear_or_keep
 
 # The tool's own range parameters, under the names each type's Core schema uses.
 _RANGE_KEYS: dict[str, tuple[str, str]] = {"counter": ("minimum", "maximum")}
@@ -72,37 +72,56 @@ def note_kept_icon(
         )
 
 
-def core_fields(
-    helper_type: str, type_kw: dict[str, Any], passthrough: dict[str, Any]
-) -> dict[str, Any]:
-    """The caller's fields under Core's names; unknown keys go to Core as given.
+def storage_fields(
+    helper_type: str, config: Any, name: str | None, icon: str | None
+) -> tuple[str | None, str | None, dict[str, Any]]:
+    """A storage helper's ``config`` as the fields sent to Core, with its
+    name and icon.
 
-    Core rejects a key its schema lacks and suggests the closest one, which is
-    more useful than a local "unknown key" error.
+    ``config`` goes to Core as written, under Core's own field names: Core
+    rejects a key its schema lacks and suggests the closest one. ``name`` and
+    ``icon`` are fields of Core's schema too, so ``config`` may carry them.
     """
-    low, high = _RANGE_KEYS.get(helper_type, _DEFAULT_RANGE_KEYS)
-    rename = {"min_value": low, "max_value": high}
-    fields = {rename.get(k, k): v for k, v in type_kw.items() if v is not None}
+    if config in (None, ""):
+        fields: dict[str, Any] = {}
+    elif isinstance(config, dict):
+        fields = dict(config)
+    else:
+        _reject(
+            helper_type,
+            f"config must be an object for helper_type='{helper_type}': a "
+            "storage helper is written in one call.",
+        )
     # These address the WebSocket request (its command, the item to update),
-    # not a field of the item.
-    if reserved := sorted({"type", "id", f"{helper_type}_id"} & passthrough.keys()):
+    # not a field of the item. A tag's ``tag_id`` is the one that is both:
+    # Core's tag create takes it as a field.
+    addressing = {"type", "id"} | ({f"{helper_type}_id"} - {"tag_id"})
+    if reserved := sorted(addressing & fields.keys()):
         _reject(
             helper_type,
             f"config keys {', '.join(reserved)} address the request, not a "
             f"field of the {helper_type}.",
         )
-    fields.update(passthrough)
-    return fields
+    top_level = {"name": name, "icon": icon}
+    for key, given in top_level.items():
+        in_config = fields.pop(key, None)
+        if in_config is None:
+            continue
+        if given is not None and given != in_config:
+            _reject(
+                helper_type,
+                f"'{key}' was passed both as a parameter and in config with "
+                "different values.",
+            )
+        top_level[key] = in_config
+    return top_level["name"], clear_or_keep(top_level["icon"], "icon"), fields
 
 
 def with_create_defaults(helper_type: str, fields: dict[str, Any]) -> dict[str, Any]:
     """Defaults this tool documents that Core does not apply on create."""
-    fields = dict(fields)
-    if helper_type == "input_datetime" and not {"has_date", "has_time"} & set(fields):
-        # Core rejects an input_datetime with neither component.
-        fields.update(has_date=True, has_time=True)
+    fields = {key: value for key, value in fields.items() if value is not None}
     if helper_type == "tag":
-        fields.setdefault("tag_id", uuid.uuid4().hex)
+        fields.setdefault("tag_id", "")
     return fields
 
 
@@ -130,7 +149,11 @@ def merged_update(
             body["icon"] = icon
         else:
             body.pop("icon", None)
-    body.update(fields)
+    for key, value in fields.items():
+        if value is None:
+            body.pop(key, None)
+        else:
+            body[key] = value
     return body
 
 

@@ -13,7 +13,7 @@ from ha_mcp.runtime import Engine
 from ha_mcp.tool_api import CallContext, ToolFailure
 
 from ._fixture_effects import notify_effect
-from .test_native_engine_backend import native as native
+from ._native_backend_module import native as native
 
 
 class Row:

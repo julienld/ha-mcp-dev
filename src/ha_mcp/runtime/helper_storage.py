@@ -12,7 +12,6 @@ from ha_mcp.tool_api import BackendTools, ToolFailure
 from ha_mcp.utils.registry_update_lock import registry_update_lock
 
 from .errors import raise_failure
-from .helper_params import _prepare_typed_params
 from .helper_payload import (
     icon_targets_from_schema,
     merged_update,
@@ -30,7 +29,6 @@ from .validation import validate_identifier_not_empty
 
 
 class HelperStorageTools(BackendTools):
-    _prepare_typed_params = staticmethod(_prepare_typed_params)
     _check_create_name = True
 
     async def _require_helper_type(self, helper_type: str) -> None:
@@ -47,29 +45,9 @@ class HelperStorageTools(BackendTools):
     async def _validate_action(
         self, action: str | None, helper_id: str | None, helper_type: str
     ) -> str:
-        if action == "create" and helper_id is not None:
-            raise_failure(
-                create_error_response(
-                    ErrorCode.VALIDATION_INVALID_PARAMETER,
-                    f"action='create' was passed together with helper_id={helper_id!r}. These are contradictory: create makes a new helper, while helper_id targets an existing one.",
-                    context=_simple_helper_error_context(
-                        helper_type, action=action, helper_id=helper_id
-                    ),
-                )
-            )
-        if action == "update" and helper_id is None:
-            raise_failure(
-                create_error_response(
-                    ErrorCode.VALIDATION_INVALID_PARAMETER,
-                    "action='update' requires helper_id to identify which helper to modify.",
-                    context=_simple_helper_error_context(helper_type, action=action),
-                )
-            )
-        if helper_id is not None:
-            validate_identifier_not_empty(
-                helper_id, "helper_id", context={"helper_type": helper_type}
-            )
-        return action or ("update" if helper_id else "create")
+        from .helper_validation import _validate_set_helper_action
+
+        return _validate_set_helper_action(action, helper_id, helper_type)
 
     @asynccontextmanager
     async def _schema_context(
@@ -87,31 +65,15 @@ class HelperStorageTools(BackendTools):
         finally:
             _CORE_HELPER_SCHEMAS.reset(token)
 
-    async def _check_name_collision(self, helper_type: str, name: str | None) -> None:
-        if not name or not name.strip():
-            return
-        listed = await self.backend.execute(
-            "helpers.storage.list"
-            if helper_type in SIMPLE_HELPER_TYPES
-            else "helpers.flow.entries",
-            {"helper_type": helper_type},
-            self.context,
+    async def _check_name_collision(
+        self, helper_type: str, name: str | None
+    ) -> str | None:
+        from .flows.session import FlowSession
+        from .helper_names import _check_name_collision
+
+        return await _check_name_collision(
+            FlowSession(self.backend, self.context), helper_type, name
         )
-        target = _name_slug(name)
-        if not target:
-            return
-        for item in listed["items"]:
-            if item.get("id") == target or _name_slug(item.get("name", "")) == target:
-                existing = item.get("id") or target
-                raise_failure(
-                    create_error_response(
-                        ErrorCode.VALIDATION_INVALID_PARAMETER,
-                        f"A {helper_type} helper named {name!r} already exists (id: {existing!r}). Pass helper_id={existing!r} to update it, or use a different name to create a new helper.",
-                        context=_simple_helper_error_context(
-                            helper_type, name=name, existing_helper_id=existing
-                        ),
-                    )
-                )
 
     async def _validate_registry_ids(
         self,
@@ -154,26 +116,14 @@ class HelperStorageTools(BackendTools):
         MandatoryBPS: bool,
         fields: dict[str, Any],
     ) -> dict[str, Any]:
-        if not name or not name.strip():
-            raise_failure(
-                create_error_response(
-                    ErrorCode.VALIDATION_INVALID_PARAMETER,
-                    f'name is required for create action. Include "name" as a top-level argument, e.g. {{"helper_type": "{helper_type}", "name": "My Helper"}}.',
-                    suggestions=[
-                        'Add "name": "My Helper" at the top level of the JSON arguments',
-                        'Or pass "helper_id": "my_helper" if you intended to update an existing helper',
-                    ],
-                    context=_simple_helper_error_context(helper_type),
-                )
-            )
         item_icon, registry_icon = _icon_targets(helper_type, "create", icon)
-        body = {"name": name, **with_create_defaults(helper_type, fields)}
+        body = with_create_defaults(helper_type, fields)
+        if name is not None:
+            body["name"] = name
         if item_icon:
             body["icon"] = item_icon
         registry = _registry_fields(registry_icon, area_id, labels, category)
-        async with registry_update_lock(
-            f"helper_{helper_type}", f"name:{_name_slug(name)}"
-        ):
+        async with registry_update_lock(f"helper_{helper_type}", "create:"):
             if self._check_create_name:
                 await self._check_name_collision(helper_type, name)
             result = await self.backend.execute(
@@ -291,7 +241,7 @@ class HelperStorageTools(BackendTools):
             result = await self.backend.execute(
                 "entities.registry.read", {"entity_ids": [entity_id]}, self.context
             )
-        except (HomeAssistantError, ToolFailure, OSError, TimeoutError):
+        except HomeAssistantError, ToolFailure, OSError, TimeoutError:
             return  # Advisory read: failure does not undo a successful write.
         entry = result.get("entries", {}).get(entity_id) or {}
         warnings = list(response.get("warnings") or [])
@@ -361,7 +311,7 @@ class HelperStorageTools(BackendTools):
         helper_type: str,
         name: str | None,
         helper_id: str | None,
-        config: dict[str, Any] | None,
+        config: dict[str, Any] | list[dict[str, Any]] | str | None,
         area_id: str | None,
         labels: Any,
         category: str | None,
@@ -369,6 +319,10 @@ class HelperStorageTools(BackendTools):
         *,
         icon: str | None,
         action: str | None,
+        MandatoryBPS: bool = False,
+        flow_id: str | None = None,
+        menu_choice: str | None = None,
+        abort: bool = False,
     ) -> dict[str, Any]:
         from .flows.helpers import _handle_flow_helper
         from .flows.session import FlowSession
@@ -391,6 +345,10 @@ class HelperStorageTools(BackendTools):
                 wait,
                 icon=icon,
                 action=action,
+                MandatoryBPS=MandatoryBPS,
+                flow_id=flow_id,
+                menu_choice=menu_choice,
+                abort=abort,
             )
         if session.warnings:
             response.setdefault("warnings", []).extend(session.warnings)
@@ -418,13 +376,6 @@ class HelperStorageTools(BackendTools):
         self, error: Exception, action: str | None, helper_type: str
     ) -> NoReturn:
         raise error
-
-
-def _name_slug(name: str) -> str:
-    lowered = name.lower().replace(" ", "_")
-    return "".join(
-        character for character in lowered if character.isalnum() or character == "_"
-    )
 
 
 def _icon_targets(

@@ -14,6 +14,7 @@ from ha_mcp.runtime.area_writes import AreaWriteTools
 from ha_mcp.runtime.catalog import define_tool
 from ha_mcp.tool_api import CallContext
 
+from ._native_backend_module import native as native
 from .test_component_ws_search import (
     FakeArea,
     FakeFloor,
@@ -23,7 +24,6 @@ from .test_component_ws_search import (
     wsapi,
 )
 from .test_native_engine_backend import authorize
-from .test_native_engine_backend import native as native
 
 
 def _serialize(entry: Any) -> dict:

@@ -30,6 +30,7 @@ from .component_devices import (
 from .helpers import (
     exception_to_structured_error,
     log_tool_usage,
+    raise_core_refusal,
     raise_tool_error,
     register_tool_methods,
 )
@@ -52,44 +53,34 @@ async def _fetch_entity_rows(client: Any) -> list[dict[str, Any]]:
 
 
 async def _strict_entity_rows(client: Any) -> list[dict[str, Any]]:
-    """Full entity registry; raises SERVICE_CALL_FAILED on a failed read.
+    """Full entity registry; a failed read raises with :func:`ws_failure_code`'s code.
 
     The device-id resolver's fallback read. Unlike the tolerant
     :func:`_fetch_entity_rows` (whose callers treat a missing entity list as a
-    non-fatal degrade), a failed read here MUST surface as a service failure rather
-    than collapse to ``[]`` — otherwise the resolver would misreport a real entity
-    as ENTITY_NOT_FOUND when the read itself failed (a double transient failure:
+    non-fatal degrade), a failed read here MUST raise rather than collapse to
+    ``[]`` — otherwise the resolver would misreport a real entity as
+    ENTITY_NOT_FOUND when the read itself failed (a double transient failure:
     the targeted ``get`` failed, then this fallback list failed too).
     """
     entity_result = await client.send_websocket_message(
         {"type": "config/entity_registry/list"}
     )
     if not entity_result.get("success"):
-        raise_tool_error(
-            create_error_response(
-                ErrorCode.SERVICE_CALL_FAILED,
-                f"Failed to access entity registry: {entity_result.get('error', 'Unknown error')}",
-            )
-        )
+        raise_core_refusal("Failed to access entity registry", entity_result)
     return list(entity_result.get("result", []))
 
 
 async def _legacy_device_rows(client: Any) -> list[dict[str, Any]]:
     """Full device registry via the legacy ``config/device_registry/list``.
 
-    Raises SERVICE_CALL_FAILED when the read fails, preserving the prior
-    fatal-on-device-registry-failure contract.
+    A failed read raises with :func:`ws_failure_code`'s code, preserving the
+    prior fatal-on-device-registry-failure contract.
     """
     list_result = await client.send_websocket_message(
         {"type": "config/device_registry/list"}
     )
     if not list_result.get("success"):
-        raise_tool_error(
-            create_error_response(
-                ErrorCode.SERVICE_CALL_FAILED,
-                f"Failed to access device registry: {list_result.get('error', 'Unknown error')}",
-            )
-        )
+        raise_core_refusal("Failed to access device registry", list_result)
     return list(list_result.get("result", []))
 
 
@@ -119,8 +110,8 @@ async def _resolve_device_id_via_legacy(client: Any, entity_id: str) -> str:
     The whole-registry scan :func:`_resolve_device_id_for_entity` replaced, kept as
     the fallback for a transient failure of the targeted read so a real entity is
     never misreported as nonexistent. Uses the STRICT list read so a failure of
-    THIS fallback surfaces as a service failure rather than an empty list that would
-    itself misreport the entity as ENTITY_NOT_FOUND. Raises ENTITY_NOT_FOUND only
+    THIS fallback raises rather than returning an empty list that would itself
+    misreport the entity as ENTITY_NOT_FOUND. Raises ENTITY_NOT_FOUND only
     when the read succeeds and the entity is absent or carries no device (the same
     contract).
     """
@@ -182,7 +173,7 @@ async def _single_device_and_entities(
     ``[device]`` plus its entity map — both from ONE ``device_get(include_entities)``
     frame, so neither the device NOR the entity registry is dumped. Falls back to
     the legacy full device + entity registries (so a not-found error can still
-    suggest valid ids and the device's entities are still listed) when the device
+    list valid ids and the device's entities are still listed) when the device
     is absent (component said ``None``), the component can't serve device_get, or
     the component served the device but not the additive entities half (no
     ``entities`` key — an older device_get predating ``include_entities``): the
@@ -213,12 +204,47 @@ async def _single_device_and_entities(
     return all_devices, device_to_entities
 
 
+async def _raise_device_not_found(
+    client: Any, device_id: str, all_rows: list[dict[str, Any]]
+) -> NoReturn:
+    """Report an unknown device id. A composite id Home Assistant 2026.8 split
+    into one device per config entry gets Core's ``split_ids`` and
+    ``primary_id``, the map the frontend's device pickers re-point such an id
+    with."""
+    context: dict[str, Any] = {
+        "device_id": device_id,
+        "available_device_ids": [d.get("id") for d in all_rows[:10] if d.get("id")],
+    }
+    suggestions = ["Use ha_get_device() to find valid device IDs"]
+    splits = await client.send_websocket_message(
+        {"type": "config/device_registry/list_composite_splits"}
+    )
+    if not splits.get("success"):
+        raise_core_refusal("Failed to read composite device splits", splits, context)
+    if split := splits["result"].get(device_id):
+        context.update(split)
+        suggestions = [
+            "Home Assistant split this device into one device per config entry: "
+            "use one of split_ids; primary_id, when not null, is the device that "
+            "took over its former primary config entry"
+        ]
+    raise_tool_error(
+        create_error_response(
+            ErrorCode.RESOURCE_NOT_FOUND,
+            f"Device not found: {device_id}",
+            suggestions=suggestions,
+            context=context,
+        )
+    )
+
+
 async def _lookup_device_for_remove(client: Any, device_id: str) -> dict[str, Any]:
     """Return the raw device row for ``ha_remove_device``; raise if it does not exist.
 
     Uses the component's ``device_get`` for the single-device read when available
-    (no whole-registry dump), falling back to the legacy full list — also used to
-    build the not-found error's available-ids suggestion.
+    (no whole-registry dump), falling back to the legacy full list. An unknown id
+    raises through :func:`_raise_device_not_found`, which lists the first ten
+    ids of that list and reads Core's composite splits.
     """
     result = await fetch_device_via_component(client, device_id)
     if result is not None:
@@ -228,20 +254,7 @@ async def _lookup_device_for_remove(client: Any, device_id: str) -> dict[str, An
     all_rows = await _legacy_device_rows(client)
     device = next((d for d in all_rows if d.get("id") == device_id), None)
     if device is None:
-        raise_tool_error(
-            create_error_response(
-                ErrorCode.RESOURCE_NOT_FOUND,
-                f"Device not found: {device_id}",
-                suggestions=["Use ha_get_device() to find valid device IDs"],
-                context={
-                    "device_id": device_id,
-                    "available_device_ids": [
-                        d.get("id") for d in all_rows[:10] if d.get("id")
-                    ],
-                },
-            )
-        )
-        return {}  # unreachable: raise_tool_error always raises
+        await _raise_device_not_found(client, device_id, all_rows)
     return device
 
 
@@ -252,6 +265,7 @@ async def _get_single_device_result(
     entity_id: str | None,
     all_devices: list[dict[str, Any]],
     device_to_entities: dict[str, list[dict[str, Any]]],
+    domains: dict[str, str],
 ) -> dict[str, Any]:
     return await RegistryTools(client)._get_single_device_result(
         device_id, entity_id, all_devices, device_to_entities
@@ -339,8 +353,10 @@ class RegistryTools(LegacyBackendTools, DeviceDiscoveryTools, LegacyDevices):
     )
 
     @staticmethod
-    def _get_device_info(device: dict[str, Any]) -> dict[str, Any]:
-        return _get_device_info(device)
+    def _get_device_info(
+        device: dict[str, Any], domains: dict[str, str], summary: bool = False
+    ) -> dict[str, Any]:
+        return _get_device_info(device, domains, summary)
 
     def _raise_device_error(self, error: Exception) -> NoReturn:
         if isinstance(error, ToolError):

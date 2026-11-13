@@ -197,7 +197,7 @@ class ConfigSceneTools(LegacyBackendTools, SceneWriteTools):
                             "scene."
                         ):
                             return entity_id
-            except (TimeoutError, HomeAssistantAPIError, HomeAssistantConnectionError):
+            except TimeoutError, HomeAssistantAPIError, HomeAssistantConnectionError:
                 # Programming bugs (AttributeError, KeyError, …) propagate; only
                 # genuine HA-API failures fall through to the naive form so the
                 # caller still gets a best-effort entity_id rather than a 500.

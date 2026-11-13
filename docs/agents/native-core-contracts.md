@@ -25,11 +25,18 @@ The component is part of the native contract, not an exception to it. The
 `ha_mcp_tools` component runs inside Core, so a path through it reaches Core's
 own registries, schemas, collections, flows and processors directly, the way
 `ha_search` and the logbook read do. Prefer that path whenever the component
-gives in-process access to the Core object a tool wraps, and keep Core's
-REST/WebSocket API as the explicit fallback for an installation without the
-component. Gate the choice on the component's `capabilities` handshake, and
-update the component producer, server consumer, capability gate and fallback in
-the same pull request, on both component entry topologies. A path can be
+gives in-process access to the Core object a tool wraps. Gate the choice on
+the component's `capabilities` handshake, and update the component producer,
+server consumer, capability gate and any fallback in the same pull request, on
+both component entry topologies.
+
+What a tool already does without the component keeps working when the tool
+changes: its REST/WebSocket path stays as the fallback. That fallback may grow
+when Core's native REST/WebSocket endpoints already serve the new behaviour,
+but not by adding handwritten server code. A new feature or option that needs
+the component does not need a fallback. If Core's native endpoints serve it
+directly, it may get one; otherwise an installation without the component
+gets a hint or warning that the feature needs the component. A path can also be
 component-only by design when the fallback would be a copy of Core's rules:
 the reference check on automation, script and scene writes is one, since
 Core's API validates a config's trigger, condition and action lists and serves
@@ -261,6 +268,32 @@ integration's entry is matched on its title, its config is withheld as
 `options_withheld: custom_integration` (the component's own marker), and the
 result is `partial`.
 
+Home Assistant's flows (config, options, reconfigure, subentry) are answered
+one step per tool call, as the frontend's dialog runs them: the tool returns
+Core's step (a form's fields with Core's help text, or a menu's options) and
+its `flow_id`, takes that one step's answer, and returns Core's next step
+(`integration_flow_steps`). Do not pack a flow's steps into one payload or
+walk it on the server: which step follows, what a form declares and what is
+valid are Core's to say, so a key a form does not declare is sent and refused
+by Core. A caller that already knows a flow's forms may pass their answers as
+an ordered list: each is sent, unchanged, as the answer to the step the flow
+is then at, the call stops at the first one Core refuses, and no key is moved
+from one answer to another. The forms after the first are not learned by
+walking the flow either: for a flow Core declares as a mapping of steps (most
+helper flows) the component's `ha_mcp_tools/flow_outline` bridge (capability
+`flow_outline`) reads that declaration from the loaded handler on every call,
+and a form response lists them as `later_forms`; a form or next step Core
+computes from the answers is marked as such, never evaluated or copied.
+A `flow_id` continues only the flow opened for
+the call's target; one the server no longer holds (it restarted) is bound by
+Core's own record of the flow, read through the component's
+`ha_mcp_tools/flow_record` bridge (capability `flow_record`), and refused
+without it. The one thing the dialog does that Core does not is post back the
+values an edit form shows; Core drops a stored optional value a submit leaves
+out, so a submit to an options or reconfigure form goes over those values
+(`config_entry_flow_form`). A backup restore is the exception: it replays a
+stored snapshot into the flow's forms and is verified by readback.
+
 Some API meanings are not discoverable as schemas: Core declares Energy
 statistic references as plain strings. The optional metadata enrichment uses
 Core's `stat_*` / `included_in_stat` naming convention; it is not an authoritative
@@ -320,7 +353,11 @@ fields that previously disappeared. Include component, server-entry-only and
 absent-component behavior. Compare normalized save results with readback.
 
 Unit tests should prove that future fields/types reach Core and native response
-fields survive. Fake validators may prove delegation; do not reproduce the
-energy schema in fixtures and then use those fixtures to claim Core parity.
+fields survive. Their replies come from Core, through the `core_client`
+fixture, never from a dict typed into the test; the
+[unit-test rules](../../tests/AGENTS.md#unit-tests-run-on-real-home-assistant-core)
+own the detail. One function replaced on a real Core module may prove
+delegation; do not reproduce the energy schema in fixtures and then use those
+fixtures to claim Core parity.
 When touching a wrapper, audit its whole request, validation, response and
 metadata path. Correct related duplicated contracts in the same change.

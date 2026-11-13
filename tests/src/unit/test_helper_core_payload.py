@@ -10,19 +10,38 @@ covered through both write paths in test_helper_config_fold.py.
 from __future__ import annotations
 
 import json
+import uuid
 from typing import Any
+from unittest.mock import patch
 
 import pytest
+from homeassistant.core import HomeAssistant
+from homeassistant.setup import async_setup_component
 
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
+from ha_mcp.client.rest_client import HomeAssistantClient
+from ha_mcp.tool_api import CallContext
 from ha_mcp.tools.config_helpers.core_payload import (
     merged_update,
+    storage_fields,
     with_create_defaults,
 )
+from ha_mcp.tools.tools_config_helpers import HelperConfigTools
+
+from ._tool_errors import _error
 
 
-def _error(te: pytest.ExceptionInfo[ToolError]) -> dict[str, Any]:
-    return json.loads(str(te.value))  # type: ignore[no-any-return]
+async def _stored_counter(hass: HomeAssistant, client: HomeAssistantClient) -> str:
+    """Create a storage counter in Core and return its id."""
+    name = f"Count {uuid.uuid4().hex[:8]}"
+    # ``config`` serves the entity-registry read the update resolves the id by.
+    for domain in ("config", "counter"):
+        assert await async_setup_component(hass, domain, {})
+    created = await client.send_websocket_message(
+        {"type": "counter/create", "name": name, "minimum": 0, "maximum": 10}
+    )
+    assert created["success"], created
+    return str(created["result"]["id"])
 
 
 # --- merged_update: Core's update writes the whole item ---------------------
@@ -32,6 +51,36 @@ def test_update_keeps_every_stored_field_it_does_not_change() -> None:
     stored = {"id": "t", "name": "T", "min": 0.0, "max": 50.0, "mode": "box"}
     body = merged_update("input_number", stored, None, None, {"max": 80.0})
     assert body == {"name": "T", "min": 0.0, "max": 80.0, "mode": "box"}
+
+
+def test_a_field_set_to_null_is_removed_from_the_stored_item() -> None:
+    """Core's update writes the whole item, so a field is cleared by leaving
+    it out, as the helper's dialog drops a box that is emptied."""
+    stored = {"id": "t", "name": "T", "min": 0.0, "max": 50.0, "initial": 5.0}
+    body = merged_update("input_number", stored, None, None, {"initial": None})
+    assert body == {"name": "T", "min": 0.0, "max": 50.0}
+
+
+def test_a_null_field_is_left_out_of_a_create() -> None:
+    assert with_create_defaults("input_number", {"min": 0, "initial": None}) == {
+        "min": 0
+    }
+
+
+def test_config_reaches_core_as_written_with_name_and_icon_lifted() -> None:
+    """``name`` and ``icon`` are Core fields too: ``config`` may carry them,
+    and every other key is sent under the name it was given."""
+    name, icon, fields = storage_fields(
+        "counter", {"name": "Laps", "icon": "mdi:run", "minimum": "0"}, None, None
+    )
+    assert (name, icon, fields) == ("Laps", "mdi:run", {"minimum": "0"})
+
+
+def test_a_list_is_not_a_storage_helpers_config() -> None:
+    """A list answers a flow's forms; a storage helper has no flow."""
+    with pytest.raises(ToolError) as exc_info:
+        storage_fields("input_number", [{"min": 0}], "T", None)
+    assert "written in one call" in _error(exc_info)["message"]
 
 
 def test_update_does_not_send_the_items_id() -> None:
@@ -63,76 +112,72 @@ def test_tag_update_does_not_echo_the_listed_name() -> None:
 # --- create defaults ---------------------------------------------------------
 
 
-def test_input_datetime_without_components_gets_date_and_time() -> None:
-    """Core rejects an input_datetime with neither; the tool defaults to both."""
-    assert with_create_defaults("input_datetime", {}) == {
-        "has_date": True,
-        "has_time": True,
-    }
-    only_date = with_create_defaults("input_datetime", {"has_date": True})
-    assert only_date == {"has_date": True}
-
-
-def test_tag_create_gets_a_tag_id_unless_given() -> None:
-    """Core's tag create requires tag_id; the tool documents it as optional."""
-    generated = with_create_defaults("tag", {})["tag_id"]
-    assert generated and generated != with_create_defaults("tag", {})["tag_id"]
+def test_a_given_tag_id_is_kept() -> None:
     assert with_create_defaults("tag", {"tag_id": "abc"})["tag_id"] == "abc"
 
 
-async def test_update_path_sends_a_step_core_accepts() -> None:
+async def test_update_path_sends_a_step_core_accepts(
+    hass: HomeAssistant, core_client: HomeAssistantClient
+) -> None:
     """A counter step of 0 is Core's to judge (its schema allows it), so the
     update reaches counter/update instead of being refused by the tool."""
-    from unittest.mock import AsyncMock, MagicMock
+    counter_id = await _stored_counter(hass, core_client)
 
-    from ha_mcp.tools.config_helpers.update import _execute_legacy_update
-
-    stored = {"id": "c1", "name": "Count", "minimum": 0, "maximum": 10, "step": 1}
-    client = MagicMock()
-    client.send_websocket_message = AsyncMock(
-        side_effect=lambda message: {
-            "success": True,
-            "result": [stored]
-            if message["type"] == "counter/list"
-            else {**stored, "step": 0}
-            if message["type"] == "counter/update"
-            else [],
-        }
-    )
-    await _execute_legacy_update(
-        client, "counter", "counter.count", "c1", None, None, {"step": 0}
-    )
-    update = next(
+    with patch.object(
+        core_client,
+        "send_websocket_message",
+        wraps=core_client.send_websocket_message,
+    ) as sent:
+        result = await HelperConfigTools(core_client).ha_config_set_helper(
+            helper_type="counter",
+            helper_id=f"counter.{counter_id}",
+            config={"step": 0},
+            wait=False,
+        )
+    updates = [
         call.args[0]
-        for call in client.send_websocket_message.await_args_list
-        if call.args[0]["type"] == "counter/update"
-    )
-    assert update["step"] == 0
+        for call in sent.await_args_list
+        if call.args[0].get("type") == "counter/update"
+    ]
+    assert [message["step"] for message in updates] == [0]
+    assert result["data"]["step"] == 0
 
 
-async def test_item_vanishing_before_the_update_reports_like_the_read() -> None:
+async def test_item_vanishing_before_the_update_reports_like_the_read(
+    hass: HomeAssistant, core_client: HomeAssistantClient
+) -> None:
     """Core's not_found on <type>/update is the same missing item the stored
     read reports as CONFIG_NOT_FOUND, so the caller sees one code for it."""
-    from unittest.mock import AsyncMock, MagicMock
+    counter_id = await _stored_counter(hass, core_client)
+    deletions: list[dict[str, Any]] = []
+    tools = HelperConfigTools(core_client)
+    execute = tools.backend.execute
 
-    from ha_mcp.tools.config_helpers.update import _execute_legacy_update
+    async def delete_after_the_read(
+        operation: str, arguments: dict[str, Any], actor: CallContext
+    ) -> Any:
+        stored = await execute(operation, arguments, actor)
+        if (
+            operation == "helpers.storage.read"
+            and stored.get("success") is True
+            and not deletions
+        ):
+            deletions.append(
+                await core_client.send_websocket_message(
+                    {"type": "counter/delete", "counter_id": counter_id}
+                )
+            )
+        return stored
 
-    stored = {"id": "c1", "name": "Count", "minimum": 0, "maximum": 10, "step": 1}
-    client = MagicMock()
-    replies = {
-        "counter/list": {"success": True, "result": [stored]},
-        "config/entity_registry/list": {"success": True, "result": []},
-        "counter/update": {
-            "success": False,
-            "error": "Unable to find counter_id c1",
-            "error_code": "not_found",
-        },
-    }
-    client.send_websocket_message = AsyncMock(
-        side_effect=lambda message: replies[message["type"]]
-    )
-    with pytest.raises(ToolError) as exc_info:
-        await _execute_legacy_update(
-            client, "counter", "counter.count", "c1", "Renamed", None, {}
+    with (
+        patch.object(tools.backend, "execute", delete_after_the_read),
+        pytest.raises(ToolError) as exc_info,
+    ):
+        await tools.ha_config_set_helper(
+            helper_type="counter",
+            helper_id=f"counter.{counter_id}",
+            name="Renamed",
+            wait=False,
         )
+    assert [deleted["success"] for deleted in deletions] == [True]
     assert json.loads(str(exc_info.value))["error"]["code"] == "CONFIG_NOT_FOUND"

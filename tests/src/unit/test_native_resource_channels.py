@@ -10,7 +10,7 @@ from custom_components.ha_mcp_tools import native_server
 from ha_mcp._vendor.fastmcp import Client, FastMCP
 from ha_mcp.tool_api import CallContext
 
-from .test_native_engine_backend import native as native
+from ._native_backend_module import native as native
 from .test_native_resource_service import resources as resources
 
 

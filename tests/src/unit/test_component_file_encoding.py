@@ -4,7 +4,7 @@ import io
 
 import pytest
 
-from .test_native_engine_backend import native as native
+from ._native_backend_module import native as native
 
 
 @pytest.mark.parametrize("direction", ["read", "write"])

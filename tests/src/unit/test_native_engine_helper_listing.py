@@ -13,10 +13,10 @@ from ha_mcp.runtime.helper_listing import HelperListingTools, description_starts
 from ha_mcp.tool_api import CallContext, ToolFailure
 from ha_mcp.tools.tool_hints import write_hints
 
+from ._native_backend_module import native as native
 from .test_component_helper_collections import FakeCollection, FakeRegistry, _hass
 from .test_component_ws_search import make_view, wsapi
 from .test_native_engine_backend import authorize
-from .test_native_engine_backend import native as native
 from .test_native_engine_flows import flows as flows
 from .test_native_engine_full_flows import _setup
 

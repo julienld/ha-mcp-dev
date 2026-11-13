@@ -18,13 +18,13 @@ from ha_mcp.tool_api import CallContext
 from ha_mcp.utils.config_hash import compute_config_hash
 
 from ._component_ws_fakes import _FakeCallServices
+from ._native_backend_module import native as native
 from .test_component_ws_search import FakeRegEntry, FakeState
 from .test_native_catalog_contract_config import (
     _real_aiohttp_router as _real_aiohttp_router,
 )
 from .test_native_catalog_contract_scripts import _ScriptRegistry
 from .test_native_config_mutations import _mutation_setup
-from .test_native_engine_backend import native as native
 from .test_native_engine_reload import Bus
 from .test_native_engine_reload import _core_callback as _core_callback
 

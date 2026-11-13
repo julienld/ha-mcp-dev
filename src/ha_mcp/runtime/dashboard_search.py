@@ -53,7 +53,7 @@ _NON_CARD_CHILD_KEYS = ("elements",)
 _BADGE_CARD_TYPE = "badge"
 
 
-_MAX_CARD_DEPTH = 50
+MAX_CARD_DEPTH = 50
 
 
 _MAX_NODE_DEPTH = 100
@@ -298,17 +298,17 @@ def _walk_card(
     container only.
 
     Only a dict carrying a ``type`` key is matched as a card. Subtrees past
-    ``_MAX_CARD_DEPTH`` card levels are recorded in ``frame.gaps.truncation``;
+    ``MAX_CARD_DEPTH`` card levels are recorded in ``frame.gaps.truncation``;
     cards carrying ``_NON_CARD_CHILD_KEYS`` in ``frame.gaps.uncovered``.
     """
     if not isinstance(card, dict):
         if frame.criteria.can_match_cards():
             frame.gaps.unread.append(jq_prefix)
         return []
-    if frame.depth > _MAX_CARD_DEPTH:
+    if frame.depth > MAX_CARD_DEPTH:
         logger.warning(
             "Card-search depth bound (%d) exceeded at %s; not descending further",
-            _MAX_CARD_DEPTH,
+            MAX_CARD_DEPTH,
             jq_prefix,
         )
         frame.gaps.truncation.append(jq_prefix)

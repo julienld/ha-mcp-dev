@@ -13,9 +13,9 @@ from ha_mcp.runtime.flows.session import FlowSession
 from ha_mcp.runtime.integration_state import set_entry_enabled, set_log_level
 from ha_mcp.tool_api import CallContext, ToolFailure
 
+from ._native_backend_module import native as native
 from .test_component_helper_collections import FakeCollection, _hass
 from .test_native_engine_backend import authorize
-from .test_native_engine_backend import native as native
 
 
 @pytest.mark.parametrize("revoke", [False, True])

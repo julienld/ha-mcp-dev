@@ -14,10 +14,10 @@ from ha_mcp.runtime.catalog import define_tool
 from ha_mcp.runtime.zone_writes import ZoneWriteTools
 from ha_mcp.tool_api import CallContext
 
+from ._native_backend_module import native as native
 from .test_component_helper_collections import FakeCollection, FakeRegistry, _hass
 from .test_component_ws_search import FakeRegEntry, FakeState, wsapi
 from .test_native_engine_backend import EventBus, authorize
-from .test_native_engine_backend import native as native
 
 
 class _Zones(FakeCollection):

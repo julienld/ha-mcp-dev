@@ -12,10 +12,10 @@ import voluptuous as _REAL_VOL
 from ha_mcp.tool_api import CallContext, ToolFailure
 from ha_mcp.utils.config_hash import compute_config_hash
 
+from ._native_backend_module import native as native
 from .test_native_blueprint_management import blueprints as blueprints
 from .test_native_energy import call as energy_call
 from .test_native_energy import energy as energy
-from .test_native_engine_backend import native as native
 from .test_native_full_backup_restore import restore as restore
 from .test_native_full_backups import backups as backups
 from .test_native_hacs import call as hacs_call

@@ -60,7 +60,7 @@ jobs:
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           # renovate: datasource=github-releases depName=astral-sh/uv
-          version: "0.13.4"
+          version: "0.13.7"
 
       - name: Require the current Core window before releasing
         run: uv run --locked -s scripts/core_window.py --check-floor --output "$RUNNER_TEMP/release-core-window.json"
@@ -111,7 +111,7 @@ jobs:
         uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           # renovate: datasource=github-releases depName=astral-sh/uv
-          version: "0.13.4"
+          version: "0.13.7"
 
       - name: Temporarily set package name and version for dev build
         run: |
@@ -197,11 +197,15 @@ jobs:
           fetch-tags: true
           submodules: true
 
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.14"
+
       - name: Install uv
         uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
         with:
           # renovate: datasource=github-releases depName=astral-sh/uv
-          version: "0.13.4"
+          version: "0.13.7"
 
       - name: Prepare the paired native release assets
         env:

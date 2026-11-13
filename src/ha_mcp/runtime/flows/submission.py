@@ -1,11 +1,10 @@
-"""Error reporting for config-entry flow walks.
+"""Error reporting for config-entry flow steps.
 
 Turns Home Assistant's answers to a flow submit (a 400/422 body, a form
 with ``errors``, an ``abort`` step) into structured ``ToolError``s, and holds
 the reconfigure outcome vocabulary those errors carry.
 """
 
-import asyncio
 import logging
 from dataclasses import dataclass
 from enum import StrEnum
@@ -18,11 +17,8 @@ from ha_mcp.runtime.flow_translations import (
     flow_text,
     strings_unread_warning,
 )
-from ha_mcp.runtime.flows.introspect import fetch_helper_flow_info
 from ha_mcp.runtime.flows.settings import redaction_enabled
 from ha_mcp.runtime.redaction import redact_flow_schema
-
-from .settings import no_answer_errors
 
 logger = logging.getLogger(__name__)
 
@@ -105,8 +101,8 @@ class ReconfigureStatus(StrEnum):
 
     Ordered by how far the request got. Everything from ``APPLIED_*`` onward
     means Home Assistant committed the change, or may have, so a caller must
-    not blindly retry those. Every flow walk also uses
-    ``APPLIED_BUT_UNVERIFIED`` for a submit or poll whose answer was lost.
+    not blindly retry those. Every flow also uses ``APPLIED_BUT_UNVERIFIED``
+    for a submit or poll whose answer was lost.
     """
 
     #: The flow was aborted before any value reached Home Assistant.
@@ -175,81 +171,66 @@ def _parse_flow_api_error(
     }
 
 
+_FLOW_STILL_OPEN = (
+    "The flow is still open: answer the step again with flow_id, giving the "
+    "whole answer (nothing from the rejected one is kept), or end it with "
+    "flow_id and abort=True."
+)
+
+
 def _build_flow_error_context(
     flow_id: str,
     status_code: int,
-    helper_type: str | None,
+    domain: str | None,
     menu_choice: str | None,
-    current_step: dict[str, Any] | None,
-    submitted: dict[str, Any] | None,
+    current_step: dict[str, Any],
+    submitted: dict[str, Any],
     parsed_raw: dict[str, Any] | None,
 ) -> dict[str, Any]:
-    context: dict[str, Any] = {"flow_id": flow_id, "status_code": status_code}
-    if helper_type:
-        context["helper_type"] = helper_type
+    context: dict[str, Any] = {
+        "flow_id": flow_id,
+        "status_code": status_code,
+        "step_id": current_step.get("step_id"),
+        "submitted_keys": sorted(submitted),
+    }
+    if domain:
+        context["domain"] = domain
     if menu_choice:
         context["menu_choice"] = menu_choice
-    if current_step is not None:
-        context["step_id"] = current_step.get("step_id")
-    if submitted is not None:
-        context["submitted_keys"] = sorted(submitted.keys())
     if parsed_raw is not None:
         context["response_body"] = parsed_raw
     return context
 
 
-def _flow_error_subject(
-    helper_type: str | None, *, is_reconfigure: bool, validation: bool
-) -> str:
-    """What a rejected flow submit's message names; ``helper_type`` carries
-    the integration domain under ``is_reconfigure``."""
-    if is_reconfigure and helper_type:
-        subject = f"{helper_type} reconfigure"
-    elif is_reconfigure:
-        subject = "Reconfigure" if validation else "reconfigure"
-    else:
-        subject = "Helper" if validation else helper_type or "flow"
-    return f"{subject} validation" if validation else subject
-
-
 async def _raise_flow_api_error(
     api_error: HomeAssistantAPIError,
     *,
-    client: Any,
     flow_id: str,
-    helper_type: str | None,
+    domain: str | None,
     menu_choice: str | None,
-    current_step: dict[str, Any] | None,
-    submitted: dict[str, Any] | None,
+    current_step: dict[str, Any],
+    submitted: dict[str, Any],
     is_reconfigure: bool = False,
-    flow_stays_open: bool = False,
 ) -> NoReturn:
     """Translate an HA 4xx during a flow submit into a structured ToolError.
 
     For 400/422 responses, parses ``response_data`` for field-level info
-    via ``_parse_flow_api_error``. Attaches a ``data_schema`` whenever one is
-    found, next to ``field_errors`` or in place of them, so the caller sees
-    what Home Assistant accepts.
-
-    The schema is the live step's own whenever it carries one, so a later
-    form's rejection shows that form; a fresh introspection flow is the
-    fallback for a schema-less step. ``is_reconfigure`` skips that fallback
-    too (``helper_type`` carries the integration domain there) and makes the
-    prose name the integration instead of a helper, because this path also
-    serves ``ha_set_integration(reconfigure=True)``. ``flow_stays_open``
-    (``ha_set_integration``'s one step per call) skips the fallback as well
-    and says the rejected flow is still open.
+    via ``_parse_flow_api_error``. The rejected step's own ``data_schema``
+    rides along, next to ``field_errors`` or in place of them, so the caller
+    sees what Home Assistant accepts. Home Assistant keeps the flow open after
+    a rejected submit, and the error says so.
 
     Always raises ``ToolError`` — never returns.
     """
     parsed = _parse_flow_api_error(api_error)
     field_errors = parsed["field_errors"]
     status_code = api_error.status_code or 0
+    subject = f"{domain} flow" if domain else "flow"
 
     context = _build_flow_error_context(
         flow_id,
         status_code,
-        helper_type,
+        domain,
         menu_choice,
         current_step,
         submitted,
@@ -257,69 +238,38 @@ async def _raise_flow_api_error(
     )
 
     suggestions: list[str] = []
-    message: str
-
-    current_schema = None
-    if current_step is not None:
-        step_schema = current_step.get("data_schema")
-        if isinstance(step_schema, list):
-            current_schema = step_schema
-
-    if current_schema is not None or is_reconfigure or flow_stays_open:
-        # The live step is the form HA rejected: a fresh introspection would
-        # show the helper's first setup form instead, a different form in a
-        # multi-step, options or reconfigure flow.
-        schema = current_schema
-    else:
-        info = await fetch_helper_flow_info(client, helper_type, menu_choice)
-        schema = info.get("schema")
-    # An options/reconfigure step's schema carries the persisted values in
-    # description.suggested_value — under redact_secrets those must not ride
-    # into the error context verbatim (#2157). Deep-copies, so the live
-    # flow_result is untouched.
-    if schema is not None and redaction_enabled():
-        schema = redact_flow_schema(schema)
-
-    # Issue #1149: the schema rides with field_errors too — what failed plus
-    # what's accepted is enough for self-correction.
-    if schema is not None:
-        context["data_schema"] = schema
+    schema = current_step.get("data_schema")
+    if isinstance(schema, list):
+        # An options/reconfigure step's schema carries the persisted values in
+        # description.suggested_value — under redact_secrets those must not
+        # ride into the error context verbatim (#2157). Deep-copies, so the
+        # live step is untouched.
+        context["data_schema"] = (
+            redact_flow_schema(schema) if redaction_enabled() else schema
+        )
     if field_errors:
-        # Structured field errors — tell the caller which fields failed.
         # HA names fields only when the caller's input failed its schema.
         code = ErrorCode.VALIDATION_INVALID_PARAMETER
         context["field_errors"] = field_errors
         readable = ", ".join(f"{k}: {v}" for k, v in field_errors.items())
-        subject = _flow_error_subject(
-            helper_type, is_reconfigure=is_reconfigure, validation=True
-        )
-        message = f"{subject} failed — {readable}"
+        message = f"Home Assistant rejected the {subject} step: {readable}"
         suggestions.append(
-            "Fix the field(s) listed in 'field_errors' and retry the call."
+            "Fix the field(s) listed in 'field_errors' and answer the step again."
         )
     else:
-        # Unstructured — attach the data_schema so the LLM has something to use.
         code = ErrorCode.SERVICE_CALL_FAILED
-        subject = _flow_error_subject(
-            helper_type, is_reconfigure=is_reconfigure, validation=False
-        )
         message = (
-            f"Home Assistant rejected the {subject} request "
+            f"Home Assistant rejected the {subject} step "
             f"({status_code}): {parsed['message']}"
         )
-        if schema is not None:
+        if "data_schema" in context:
             suggestions.append(
-                "Inspect 'data_schema' in this error to see the fields HA expects, "
-                "then retry with a corrected config."
+                "Inspect 'data_schema' in this error to see the fields HA expects."
             )
 
     if is_reconfigure:
         context["status"] = ReconfigureStatus.APPLY_FAILED
-    if flow_stays_open:
-        suggestions.append(
-            "The flow is still open: retry with flow_id, or end it with "
-            "flow_id and abort=True."
-        )
+    suggestions.append(_FLOW_STILL_OPEN)
 
     raise_tool_error(
         create_error_response(
@@ -358,12 +308,11 @@ async def raise_form_errors(
     current_step: dict[str, Any],
     *,
     is_reconfigure: bool = False,
-    flow_stays_open: bool = False,
 ) -> NoReturn:
     """Raise for a form HA returned with ``errors``, with Core's text for each
-    and the form's ``fields`` in the describe shape."""
+    and the form's ``fields`` in the describe shape. The flow stays open."""
     # describe imports config_entry_flow, which imports this module.
-    from ha_mcp.runtime.flow_description import compact_schema
+    from ..flow_description import compact_schema
 
     errors = current_step["errors"]
     context: dict[str, Any] = {
@@ -380,17 +329,14 @@ async def raise_form_errors(
             context["warnings"] = warnings
         if texts:
             context["error_text"] = texts
-    suggestions = ["Fix the field errors and retry with corrected values"]
-    if flow_stays_open:
-        suggestions.append(
-            "The flow is still open: retry with flow_id, or end it with "
-            "flow_id and abort=True."
-        )
     raise_tool_error(
         create_error_response(
             ErrorCode.VALIDATION_INVALID_PARAMETER,
             "Form validation failed",
-            suggestions=suggestions,
+            suggestions=[
+                "Fix the field errors and answer the step again with corrected values",
+                _FLOW_STILL_OPEN,
+            ],
             context=context,
         )
     )
@@ -436,112 +382,6 @@ async def raise_flow_abort(
                     flow_id, current_step, is_reconfigure=is_reconfigure
                 ),
                 **await abort_reason_text(client, flow, current_step),
-            },
-        )
-    )
-
-
-_RETRYABLE_GATEWAY_STATUS = frozenset({502, 503, 504})
-
-
-async def _submit_step(
-    submit_fn: Any,
-    flow_id: str,
-    payload: dict[str, Any],
-    *,
-    client: Any,
-    helper_type: str | None,
-    last_menu_choice: str | None,
-    current_step: dict[str, Any],
-    is_reconfigure: bool = False,
-    flow_stays_open: bool = False,
-) -> dict[str, Any]:
-    try:
-        return await asyncio.wait_for(submit_fn(flow_id, payload), timeout=20.0)
-    except HomeAssistantAPIError as api_err:
-        if api_err.status_code in (400, 422):
-            await _raise_flow_api_error(
-                api_err,
-                client=client,
-                flow_id=flow_id,
-                helper_type=helper_type,
-                menu_choice=last_menu_choice,
-                current_step=current_step,
-                submitted=payload,
-                is_reconfigure=is_reconfigure,
-                flow_stays_open=flow_stays_open,
-            )
-        status = api_err.status_code or 0
-        if status in _RETRYABLE_GATEWAY_STATUS or (is_reconfigure and status >= 500):
-            # 502/503/504 mean no answer came back: the submit may have reached
-            # Home Assistant and committed. On reconfigure any 5xx may follow
-            # the step's own write to the entry; other kinds are written by Core
-            # only after the step returns (a create flow's async_on_create_entry
-            # can still 500 after the save, which this does not tell apart).
-            # Anything else re-raises: HA answered.
-            _raise_no_answer(
-                api_err,
-                flow_id=flow_id,
-                payload=payload,
-                current_step=current_step,
-                error_code=ErrorCode.SERVICE_CALL_FAILED,
-                detail=f"HTTP {status}",
-            )
-        raise
-    except no_answer_errors() + (TimeoutError,) as no_answer:
-        # Every class here is evidence that NO ANSWER came back — see
-        # no_answer_errors() in rest_client.py — as opposed to Home Assistant
-        # answering with a rejection (which the 400/422 branch above handles).
-        # The submit is the call that commits (creates the entry, saves the
-        # options, or probes and reloads on reconfigure), so losing the answer
-        # to it is precisely the applied_but_unverified ambiguity: HA may
-        # already have committed, and a retry can repeat the change.
-        # rest_client funnels every httpx transport failure into
-        # HomeAssistantConnectionError, so a connection reset after the POST
-        # reached HA lands here too. Callers keep the flow open on this status
-        # (leaves_flow_open; the snapshot paths on their "unknown" apply_status).
-        _raise_no_answer(
-            no_answer,
-            flow_id=flow_id,
-            payload=payload,
-            current_step=current_step,
-            error_code=ErrorCode.TIMEOUT_OPERATION
-            if isinstance(no_answer, TimeoutError)
-            else ErrorCode.SERVICE_CALL_FAILED,
-            detail=type(no_answer).__name__,
-        )
-        raise  # not reached; an explicit end of this path for CodeQL
-
-
-def _raise_no_answer(
-    cause: BaseException,
-    *,
-    flow_id: str,
-    payload: dict[str, Any],
-    current_step: dict[str, Any],
-    error_code: ErrorCode,
-    detail: str,
-) -> NoReturn:
-    """Raise ``applied_but_unverified`` for a submit or poll whose answer was lost.
-
-    Carrying the post-commit status is what suppresses the flow abort: see
-    ``leaves_flow_open``.
-    """
-    raise_tool_error(
-        create_error_response(
-            error_code,
-            "Flow submission got no answer from Home "
-            f"Assistant ({detail}); the change may have been applied",
-            suggestions=[
-                "Do not retry automatically: a retry can create a duplicate "
-                "entry or repeat the change. Check the config entry in Home "
-                "Assistant first."
-            ],
-            context={
-                "flow_id": flow_id,
-                "status": ReconfigureStatus.APPLIED_BUT_UNVERIFIED,
-                "submitted_keys": sorted(payload),
-                "details": redacted_step(current_step),
             },
         )
     )

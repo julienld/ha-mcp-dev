@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from .test_native_engine_backend import native as native
+from ._native_backend_module import native as native
 from .test_native_radios import call
 from .test_native_radios import radios as radios
 

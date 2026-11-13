@@ -23,9 +23,11 @@ from __future__ import annotations
 
 import asyncio
 import functools
-import json
 from collections.abc import Collection, Mapping
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from homeassistant.core import HomeAssistant
 
 
 class _Unauthorized(Exception):
@@ -91,7 +93,7 @@ class _FakeWSApi:
 
     def require_admin(self, func: Any) -> Any:
         @functools.wraps(func)
-        def wrapper(hass: Any, connection: Any, msg: dict[str, Any]) -> Any:
+        def wrapper(hass: HomeAssistant, connection: Any, msg: dict[str, Any]) -> Any:
             user = connection.user
             if user is None or not user.is_admin:
                 raise _Unauthorized()
@@ -101,14 +103,14 @@ class _FakeWSApi:
 
     def async_response(self, func: Any) -> Any:
         @functools.wraps(func)
-        def wrapper(hass: Any, connection: Any, msg: dict[str, Any]) -> None:
+        def wrapper(hass: HomeAssistant, connection: Any, msg: dict[str, Any]) -> None:
             # The handler is a coroutine (it awaits the search prep's executor
             # offload); drive it to completion the way the WS layer would.
             asyncio.run(func(hass, connection, msg))
 
         return wrapper
 
-    def async_register_command(self, hass: Any, handler: Any) -> None:
+    def async_register_command(self, hass: HomeAssistant, handler: Any) -> None:
         self.registered[handler._ws_command] = handler
 
 
@@ -303,62 +305,7 @@ class FakeRegEntry:
             "original_device_class",
             "original_icon",
         )
-        return (
-            {
-                **self.as_partial_dict,
-                "aliases": sorted(self.aliases),
-            }
-            | dict.fromkeys(extra)
-            | self.extended_fields
-        )
-
-
-class FakeFragment:
-    """Opaque stand-in for ``orjson.Fragment``, which has no public attributes."""
-
-    __slots__ = ("_raw",)
-
-    def __init__(self, raw: bytes) -> None:
-        self._raw = raw
-
-
-def fake_json_bytes(fragment: FakeFragment) -> bytes:
-    """Core's ``json_bytes`` (orjson) writes a Fragment as its raw bytes."""
-    return (
-        fragment._raw
-        if isinstance(fragment, FakeFragment)
-        else json.dumps(fragment).encode()
-    )
-
-
-class FakeState:
-    def __init__(
-        self,
-        entity_id,
-        state="on",
-        friendly_name=None,
-        last_changed="2026-07-16T00:00:00+00:00",
-        last_updated="2026-07-16T00:00:00+00:00",
-        **attrs,
-    ):
-        self.entity_id = entity_id
-        self.state = state
-        self.attributes = dict(attrs)
-        if friendly_name is not None:
-            self.attributes["friendly_name"] = friendly_name
-        self.last_changed = last_changed
-        self.last_updated = last_updated
-
-    def as_dict(self):
-        # Mirrors core ``State.as_dict()`` / the REST ``/api/states/<id>`` shape.
-        # Timestamps are already ISO strings here — the real WS transport encodes
-        # core's datetimes to the same isoformat, so the server sees plain JSON
-        # either way (see websocket_api.overview._do_states byte-parity note).
         return {
-            "entity_id": self.entity_id,
-            "state": self.state,
-            "attributes": dict(self.attributes),
-            "last_changed": self.last_changed,
-            "last_updated": self.last_updated,
-            "context": {"id": "01ABC", "parent_id": None, "user_id": None},
-        }
+            **self.as_partial_dict,
+            "aliases": sorted(self.aliases),
+        } | dict.fromkeys(extra)

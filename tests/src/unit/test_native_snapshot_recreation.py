@@ -8,7 +8,7 @@ import pytest
 
 from ha_mcp.tool_api import CallContext
 
-from .test_native_engine_backend import native as native
+from ._native_backend_module import native as native
 from .test_native_engine_flows import flows as flows
 from .test_native_snapshot_flows import prepare
 from .test_native_snapshot_restore import runtime as runtime

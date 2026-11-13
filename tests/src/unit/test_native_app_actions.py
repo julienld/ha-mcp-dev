@@ -12,8 +12,8 @@ import pytest
 
 from ha_mcp.tool_api import CallContext, ToolFailure
 
+from ._native_backend_module import native as native
 from .test_native_apps import apps as apps
-from .test_native_engine_backend import native as native
 
 
 class Options:
@@ -21,7 +21,7 @@ class Options:
         self.values = copy.deepcopy(values)
 
     @classmethod
-    def from_dict(cls, values: dict[str, Any]) -> "Options":
+    def from_dict(cls, values: dict[str, Any]) -> Options:
         return cls(values)
 
     def to_dict(self) -> dict[str, Any]:

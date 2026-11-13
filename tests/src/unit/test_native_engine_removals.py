@@ -14,9 +14,9 @@ from ha_mcp.runtime.catalog import define_tool
 from ha_mcp.runtime.integration_removals import IntegrationRemovalTools
 from ha_mcp.tool_api import CallContext, ToolFailure
 
+from ._native_backend_module import native as native
 from .test_component_ws_search import FakeRegEntry, wsapi
 from .test_native_catalog_contract_zones import _setup
-from .test_native_engine_backend import native as native
 
 
 def _removal_engine(native: Any, monkeypatch: pytest.MonkeyPatch, backup: Any) -> tuple:

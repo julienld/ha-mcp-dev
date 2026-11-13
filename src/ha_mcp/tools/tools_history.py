@@ -181,6 +181,11 @@ class HistoryTools(HistoryFacade):
             start_dt, end_dt = _parse_time_range(
                 start_time, end_time, default_hours, now
             )
+            if None in (start_dt.tzinfo, end_dt.tzinfo):  # Core: naive = HA local time
+                tz_name, _ = await fetch_ha_timezone(self._client)
+                tz, _ = resolve_local_timezone(tz_name)
+                start_dt = start_dt.replace(tzinfo=start_dt.tzinfo or tz)
+                end_dt = end_dt.replace(tzinfo=end_dt.tzinfo or tz)
             query_settings = get_global_settings()
             statistics_timezone = await _prepare_guardrail_query(
                 self._client,

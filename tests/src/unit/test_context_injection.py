@@ -246,7 +246,7 @@ async def test_ha_get_automation_traces_works_without_ctx() -> None:
         "ha_mcp.tools.tools_traces._resolve_trace_item_id",
         new=AsyncMock(return_value="abc"),
     ):
-        result = await trace_tool(automation_id="automation.demo")
+        result = await trace_tool(entity_id="automation.demo")
 
     assert result["success"] is True
     assert result["trace_count"] == 0
@@ -269,7 +269,10 @@ async def test_ha_get_automation_traces_emits_progress_with_ctx() -> None:
             "result": [
                 {
                     "run_id": "1.0",
-                    "timestamp": "2025-01-01T00:00:00Z",
+                    "timestamp": {
+                        "start": "2025-01-01T00:00:00+00:00",
+                        "finish": "2025-01-01T00:00:01+00:00",
+                    },
                     "state": "stopped",
                 }
             ],
@@ -282,7 +285,7 @@ async def test_ha_get_automation_traces_emits_progress_with_ctx() -> None:
         "ha_mcp.tools.tools_traces._resolve_trace_item_id",
         new=AsyncMock(return_value="abc"),
     ):
-        result = await trace_tool(automation_id="automation.demo", ctx=ctx)
+        result = await trace_tool(entity_id="automation.demo", ctx=ctx)
 
     assert result["success"] is True
     _assert_no_protocol_logging(ctx)
@@ -626,7 +629,7 @@ async def test_ha_get_automation_traces_run_id_detail_emits_progress() -> None:
             return_value={"success": True, "detail": True},
         ),
     ):
-        await trace_tool(automation_id="automation.demo", run_id="1.0", ctx=ctx)
+        await trace_tool(entity_id="automation.demo", run_id="1.0", ctx=ctx)
 
     assert ctx.report_progress.await_count == 3
     calls = ctx.report_progress.await_args_list
@@ -660,10 +663,10 @@ async def test_ha_get_automation_traces_empty_diagnostics_emits_progress() -> No
         ),
         patch(
             "ha_mcp.tools.tools_traces._gather_diagnostics",
-            new=AsyncMock(return_value={"diagnostic": "info"}),
+            new=AsyncMock(return_value=({"diagnostic": "info"}, [])),
         ),
     ):
-        result = await trace_tool(automation_id="automation.demo", ctx=ctx)
+        result = await trace_tool(entity_id="automation.demo", ctx=ctx)
 
     assert result["success"] is True
     # Four progress events: connect (0), fetch list (1), no-traces (2), diagnostics complete (3).

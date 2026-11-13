@@ -1,39 +1,34 @@
-"""Unit tests for YAML-mode dashboard validators in ha_mcp_tools."""
+"""Unit tests for YAML-mode dashboard validators in ha_mcp_tools.
 
-import asyncio
+The handler tests call the service on a real ``hass`` whose config directory
+is the test's ``tmp_path``.
+"""
+
+import json
 from pathlib import Path
-from typing import ClassVar
-from unittest.mock import AsyncMock
-from unittest.mock import MagicMock as MM
 
 import pytest
+import yaml
+from homeassistant.core import HomeAssistant
 
-from custom_components.ha_mcp_tools import CALLER_TOKEN_FIELD
 from custom_components.ha_mcp_tools.const import (
     DASHBOARD_URL_PATH_PATTERN,
-    DOMAIN,
     RESERVED_DASHBOARD_URL_PATHS,
 )
 
-# Both handler fixtures below preload this token into hass.data and inject
-# it into every call_factory payload so the caller-token gate added by the
-# auth PR is transparent to these dashboard tests (which exercise the
-# yaml-editing logic, not the auth boundary).
-_TEST_CALLER_TOKEN = "test-caller-token-yaml-dashboards"
+from ._edit_yaml import EditYaml, make_edit_yaml
 
 
-@pytest.fixture(autouse=True)
-def _stub_config_check(monkeypatch):
-    """Stub the post-write config check (``async_check_ha_config_file``) to pass.
+@pytest.fixture
+def hass_config_dir(hass_tmp_config_dir: str) -> str:
+    """Core's config directory is this test's ``tmp_path``."""
+    return hass_tmp_config_dir
 
-    Dashboard edits route through ``_run_config_check``; without a stub the
-    handler would await a bare mock.
-    """
-    monkeypatch.setattr(
-        "custom_components.ha_mcp_tools.yaml_editing.async_check_ha_config_file",
-        AsyncMock(return_value=None),
-        raising=False,
-    )
+
+@pytest.fixture
+async def edit_yaml(hass: HomeAssistant) -> EditYaml:
+    """Call ``ha_mcp_tools.edit_yaml_config`` the way ha-mcp does."""
+    return await make_edit_yaml(hass)
 
 
 class TestDashboardUrlPathPattern:
@@ -99,14 +94,51 @@ class TestReservedDashboardUrlPaths:
         assert isinstance(RESERVED_DASHBOARD_URL_PATHS, frozenset)
 
 
-class TestValidateDashboardFilename:
+async def _write_error(
+    edit_yaml: EditYaml,
+    yaml_path: str,
+    *,
+    file: str = "configuration.yaml",
+    content: str = "x: 1\n",
+    extra_allowed_keys: list[str] | None = None,
+) -> str | None:
+    """The error ``edit_yaml_config`` answers for an add, or None once it wrote."""
+    result = await edit_yaml(
+        {
+            "file": file,
+            "action": "add",
+            "yaml_path": yaml_path,
+            "content": content,
+            "extra_allowed_keys": extra_allowed_keys or [],
+        }
+    )
+    return None if result["success"] else str(result["error"])
+
+
+def _allowed_keys(error: str | None) -> set[str]:
+    """The keys a generic "not in the allowed list" refusal names."""
+    assert error is not None and "Allowed keys: " in error, error
+    listed = error.split("Allowed keys: ", 1)[1].split(". For YAML-mode", 1)[0]
+    return set(listed.split(", "))
+
+
+# Valid content per packages-only key (automation/scene are lists, script a map).
+_PACKAGES_CONTENT = {
+    "automation": "- id: x\n  alias: x\n  trigger: []\n  action: []\n",
+    "script": "my_script:\n  sequence: []\n",
+    "scene": "- id: x\n  name: x\n  entities: {}\n",
+}
+
+
+class TestDashboardFilename:
     """`filename:` value in a YAML-mode dashboard entry must stay under dashboards/."""
 
-    @pytest.fixture(scope="class")
-    def validate(self):
-        from custom_components.ha_mcp_tools import _validate_dashboard_filename
-
-        return _validate_dashboard_filename
+    @staticmethod
+    async def _error(edit_yaml: EditYaml, filename: str) -> str | None:
+        entry = f"mode: yaml\ntitle: x\nfilename: {json.dumps(filename)}\n"
+        return await _write_error(
+            edit_yaml, "lovelace.dashboards.fn-check", content=entry
+        )
 
     @pytest.mark.parametrize(
         "filename",
@@ -116,8 +148,10 @@ class TestValidateDashboardFilename:
             "dashboards/energy-2026.yaml",
         ],
     )
-    def test_accepts_valid_filenames(self, validate, filename):
-        err = validate(filename)
+    async def test_accepts_valid_filenames(
+        self, edit_yaml: EditYaml, filename: str
+    ) -> None:
+        err = await self._error(edit_yaml, filename)
         assert err is None, f"{filename} should be valid, got: {err}"
 
     @pytest.mark.parametrize(
@@ -134,96 +168,65 @@ class TestValidateDashboardFilename:
             "dashboards/main",  # no extension
         ],
     )
-    def test_rejects_invalid_filenames(self, validate, filename):
-        err = validate(filename)
+    async def test_rejects_invalid_filenames(
+        self, edit_yaml: EditYaml, filename: str
+    ) -> None:
+        err = await self._error(edit_yaml, filename)
         assert err is not None, f"{filename} should be rejected"
-        assert isinstance(err, str)
+        assert "filename" in err
 
 
-class TestParseYamlPath:
-    """yaml_path must accept either a single allowed key OR
+class TestYamlPathShapes:
+    """yaml_path must be either a single allowed key OR
     a 3-segment dotted path 'lovelace.dashboards.<url_path>'."""
 
-    @pytest.fixture(scope="class")
-    def parse(self):
-        from custom_components.ha_mcp_tools import _parse_and_validate_yaml_path
-
-        return _parse_and_validate_yaml_path
-
-    def test_accepts_single_allowed_key(self, parse):
-        kind, parts, err = parse("template")
-        assert err is None
-        assert kind == "single"
-        assert parts == ("template",)
-
-    def test_accepts_lovelace_dashboards_dotted(self, parse):
-        kind, parts, err = parse("lovelace.dashboards.energy-dash")
-        assert err is None
-        assert kind == "lovelace_dashboard"
-        assert parts == ("lovelace", "dashboards", "energy-dash")
-
-    def test_rejects_unknown_single_key(self, parse):
-        # Genuinely unknown, not denylisted – a YAML_KEY_DENYLIST member
-        # gets the categorical deny message instead of this one.
-        _, _, err = parse("zigbee2mqtt")
+    @pytest.mark.parametrize(
+        ("yaml_path", "says"),
+        [
+            # Genuinely unknown, not denylisted – a YAML_KEY_DENYLIST member
+            # gets the categorical deny message instead of this one.
+            ("zigbee2mqtt", "not in the allowed list"),
+            ("lovelace", ""),
+            ("lovelace.mode", "lovelace.dashboards.<url_path>"),
+            ("lovelace.dashboards", ""),
+            ("lovelace.dashboards.foo.bar", ""),
+            ("lovelace.dashboards.UPPER", ""),
+            ("homeassistant.customize", ""),
+        ],
+    )
+    async def test_rejects_unsupported_yaml_path(
+        self, edit_yaml: EditYaml, yaml_path: str, says: str
+    ) -> None:
+        err = await _write_error(edit_yaml, yaml_path)
         assert err is not None
-        assert "not in the allowed list" in err
-
-    def test_rejects_bare_lovelace(self, parse):
-        _, _, err = parse("lovelace")
-        assert err is not None
-
-    def test_rejects_lovelace_mode(self, parse):
-        _, _, err = parse("lovelace.mode")
-        assert err is not None
-        assert "lovelace.dashboards.<url_path>" in err
-
-    def test_rejects_lovelace_dashboards_without_url_path(self, parse):
-        _, _, err = parse("lovelace.dashboards")
-        assert err is not None
-
-    def test_rejects_too_many_segments(self, parse):
-        _, _, err = parse("lovelace.dashboards.foo.bar")
-        assert err is not None
-
-    def test_rejects_reserved_url_path(self, parse):
-        _, _, err = parse("lovelace.dashboards.lovelace")
-        assert err is not None
-        assert "reserved" in err.lower()
-
-    def test_rejects_invalid_url_path_format(self, parse):
-        _, _, err = parse("lovelace.dashboards.UPPER")
-        assert err is not None
-
-    def test_rejects_other_dotted_path(self, parse):
-        _, _, err = parse("homeassistant.customize")
-        assert err is not None
+        assert says in err
 
 
-class TestParseYamlPathPackagesOnly:
+class TestPackagesOnlyKeys:
     """PACKAGES_ONLY_YAML_KEYS (automation/script/scene) gating.
 
-    Accepted only when is_package=True; in configuration.yaml the rejection
+    Accepted only in a packages file; in configuration.yaml the rejection
     must point at the storage-mode tools, not just dump the generic
     allowlist.
     """
 
-    @pytest.fixture(scope="class")
-    def parse(self):
-        from custom_components.ha_mcp_tools import _parse_and_validate_yaml_path
-
-        return _parse_and_validate_yaml_path
-
     @pytest.mark.parametrize("key", ["automation", "script", "scene"])
-    def test_accepts_packages_only_key_when_is_package(self, parse, key):
-        kind, parts, err = parse(key, is_package=True)
+    async def test_accepts_packages_only_key_in_a_package(
+        self, edit_yaml: EditYaml, key: str
+    ) -> None:
+        err = await _write_error(
+            edit_yaml,
+            key,
+            file=f"packages/{key}.yaml",
+            content=_PACKAGES_CONTENT[key],
+        )
         assert err is None
-        assert kind == "single"
-        assert parts == (key,)
 
     @pytest.mark.parametrize("key", ["automation", "script", "scene"])
-    def test_rejects_packages_only_key_in_configuration_yaml(self, parse, key):
-        _, _, err = parse(key, is_package=False)
+    async def test_rejects_packages_only_key_in_configuration_yaml(
+        self, edit_yaml: EditYaml, key: str
+    ) -> None:
+        err = await _write_error(edit_yaml, key, content=_PACKAGES_CONTENT[key])
         assert err is not None
         assert "packages/*.yaml" in err
         # Spell each tool name out individually — an agent reading the
@@ -232,68 +235,49 @@ class TestParseYamlPathPackagesOnly:
         assert "ha_config_set_script" in err
         assert "ha_config_set_scene" in err
 
-    def test_default_is_package_false(self, parse):
-        # Omitting is_package must behave like is_package=False — no silent
-        # acceptance of PACKAGES_ONLY keys through positional callers.
-        _, _, err = parse("automation")
-        assert err is not None
-        assert "packages/*.yaml" in err
-
-    def test_union_list_in_generic_error_when_is_package(self, parse):
+    async def test_union_list_in_generic_error_in_a_package(
+        self, edit_yaml: EditYaml
+    ) -> None:
         # Unknown single key inside a package file: error must enumerate both
         # ALLOWED_YAML_KEYS and PACKAGES_ONLY_YAML_KEYS so the user sees the
         # full surface they can pick from. The probe key must be genuinely
         # unknown – a YAML_KEY_DENYLIST member takes the deny branch instead
         # and never reaches this generic dump.
-        _, _, err = parse("zigbee2mqtt", is_package=True)
-        assert err is not None
-        assert "automation" in err
-        assert "script" in err
-        assert "scene" in err
+        err = await _write_error(edit_yaml, "zigbee2mqtt", file="packages/x.yaml")
+        assert {"automation", "script", "scene"} <= _allowed_keys(err)
 
-    def test_generic_error_excludes_packages_only_when_not_package(self, parse):
+    async def test_generic_error_excludes_packages_only_in_configuration_yaml(
+        self, edit_yaml: EditYaml
+    ) -> None:
         # Unknown single key against configuration.yaml: allowlist must NOT
         # include PACKAGES_ONLY keys — listing them would mislead the user
         # into thinking they can rename their key to one of those.
-        _, _, err = parse("zigbee2mqtt", is_package=False)
-        assert err is not None
-        assert "automation" not in err
-        assert "script" not in err
-        assert "scene" not in err
+        err = await _write_error(edit_yaml, "zigbee2mqtt")
+        assert not {"automation", "script", "scene"} & _allowed_keys(err)
 
 
-class TestParseYamlPathExtraAllowedKeys:
+class TestExtraAllowedKeys:
     """Operator-configured extra write keys and the deny floor (#1887).
 
     ``extra_allowed_keys`` widens what a single-segment yaml_path may name;
     ``YAML_KEY_DENYLIST`` is the floor that widening can never cross.
     """
 
-    @pytest.fixture(scope="class")
-    def parse(self):
-        from custom_components.ha_mcp_tools import _parse_and_validate_yaml_path
-
-        return _parse_and_validate_yaml_path
-
-    def test_rejects_unknown_key_without_extra_allowed(self, parse):
-        _, _, err = parse("alert2")
-        assert err is not None
-
-    @pytest.mark.parametrize("is_package", [False, True])
-    def test_accepts_extra_key_in_both_file_kinds(self, parse, is_package):
+    @pytest.mark.parametrize("file", ["configuration.yaml", "packages/extra.yaml"])
+    async def test_accepts_extra_key_in_both_file_kinds(
+        self, edit_yaml: EditYaml, file: str
+    ) -> None:
         # The filed case (alert2) reads from a package fragment, but the
         # setting is not packages-scoped – configuration.yaml counts too.
-        kind, parts, err = parse(
-            "alert2",
-            is_package=is_package,
-            extra_allowed_keys=frozenset({"alert2"}),
+        err = await _write_error(
+            edit_yaml, "alert2", file=file, extra_allowed_keys=["alert2"]
         )
         assert err is None
-        assert kind == "single"
-        assert parts == ("alert2",)
 
     @pytest.mark.parametrize("key", ["automation", "script", "scene"])
-    def test_extra_key_does_not_lift_packages_only_restriction(self, parse, key):
+    async def test_extra_key_does_not_lift_packages_only_restriction(
+        self, edit_yaml: EditYaml, key: str
+    ) -> None:
         """An extra key must not make a packages-only key writable in
         configuration.yaml (#1887).
 
@@ -303,52 +287,57 @@ class TestParseYamlPathExtraAllowedKeys:
         automation/script/scene while the per-key toggle governing them is off,
         since that toggle only gates packages targets.
         """
-        _, _, err = parse(key, extra_allowed_keys=frozenset({key}))
+        err = await _write_error(
+            edit_yaml, key, content=_PACKAGES_CONTENT[key], extra_allowed_keys=[key]
+        )
         assert err is not None
         assert "packages/*.yaml" in err
         assert f"ha_config_set_{key}" in err
 
     @pytest.mark.parametrize("key", ["automation", "script", "scene"])
-    def test_packages_only_key_still_reaches_package_files(self, parse, key):
+    async def test_packages_only_key_listed_as_extra_still_reaches_packages(
+        self, edit_yaml: EditYaml, key: str
+    ) -> None:
         """The restriction above must not narrow the packages path itself:
-        inside packages/*.yaml these keys stay acceptable, with or without the
-        operator listing them."""
-        for extra in (frozenset(), frozenset({key})):
-            kind, parts, err = parse(key, is_package=True, extra_allowed_keys=extra)
-            assert err is None, f"{key} with extra={extra}: {err}"
-            assert kind == "single"
-            assert parts == (key,)
+        inside packages/*.yaml these keys stay acceptable when the operator
+        lists them too."""
+        err = await _write_error(
+            edit_yaml,
+            key,
+            file=f"packages/{key}.yaml",
+            content=_PACKAGES_CONTENT[key],
+            extra_allowed_keys=[key],
+        )
+        assert err is None
 
-    def test_generic_error_lists_extra_keys(self, parse):
+    async def test_generic_error_lists_extra_keys(self, edit_yaml: EditYaml) -> None:
         # An operator who added a key must see it in the allowed-keys dump,
         # otherwise the error contradicts their own configuration.
-        _, _, err = parse("nosuchkey", extra_allowed_keys=frozenset({"alert2"}))
-        assert err is not None
-        assert "alert2" in err
+        err = await _write_error(edit_yaml, "nosuchkey", extra_allowed_keys=["alert2"])
+        assert "alert2" in _allowed_keys(err)
 
+    @pytest.mark.parametrize("file", ["configuration.yaml", "packages/x.yaml"])
     @pytest.mark.parametrize("key", ["homeassistant", "http", "frontend", "lovelace"])
-    def test_denylist_key_rejected_even_when_extra_allowed(self, parse, key):
+    async def test_denylist_key_rejected_even_when_extra_allowed(
+        self, edit_yaml: EditYaml, key: str, file: str
+    ) -> None:
         # The floor must win over the operator's own list – this is the
         # whole point of it being non-operator-extendable.
-        _, _, err = parse(key, extra_allowed_keys=frozenset({key}))
+        err = await _write_error(edit_yaml, key, file=file, extra_allowed_keys=[key])
         assert err is not None
         assert "never be edited" in err
         # The operator configured this key on purpose; without this sentence
         # the message never answers "why is my key being ignored".
         assert "cannot be lifted" in err
 
-    @pytest.mark.parametrize("key", ["homeassistant", "http", "frontend", "lovelace"])
-    def test_denylist_key_rejected_in_packages_too(self, parse, key):
-        _, _, err = parse(key, is_package=True, extra_allowed_keys=frozenset({key}))
-        assert err is not None
-        assert "never be edited" in err
-
-    def test_denylist_error_is_distinct_from_generic_allowlist_dump(self, parse):
+    async def test_denylist_error_is_distinct_from_generic_allowlist_dump(
+        self, edit_yaml: EditYaml
+    ) -> None:
         # A denied key must not be answered with "here are the keys you may
         # use instead" – that reads as "pick another key", hiding that this
         # one is categorically refused.
-        _, _, deny_err = parse("http")
-        _, _, generic_err = parse("nosuchkey")
+        deny_err = await _write_error(edit_yaml, "http")
+        generic_err = await _write_error(edit_yaml, "nosuchkey")
         assert deny_err is not None and generic_err is not None
         assert deny_err != generic_err
         assert "not in the allowed list" not in deny_err
@@ -358,9 +347,8 @@ class TestYamlKeyDenylistContract:
     """Invariants the deny floor relies on (#1887)."""
 
     def test_denylist_disjoint_from_allow_sets(self):
-        # ``_parse_and_validate_yaml_path`` checks the denylist first, so an
-        # overlap would silently make an allowed key unreachable rather than
-        # failing loudly here.
+        # The service checks the denylist first, so an overlap would silently
+        # make an allowed key unreachable rather than failing loudly here.
         from custom_components.ha_mcp_tools.const import (
             ALLOWED_YAML_KEYS,
             PACKAGES_ONLY_YAML_KEYS,
@@ -370,21 +358,25 @@ class TestYamlKeyDenylistContract:
         overlap = YAML_KEY_DENYLIST & (ALLOWED_YAML_KEYS | PACKAGES_ONLY_YAML_KEYS)
         assert not overlap, f"denylisted keys also marked allowed: {overlap}"
 
-    def test_caller_extra_keys_drop_denylisted_entries(self):
-        from types import SimpleNamespace
-
-        from custom_components.ha_mcp_tools import _caller_extra_allowed_keys
-
-        call = SimpleNamespace(
-            data={"extra_allowed_keys": ["alert2", "http", "", "homeassistant"]}
+    async def test_caller_extra_keys_drop_denylisted_entries(
+        self, edit_yaml: EditYaml
+    ) -> None:
+        """A denylisted or empty extra key never widens the allowed list a
+        refusal names."""
+        err = await _write_error(
+            edit_yaml,
+            "nosuchkey",
+            extra_allowed_keys=["alert2", "http", "", "homeassistant"],
         )
-        assert _caller_extra_allowed_keys(call.data) == frozenset({"alert2"})
+        allowed = _allowed_keys(err)
+        assert "alert2" in allowed
+        assert not {"http", "", "homeassistant"} & allowed
 
-    def test_caller_extra_keys_default_empty(self):
+    async def test_caller_extra_keys_default_empty(self, edit_yaml: EditYaml) -> None:
+        from custom_components.ha_mcp_tools.const import ALLOWED_YAML_KEYS
 
-        from custom_components.ha_mcp_tools import _caller_extra_allowed_keys
-
-        assert _caller_extra_allowed_keys({}) == frozenset()
+        err = await _write_error(edit_yaml, "nosuchkey")
+        assert _allowed_keys(err) == set(ALLOWED_YAML_KEYS)
 
 
 class TestPostActionTableContract:
@@ -443,64 +435,26 @@ class TestPostActionTableContract:
 class TestHandleEditYamlConfigDashboards:
     """Integration of dashboard branch into handle_edit_yaml_config."""
 
-    @pytest.fixture
-    def hass(self, tmp_path):
-        """Minimal hass mock that runs executor jobs synchronously."""
-        h = MM()
-        h.config = MM()
-        h.config.config_dir = str(tmp_path)
-        # Seed the caller token so _caller_token_ok passes (auth PR).
-        h.data = {DOMAIN: {"caller_token": _TEST_CALLER_TOKEN}}
-
-        # Run executor jobs inline so we can assert filesystem state
-        async def _run(fn, *args):
-            return fn(*args)
-
-        h.async_add_executor_job = AsyncMock(side_effect=_run)
-        # check_config service returns 'ok'
-        h.services = MM()
-        h.services.async_call = AsyncMock(return_value={"errors": None})
-        return h
-
-    @pytest.fixture
-    def call_factory(self):
-        """Build a ServiceCall-like object with the caller token pre-injected."""
-
-        def _make(data):
-            call = MM()
-            call.data = {**data, CALLER_TOKEN_FIELD: _TEST_CALLER_TOKEN}
-            return call
-
-        return _make
-
-    def _run(self, coro):
-        return asyncio.run(coro)
-
-    def test_register_yaml_mode_dashboard(self, tmp_path, hass, call_factory):
+    async def test_register_yaml_mode_dashboard(
+        self, tmp_path: Path, edit_yaml: EditYaml
+    ) -> None:
         """A new lovelace.dashboards.<url_path> entry is added under that key only."""
-        from custom_components.ha_mcp_tools import _build_edit_yaml_config_handler
-
-        cfg = Path(tmp_path) / "configuration.yaml"
+        cfg = tmp_path / "configuration.yaml"
         cfg.write_text("default_config:\n")
 
-        handler = _build_edit_yaml_config_handler(hass)
-        result = self._run(
-            handler(
-                call_factory(
-                    {
-                        "file": "configuration.yaml",
-                        "action": "add",
-                        "yaml_path": "lovelace.dashboards.energy-dash",
-                        "content": (
-                            "mode: yaml\n"
-                            "title: Energy\n"
-                            "filename: dashboards/energy.yaml\n"
-                            "show_in_sidebar: true\n"
-                        ),
-                        "backup": False,
-                    }
-                )
-            )
+        result = await edit_yaml(
+            {
+                "file": "configuration.yaml",
+                "action": "add",
+                "yaml_path": "lovelace.dashboards.energy-dash",
+                "content": (
+                    "mode: yaml\n"
+                    "title: Energy\n"
+                    "filename: dashboards/energy.yaml\n"
+                    "show_in_sidebar: true\n"
+                ),
+                "backup": False,
+            }
         )
         assert result["success"] is True, result
         text = cfg.read_text()
@@ -512,64 +466,50 @@ class TestHandleEditYamlConfigDashboards:
         assert "mode: yaml" in text  # appears under the dashboard entry though
         # Make sure 'mode:' isn't a sibling of 'dashboards:' under 'lovelace:'
         # (i.e., lovelace key should only contain 'dashboards')
-        import yaml
-
         parsed = yaml.safe_load(text)
         assert set(parsed["lovelace"].keys()) == {"dashboards"}
 
-    def test_rejects_filename_traversal(self, tmp_path, hass, call_factory):
-        from custom_components.ha_mcp_tools import _build_edit_yaml_config_handler
-
-        cfg = Path(tmp_path) / "configuration.yaml"
+    async def test_rejects_filename_traversal(
+        self, tmp_path: Path, edit_yaml: EditYaml
+    ) -> None:
+        cfg = tmp_path / "configuration.yaml"
         cfg.write_text("")
 
-        handler = _build_edit_yaml_config_handler(hass)
-        result = self._run(
-            handler(
-                call_factory(
-                    {
-                        "file": "configuration.yaml",
-                        "action": "add",
-                        "yaml_path": "lovelace.dashboards.bad-dash",
-                        "content": (
-                            "mode: yaml\ntitle: Bad\nfilename: ../secrets.yaml\n"
-                        ),
-                        "backup": False,
-                    }
-                )
-            )
+        result = await edit_yaml(
+            {
+                "file": "configuration.yaml",
+                "action": "add",
+                "yaml_path": "lovelace.dashboards.bad-dash",
+                "content": ("mode: yaml\ntitle: Bad\nfilename: ../secrets.yaml\n"),
+                "backup": False,
+            }
         )
         assert result["success"] is False
         assert "filename" in result["error"]
 
-    def test_rejects_reserved_url_path(self, tmp_path, hass, call_factory):
-        from custom_components.ha_mcp_tools import _build_edit_yaml_config_handler
-
-        cfg = Path(tmp_path) / "configuration.yaml"
+    async def test_rejects_reserved_url_path(
+        self, tmp_path: Path, edit_yaml: EditYaml
+    ) -> None:
+        cfg = tmp_path / "configuration.yaml"
         cfg.write_text("")
 
-        handler = _build_edit_yaml_config_handler(hass)
-        result = self._run(
-            handler(
-                call_factory(
-                    {
-                        "file": "configuration.yaml",
-                        "action": "add",
-                        "yaml_path": "lovelace.dashboards.lovelace",
-                        "content": "mode: yaml\ntitle: x\nfilename: dashboards/x.yaml\n",
-                        "backup": False,
-                    }
-                )
-            )
+        result = await edit_yaml(
+            {
+                "file": "configuration.yaml",
+                "action": "add",
+                "yaml_path": "lovelace.dashboards.lovelace",
+                "content": "mode: yaml\ntitle: x\nfilename: dashboards/x.yaml\n",
+                "backup": False,
+            }
         )
         assert result["success"] is False
         assert "reserved" in result["error"].lower()
 
-    def test_remove_dashboard_entry_only(self, tmp_path, hass, call_factory):
+    async def test_remove_dashboard_entry_only(
+        self, tmp_path: Path, edit_yaml: EditYaml
+    ) -> None:
         """`remove` only deletes the targeted dashboard, not the whole lovelace key."""
-        from custom_components.ha_mcp_tools import _build_edit_yaml_config_handler
-
-        cfg = Path(tmp_path) / "configuration.yaml"
+        cfg = tmp_path / "configuration.yaml"
         cfg.write_text(
             "lovelace:\n"
             "  dashboards:\n"
@@ -583,57 +523,43 @@ class TestHandleEditYamlConfigDashboards:
             "      filename: dashboards/weather.yaml\n"
         )
 
-        handler = _build_edit_yaml_config_handler(hass)
-        result = self._run(
-            handler(
-                call_factory(
-                    {
-                        "file": "configuration.yaml",
-                        "action": "remove",
-                        "yaml_path": "lovelace.dashboards.energy-dash",
-                        "backup": False,
-                    }
-                )
-            )
+        result = await edit_yaml(
+            {
+                "file": "configuration.yaml",
+                "action": "remove",
+                "yaml_path": "lovelace.dashboards.energy-dash",
+                "backup": False,
+            }
         )
         assert result["success"] is True
-        import yaml
-
         parsed = yaml.safe_load(cfg.read_text())
         assert "energy-dash" not in parsed["lovelace"]["dashboards"]
         assert "weather-dash" in parsed["lovelace"]["dashboards"]
 
-    def test_rejects_missing_filename_key(self, tmp_path, hass, call_factory):
+    async def test_rejects_missing_filename_key(
+        self, tmp_path: Path, edit_yaml: EditYaml
+    ) -> None:
         """add/replace without `filename:` should be rejected by the validator."""
-        from custom_components.ha_mcp_tools import _build_edit_yaml_config_handler
-
-        cfg = Path(tmp_path) / "configuration.yaml"
+        cfg = tmp_path / "configuration.yaml"
         cfg.write_text("")
 
-        handler = _build_edit_yaml_config_handler(hass)
-        result = self._run(
-            handler(
-                call_factory(
-                    {
-                        "file": "configuration.yaml",
-                        "action": "add",
-                        "yaml_path": "lovelace.dashboards.no-filename",
-                        "content": "mode: yaml\ntitle: x\n",  # filename omitted
-                        "backup": False,
-                    }
-                )
-            )
+        result = await edit_yaml(
+            {
+                "file": "configuration.yaml",
+                "action": "add",
+                "yaml_path": "lovelace.dashboards.no-filename",
+                "content": "mode: yaml\ntitle: x\n",  # filename omitted
+                "backup": False,
+            }
         )
         assert result["success"] is False
         assert "filename" in result["error"]
 
-    def test_add_merges_into_existing_dashboard_entry(
-        self, tmp_path, hass, call_factory
-    ):
+    async def test_add_merges_into_existing_dashboard_entry(
+        self, tmp_path: Path, edit_yaml: EditYaml
+    ) -> None:
         """add into an existing url_path merges (dict.update) rather than replaces."""
-        from custom_components.ha_mcp_tools import _build_edit_yaml_config_handler
-
-        cfg = Path(tmp_path) / "configuration.yaml"
+        cfg = tmp_path / "configuration.yaml"
         cfg.write_text(
             "lovelace:\n"
             "  dashboards:\n"
@@ -643,27 +569,20 @@ class TestHandleEditYamlConfigDashboards:
             "      filename: dashboards/energy.yaml\n"
         )
 
-        handler = _build_edit_yaml_config_handler(hass)
-        result = self._run(
-            handler(
-                call_factory(
-                    {
-                        "file": "configuration.yaml",
-                        "action": "add",
-                        "yaml_path": "lovelace.dashboards.energy-dash",
-                        "content": (
-                            "title: New\n"
-                            "filename: dashboards/energy.yaml\n"
-                            "show_in_sidebar: true\n"
-                        ),
-                        "backup": False,
-                    }
-                )
-            )
+        result = await edit_yaml(
+            {
+                "file": "configuration.yaml",
+                "action": "add",
+                "yaml_path": "lovelace.dashboards.energy-dash",
+                "content": (
+                    "title: New\n"
+                    "filename: dashboards/energy.yaml\n"
+                    "show_in_sidebar: true\n"
+                ),
+                "backup": False,
+            }
         )
         assert result["success"] is True, result
-        import yaml
-
         parsed = yaml.safe_load(cfg.read_text())
         entry = parsed["lovelace"]["dashboards"]["energy-dash"]
         # Old keys retained, overlapping keys overwritten, new keys added
@@ -676,156 +595,97 @@ class TestHandleEditYamlConfigSingleKey:
     """Single-key branch of _build_edit_yaml_config_handler must behave the same
     after the factory refactor."""
 
-    @pytest.fixture
-    def hass(self, tmp_path):
-        h = MM()
-        h.config = MM()
-        h.config.config_dir = str(tmp_path)
-        # Seed the caller token so _caller_token_ok passes (auth PR).
-        h.data = {DOMAIN: {"caller_token": _TEST_CALLER_TOKEN}}
-
-        async def _run(fn, *args):
-            return fn(*args)
-
-        h.async_add_executor_job = AsyncMock(side_effect=_run)
-        h.services = MM()
-        h.services.async_call = AsyncMock(return_value={"errors": None})
-        return h
-
-    @pytest.fixture
-    def call_factory(self):
-        def _make(data):
-            call = MM()
-            call.data = {**data, CALLER_TOKEN_FIELD: _TEST_CALLER_TOKEN}
-            return call
-
-        return _make
-
-    def _run(self, coro):
-        return asyncio.run(coro)
-
-    def test_single_key_add_creates_new_key(self, tmp_path, hass, call_factory):
-        from custom_components.ha_mcp_tools import _build_edit_yaml_config_handler
-
-        cfg = Path(tmp_path) / "configuration.yaml"
+    async def test_single_key_add_creates_new_key(
+        self, tmp_path: Path, edit_yaml: EditYaml
+    ) -> None:
+        cfg = tmp_path / "configuration.yaml"
         cfg.write_text("default_config:\n")
 
-        handler = _build_edit_yaml_config_handler(hass)
-        result = self._run(
-            handler(
-                call_factory(
-                    {
-                        "file": "configuration.yaml",
-                        "action": "add",
-                        "yaml_path": "command_line",
-                        "content": "- sensor:\n    name: foo\n    command: 'echo 1'\n",
-                        "backup": False,
-                    }
-                )
-            )
+        result = await edit_yaml(
+            {
+                "file": "configuration.yaml",
+                "action": "add",
+                "yaml_path": "command_line",
+                "content": "- sensor:\n    name: foo\n    command: 'echo 1'\n",
+                "backup": False,
+            }
         )
         assert result["success"] is True, result
-        import yaml
-
         parsed = yaml.safe_load(cfg.read_text())
         assert "command_line" in parsed
         assert parsed["default_config"] is None
 
-    def test_single_key_replace_overwrites(self, tmp_path, hass, call_factory):
-        from custom_components.ha_mcp_tools import _build_edit_yaml_config_handler
-
-        cfg = Path(tmp_path) / "configuration.yaml"
+    async def test_single_key_replace_overwrites(
+        self, tmp_path: Path, edit_yaml: EditYaml
+    ) -> None:
+        cfg = tmp_path / "configuration.yaml"
         cfg.write_text("shell_command:\n  old_cmd: 'echo old'\n")
 
-        handler = _build_edit_yaml_config_handler(hass)
-        result = self._run(
-            handler(
-                call_factory(
-                    {
-                        "file": "configuration.yaml",
-                        "action": "replace",
-                        "yaml_path": "shell_command",
-                        "content": "new_cmd: 'echo new'\n",
-                        "backup": False,
-                    }
-                )
-            )
+        result = await edit_yaml(
+            {
+                "file": "configuration.yaml",
+                "action": "replace",
+                "yaml_path": "shell_command",
+                "content": "new_cmd: 'echo new'\n",
+                "backup": False,
+            }
         )
         assert result["success"] is True, result
-        import yaml
-
         parsed = yaml.safe_load(cfg.read_text())
         assert parsed["shell_command"] == {"new_cmd": "echo new"}
 
-    def test_single_key_remove_missing_errors(self, tmp_path, hass, call_factory):
-        from custom_components.ha_mcp_tools import _build_edit_yaml_config_handler
-
-        cfg = Path(tmp_path) / "configuration.yaml"
+    async def test_single_key_remove_missing_errors(
+        self, tmp_path: Path, edit_yaml: EditYaml
+    ) -> None:
+        cfg = tmp_path / "configuration.yaml"
         cfg.write_text("default_config:\n")
 
-        handler = _build_edit_yaml_config_handler(hass)
-        result = self._run(
-            handler(
-                call_factory(
-                    {
-                        "file": "configuration.yaml",
-                        "action": "remove",
-                        "yaml_path": "command_line",
-                        "backup": False,
-                    }
-                )
-            )
+        result = await edit_yaml(
+            {
+                "file": "configuration.yaml",
+                "action": "remove",
+                "yaml_path": "command_line",
+                "backup": False,
+            }
         )
         assert result["success"] is False
         assert "command_line" in result["error"]
 
-    def test_single_key_post_action_for_template(self, tmp_path, hass, call_factory):
+    async def test_single_key_post_action_for_template(
+        self, tmp_path: Path, edit_yaml: EditYaml
+    ) -> None:
         """template -> reload_available; covers post-action lookup for single-key kind."""
-        from custom_components.ha_mcp_tools import _build_edit_yaml_config_handler
-
-        cfg = Path(tmp_path) / "configuration.yaml"
+        cfg = tmp_path / "configuration.yaml"
         cfg.write_text("")
 
-        handler = _build_edit_yaml_config_handler(hass)
-        result = self._run(
-            handler(
-                call_factory(
-                    {
-                        "file": "configuration.yaml",
-                        "action": "add",
-                        "yaml_path": "template",
-                        "content": ("- sensor:\n    - name: t\n      state: 'ok'\n"),
-                        "backup": False,
-                    }
-                )
-            )
+        result = await edit_yaml(
+            {
+                "file": "configuration.yaml",
+                "action": "add",
+                "yaml_path": "template",
+                "content": ("- sensor:\n    - name: t\n      state: 'ok'\n"),
+                "backup": False,
+            }
         )
         assert result["success"] is True, result
         assert result["post_action"] == "reload_available"
         assert result["reload_service"] == "homeassistant.reload_custom_templates"
 
-    def test_single_key_post_action_for_shell_command(
-        self, tmp_path, hass, call_factory
-    ):
+    async def test_single_key_post_action_for_shell_command(
+        self, tmp_path: Path, edit_yaml: EditYaml
+    ) -> None:
         """shell_command falls through to default 'restart_required'."""
-        from custom_components.ha_mcp_tools import _build_edit_yaml_config_handler
-
-        cfg = Path(tmp_path) / "configuration.yaml"
+        cfg = tmp_path / "configuration.yaml"
         cfg.write_text("")
 
-        handler = _build_edit_yaml_config_handler(hass)
-        result = self._run(
-            handler(
-                call_factory(
-                    {
-                        "file": "configuration.yaml",
-                        "action": "add",
-                        "yaml_path": "shell_command",
-                        "content": "echo: 'echo hi'\n",
-                        "backup": False,
-                    }
-                )
-            )
+        result = await edit_yaml(
+            {
+                "file": "configuration.yaml",
+                "action": "add",
+                "yaml_path": "shell_command",
+                "content": "echo: 'echo hi'\n",
+                "backup": False,
+            }
         )
         assert result["success"] is True, result
         assert result["post_action"] == "restart_required"
@@ -836,63 +696,29 @@ class TestHandleEditYamlConfigPathTraversal:
     ``fnmatch`` package check, so a crafted ``packages/../configuration.yaml``
     cannot smuggle a PACKAGES_ONLY key into ``configuration.yaml``."""
 
-    @pytest.fixture
-    def hass(self, tmp_path):
-        h = MM()
-        h.config = MM()
-        h.config.config_dir = str(tmp_path)
-        h.data = {DOMAIN: {"caller_token": _TEST_CALLER_TOKEN}}
-
-        async def _run(fn, *args):
-            return fn(*args)
-
-        h.async_add_executor_job = AsyncMock(side_effect=_run)
-        h.services = MM()
-        h.services.async_call = AsyncMock(return_value={"errors": None})
-        return h
-
-    @pytest.fixture
-    def call_factory(self):
-        def _make(data):
-            call = MM()
-            call.data = {**data, CALLER_TOKEN_FIELD: _TEST_CALLER_TOKEN}
-            return call
-
-        return _make
-
-    def _run(self, coro):
-        return asyncio.run(coro)
-
-    def test_packages_dotdot_normalizes_to_configuration_yaml_and_rejects(
-        self, tmp_path, hass, call_factory
-    ):
+    async def test_packages_dotdot_normalizes_to_configuration_yaml_and_rejects(
+        self, tmp_path: Path, edit_yaml: EditYaml
+    ) -> None:
         """``packages/../configuration.yaml`` → ``configuration.yaml`` after
         normpath, so the ``packages/*.yaml`` fnmatch does not match and
         ``yaml_path="automation"`` is rejected with the storage-mode pointer.
 
-        Pins the layering: normpath at __init__.py:330 must run before
-        the fnmatch package check at __init__.py:338 so a crafted path
+        Pins the layering: the handler's normpath must run before the
+        fnmatch package check in ``_classify_edit_yaml_target`` so a crafted path
         cannot smuggle a PACKAGES_ONLY key into configuration.yaml. The
         defense is correct by construction; this is belt-and-suspenders
         against a future refactor reordering those two steps."""
-        from custom_components.ha_mcp_tools import _build_edit_yaml_config_handler
-
-        cfg = Path(tmp_path) / "configuration.yaml"
+        cfg = tmp_path / "configuration.yaml"
         cfg.write_text("")
 
-        handler = _build_edit_yaml_config_handler(hass)
-        result = self._run(
-            handler(
-                call_factory(
-                    {
-                        "file": "packages/../configuration.yaml",
-                        "action": "add",
-                        "yaml_path": "automation",
-                        "content": "- id: x\n  alias: x\n",
-                        "backup": False,
-                    }
-                )
-            )
+        result = await edit_yaml(
+            {
+                "file": "packages/../configuration.yaml",
+                "action": "add",
+                "yaml_path": "automation",
+                "content": "- id: x\n  alias: x\n",
+                "backup": False,
+            }
         )
         assert result["success"] is False
         assert "packages/*.yaml" in result["error"]
@@ -905,174 +731,107 @@ class TestHandleEditYamlConfigPackagesGate:
     even if the wrapper's client-side gate were bypassed (defense in depth).
     Mirrors the wrapper-side coverage in test_yaml_config_tool.py."""
 
-    @pytest.fixture
-    def hass(self, tmp_path):
-        h = MM()
-        h.config = MM()
-        h.config.config_dir = str(tmp_path)
-        h.data = {DOMAIN: {"caller_token": _TEST_CALLER_TOKEN}}
-
-        async def _run(fn, *args):
-            return fn(*args)
-
-        h.async_add_executor_job = AsyncMock(side_effect=_run)
-        h.services = MM()
-        h.services.async_call = AsyncMock(return_value={"errors": None})
-        return h
-
-    @pytest.fixture
-    def call_factory(self):
-        def _make(data):
-            call = MM()
-            call.data = {**data, CALLER_TOKEN_FIELD: _TEST_CALLER_TOKEN}
-            return call
-
-        return _make
-
-    def _run(self, coro):
-        return asyncio.run(coro)
-
-    # Per-key valid content (automation/scene are lists, script is a map).
-    _CONTENT: ClassVar[dict[str, str]] = {
-        "automation": "- id: x\n  alias: x\n  trigger: []\n  action: []\n",
-        "script": "my_script:\n  sequence: []\n",
-        "scene": "- id: x\n  name: x\n  entities: {}\n",
-    }
-
     @pytest.mark.parametrize("key", ["automation", "script", "scene"])
-    def test_disabled_key_rejected_server_side(self, hass, call_factory, key):
+    async def test_disabled_key_rejected_server_side(
+        self, edit_yaml: EditYaml, key: str
+    ) -> None:
         """A disabled key targeting packages/*.yaml is refused by the
         component itself — independently of the wrapper — with a message
         pointing back at the caller's runtime configuration."""
-        from custom_components.ha_mcp_tools import _build_edit_yaml_config_handler
-
-        handler = _build_edit_yaml_config_handler(hass)
-        result = self._run(
-            handler(
-                call_factory(
-                    {
-                        "file": f"packages/{key}.yaml",
-                        "action": "add",
-                        "yaml_path": key,
-                        "content": self._CONTENT[key],
-                        "backup": False,
-                        "disabled_packages_keys": [key],
-                    }
-                )
-            )
+        result = await edit_yaml(
+            {
+                "file": f"packages/{key}.yaml",
+                "action": "add",
+                "yaml_path": key,
+                "content": _PACKAGES_CONTENT[key],
+                "backup": False,
+                "disabled_packages_keys": [key],
+            }
         )
         assert result["success"] is False, result
         assert key in result["error"]
         assert "disabled by the caller's runtime configuration" in result["error"]
 
-    def test_other_packages_key_not_blocked(self, hass, call_factory):
+    async def test_other_packages_key_not_blocked(self, edit_yaml: EditYaml) -> None:
         """The gate is per-key: disabling ``automation`` must not block a
         ``script`` write to the same packages surface."""
-        from custom_components.ha_mcp_tools import _build_edit_yaml_config_handler
-
-        handler = _build_edit_yaml_config_handler(hass)
-        result = self._run(
-            handler(
-                call_factory(
-                    {
-                        "file": "packages/things.yaml",
-                        "action": "add",
-                        "yaml_path": "script",
-                        "content": self._CONTENT["script"],
-                        "backup": False,
-                        "disabled_packages_keys": ["automation"],
-                    }
-                )
-            )
+        result = await edit_yaml(
+            {
+                "file": "packages/things.yaml",
+                "action": "add",
+                "yaml_path": "script",
+                "content": _PACKAGES_CONTENT["script"],
+                "backup": False,
+                "disabled_packages_keys": ["automation"],
+            }
         )
         assert result["success"] is True, result
 
-    def test_configuration_yaml_disabled_key_falls_through(
-        self, tmp_path, hass, call_factory
-    ):
+    async def test_configuration_yaml_disabled_key_falls_through(
+        self, tmp_path: Path, edit_yaml: EditYaml
+    ) -> None:
         """A disabled PACKAGES_ONLY key written to configuration.yaml must
         fall through to the storage-mode advisory (``_parse_and_validate_yaml_path``),
         NOT the per-key gate message — the gate is scoped to packages targets."""
-        from custom_components.ha_mcp_tools import _build_edit_yaml_config_handler
-
-        cfg = Path(tmp_path) / "configuration.yaml"
+        cfg = tmp_path / "configuration.yaml"
         cfg.write_text("")
-        handler = _build_edit_yaml_config_handler(hass)
-        result = self._run(
-            handler(
-                call_factory(
-                    {
-                        "file": "configuration.yaml",
-                        "action": "add",
-                        "yaml_path": "automation",
-                        "content": self._CONTENT["automation"],
-                        "backup": False,
-                        "disabled_packages_keys": ["automation"],
-                    }
-                )
-            )
+        result = await edit_yaml(
+            {
+                "file": "configuration.yaml",
+                "action": "add",
+                "yaml_path": "automation",
+                "content": _PACKAGES_CONTENT["automation"],
+                "backup": False,
+                "disabled_packages_keys": ["automation"],
+            }
         )
         assert result["success"] is False, result
         # The storage-mode advisory, not the per-key gate message.
         assert "disabled by the caller's runtime configuration" not in result["error"]
         assert "ha_config_set_automation" in result["error"]
 
-    def test_unknown_disabled_key_is_noop(self, hass, call_factory):
+    async def test_unknown_disabled_key_is_noop(self, edit_yaml: EditYaml) -> None:
         """An unrecognized key in ``disabled_packages_keys`` is filtered out
         (typo guard), so it cannot accidentally block a real, enabled key."""
-        from custom_components.ha_mcp_tools import _build_edit_yaml_config_handler
-
-        handler = _build_edit_yaml_config_handler(hass)
-        result = self._run(
-            handler(
-                call_factory(
-                    {
-                        "file": "packages/automations.yaml",
-                        "action": "add",
-                        "yaml_path": "automation",
-                        "content": self._CONTENT["automation"],
-                        "backup": False,
-                        "disabled_packages_keys": ["automatoin"],  # typo
-                    }
-                )
-            )
+        result = await edit_yaml(
+            {
+                "file": "packages/automations.yaml",
+                "action": "add",
+                "yaml_path": "automation",
+                "content": _PACKAGES_CONTENT["automation"],
+                "backup": False,
+                "disabled_packages_keys": ["automatoin"],  # typo
+            }
         )
         assert result["success"] is True, result
 
-    def test_default_empty_disabled_allows(self, hass, call_factory):
+    async def test_default_empty_disabled_allows(self, edit_yaml: EditYaml) -> None:
         """Omitting ``disabled_packages_keys`` entirely (older wrapper, or the
         schema default) imposes no per-key restriction on a packages write."""
-        from custom_components.ha_mcp_tools import _build_edit_yaml_config_handler
-
-        handler = _build_edit_yaml_config_handler(hass)
-        result = self._run(
-            handler(
-                call_factory(
-                    {
-                        "file": "packages/automations.yaml",
-                        "action": "add",
-                        "yaml_path": "automation",
-                        "content": self._CONTENT["automation"],
-                        "backup": False,
-                    }
-                )
-            )
+        result = await edit_yaml(
+            {
+                "file": "packages/automations.yaml",
+                "action": "add",
+                "yaml_path": "automation",
+                "content": _PACKAGES_CONTENT["automation"],
+                "backup": False,
+            }
         )
         assert result["success"] is True, result
 
     def test_flag_map_matches_packages_only_keys(self):
-        """The wrapper's ``_YAML_PACKAGES_FLAG_BY_KEY`` must stay in lockstep
+        """The wrapper's ``YAML_PACKAGES_FLAG_BY_KEY`` must stay in lockstep
         with the component's ``PACKAGES_ONLY_YAML_KEYS`` (no import-time
         coupling exists), and every mapped flag must be a real ``Settings``
         field. Otherwise a packages-only key silently becomes ungated, or
         ``_disabled_packages_keys`` raises at runtime."""
         from custom_components.ha_mcp_tools.const import PACKAGES_ONLY_YAML_KEYS
         from ha_mcp.config import Settings
-        from ha_mcp.tools.tools_yaml_config import _YAML_PACKAGES_FLAG_BY_KEY
+        from ha_mcp.tools.tools_yaml_config import YAML_PACKAGES_FLAG_BY_KEY
 
-        assert set(_YAML_PACKAGES_FLAG_BY_KEY) == set(PACKAGES_ONLY_YAML_KEYS)
-        for flag in _YAML_PACKAGES_FLAG_BY_KEY.values():
+        assert set(YAML_PACKAGES_FLAG_BY_KEY) == set(PACKAGES_ONLY_YAML_KEYS)
+        for flag in YAML_PACKAGES_FLAG_BY_KEY.values():
             assert flag in Settings.model_fields, (
-                f"{flag} is mapped in _YAML_PACKAGES_FLAG_BY_KEY but is not a "
+                f"{flag} is mapped in YAML_PACKAGES_FLAG_BY_KEY but is not a "
                 "Settings field"
             )

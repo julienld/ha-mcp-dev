@@ -12,6 +12,10 @@ from ha_mcp._vendor.fastmcp.tools import tool
 from ..backends.legacy import LegacyBackendTools, legacy_errors
 from ..runtime.overview_tools import OverviewService, OverviewTools
 from ..runtime.overview_values import resolve_overview_request
+from ..runtime.search_records import (
+    _COMPOSED_NAME_FIELD,
+    _composed_name_notes,
+)
 from ..runtime.search_request import resolve_search_request
 from ..runtime.search_response import _omit_empty_warnings
 from ..runtime.search_tools import SearchFacade, SearchService
@@ -20,6 +24,7 @@ from ..transforms.categorized_search import DEFAULT_PINNED_TOOLS
 from .coercion import parse_string_list_param
 from .component_api import (
     DEVICE_REGISTRY_CHILD_SEMANTICS,
+    ENTITY_COMPOSED_NAME,
     component_supports,
     get_component_caps,
 )
@@ -31,8 +36,8 @@ from .response_helpers import project_fields
 from .search.component import ComponentSearchMixin, _component_serves_search_types
 from .search.entities import _requested_membership
 from .search.overview import (
-    _OVERVIEW_AVAILABLE_FIELDS,
-    _OVERVIEW_INDEPENDENT_FIELDS,
+    OVERVIEW_AVAILABLE_FIELDS,
+    OVERVIEW_INDEPENDENT_FIELDS,
     OverviewMixin,
 )
 from .search.state import StateMixin
@@ -95,35 +100,67 @@ class SearchTools(LegacyBackendTools, ComponentSearchMixin, OverviewMixin, State
                 "config_time_budget": config_time_budget,
             }
         )
-        if _component_serves_search_types(req):
-            caps = await get_component_caps(self._client)
-            mode_supported = component_supports(caps, "search_unified") or (
-                bool(req.query_text) and (not (req.area_filter or "").strip())
+        parsed_result_fields = parse_string_list_param(
+            result_fields, "result_fields", allow_csv=True
+        )
+        # Capability-gated semantics keep old components compatible while newer
+        # components serve queryless listings, locations, and complete windows.
+        # Visibility and membership gates still apply before any entity data is
+        # returned; schema hiding never changes old-client invocation support.
+        if not _component_serves_search_types(req):
+            return _omit_empty_warnings(await self._legacy_ha_search(req, ctx))
+
+        caps = await get_component_caps(self._client)
+        naming = "absent"
+        if caps is not None:
+            naming = (
+                "current"
+                if component_supports(caps, ENTITY_COMPOSED_NAME)
+                else "outdated"
             )
-            if (
-                mode_supported
-                and component_supports(caps, "search")
-                and component_supports(caps, DEVICE_REGISTRY_CHILD_SEMANTICS)
-                and (
-                    not _requested_membership(
-                        parse_string_list_param(
-                            result_fields, "result_fields", allow_csv=True
-                        )
-                    )
-                    or component_supports(caps, "search_entity_membership")
-                )
-            ):
+        component_response: dict[str, Any] | None = None
+        component_answered = False
+        mode_supported = component_supports(caps, "search_unified") or (
+            bool(req.query_text) and not (req.area_filter or "").strip()
+        )
+        if (
+            mode_supported
+            and component_supports(caps, "search")
+            and component_supports(caps, DEVICE_REGISTRY_CHILD_SEMANTICS)
+            and (
+                not _requested_membership(parsed_result_fields)
+                or component_supports(caps, "search_entity_membership")
+            )
+        ):
+            (
+                route_component,
+                visibility,
+            ) = await self._resolve_component_search_visibility(caps)
+            if route_component:
                 (
-                    route_component,
-                    visibility,
-                ) = await self._resolve_component_search_visibility(caps)
-                if route_component:
-                    component_response = await self._ha_search_via_component(
-                        req, ctx, visibility=visibility, caps=caps
-                    )
-                    if component_response is not None:
-                        return _omit_empty_warnings(component_response)
-        return _omit_empty_warnings(await self._legacy_ha_search(req, ctx))
+                    component_response,
+                    component_answered,
+                ) = await self._ha_search_via_component(
+                    req, ctx, visibility=visibility, caps=caps
+                )
+
+        response = (
+            component_response
+            if component_response is not None
+            else await self._legacy_ha_search(req, ctx)
+        )
+        notes = _composed_name_notes(
+            name_served=component_answered and naming == "current",
+            component=naming,
+            name_requested=_COMPOSED_NAME_FIELD in (parsed_result_fields or ()),
+            nothing_found=bool(req.query_text)
+            and not response.get("count")
+            and not response.get("entity_total_matches")
+            and not response.get("config_total_matches"),
+        )
+        if notes:
+            response.setdefault("warnings", []).extend(notes)
+        return _omit_empty_warnings(response)
 
     @property
     def overview(self) -> OverviewService:
@@ -157,8 +194,7 @@ class SearchTools(LegacyBackendTools, ComponentSearchMixin, OverviewMixin, State
         )
         if independent:
             result = await self._collect_independent_overview(
-                requested_fields=set(parsed_fields or [])
-                & _OVERVIEW_INDEPENDENT_FIELDS,
+                requested_fields=set(parsed_fields or []) & OVERVIEW_INDEPENDENT_FIELDS,
                 detail_level=inputs.detail_level,
                 include_notifications=inputs.include_notifications,
                 include_dismissed_repairs=inputs.include_dismissed_repairs,
@@ -180,7 +216,7 @@ class SearchTools(LegacyBackendTools, ComponentSearchMixin, OverviewMixin, State
             }
 
         projected = project_fields(
-            result, parsed_fields, available_fields=_OVERVIEW_AVAILABLE_FIELDS
+            result, parsed_fields, available_fields=OVERVIEW_AVAILABLE_FIELDS
         )
         from ..stdio_settings_sidecar import live_sidecar_url
 

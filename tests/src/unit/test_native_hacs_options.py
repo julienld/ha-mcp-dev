@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from .test_native_engine_backend import native as native
+from ._native_backend_module import native as native
 from .test_native_hacs import call
 from .test_native_hacs import hacs as hacs
 from .test_native_marketplace import marketplace as marketplace

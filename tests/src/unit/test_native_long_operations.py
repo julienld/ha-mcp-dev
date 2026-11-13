@@ -11,9 +11,9 @@ import pytest
 from ha_mcp.runtime.engine import Engine
 from ha_mcp.tool_api import CallContext, ToolResult
 
+from ._native_backend_module import native as native
 from .test_native_app_actions import actions as actions
 from .test_native_apps import apps as apps
-from .test_native_engine_backend import native as native
 from .test_native_full_backup_restore import restore as restore
 from .test_native_full_backups import backups as backups
 

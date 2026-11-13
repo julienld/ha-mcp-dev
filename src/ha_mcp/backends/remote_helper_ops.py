@@ -17,6 +17,7 @@ HELPER_OPERATIONS = frozenset(
     {
         *REMOVAL_OPERATIONS,
         "helpers.storage.schemas",
+        "helpers.named",
         "helpers.storage.read",
         "helpers.storage.write",
         "helpers.storage.list",
@@ -57,11 +58,32 @@ async def execute_helper_operation(
         ) from exc
 
 
+async def _named_helpers(client: Any, arguments: dict[str, Any]) -> dict[str, Any]:
+    from ha_mcp.tools.component_api import ask_component
+    from ha_mcp.tools.config_helpers.registry import (
+        _find_collision_in_flow_helpers,
+        _find_collision_in_simple_helpers,
+    )
+
+    helper_type, name = arguments["helper_type"], arguments["name"]
+    named = await ask_component(client, "helpers_named", domain=helper_type, name=name)
+    if named is not None:
+        return {**named, "normalized": True}
+    find = (
+        _find_collision_in_simple_helpers
+        if helper_type in SIMPLE_HELPER_TYPES
+        else _find_collision_in_flow_helpers
+    )
+    existing = await find(client, helper_type, name)
+    return {"ids": [existing] if existing is not None else [], "normalized": False}
+
+
 async def _execute(client: Any, operation: str, arguments: dict[str, Any]) -> Any:
+    if operation == "helpers.named":
+        return await _named_helpers(client, arguments)
+
     from ha_mcp.tools.component_helper_collections import (
         fetch_helper_schemas,
-        read_helper_item,
-        read_stored_helper_item,
     )
 
     if operation == "helpers.storage.schemas":
@@ -76,6 +98,15 @@ async def _execute(client: Any, operation: str, arguments: dict[str, Any]) -> An
         return await _flow_records(client, operation, arguments)
     if operation == "helpers.backup.capture":
         return await _capture_backup(client, arguments)
+    return await _storage(client, operation, arguments)
+
+
+async def _storage(client: Any, operation: str, arguments: dict[str, Any]) -> Any:
+    from ha_mcp.tools.component_helper_collections import (
+        read_helper_item,
+        read_stored_helper_item,
+    )
+
     helper_type = arguments["helper_type"]
     if helper_type not in SIMPLE_HELPER_TYPES:
         raise UnsupportedOperation(f"helpers.storage.{helper_type}")
@@ -274,6 +305,24 @@ async def _check_expected(client: Any, arguments: dict[str, Any]) -> None:
             "helpers.storage.read",
             {"helper_type": arguments["helper_type"], "item_id": arguments["item_id"]},
         )
+        if (
+            current.get("success") is False
+            and (current.get("error") or {}).get("code") == "not_found"
+        ):
+            from ha_mcp.errors import ErrorCode, create_error_response
+            from ha_mcp.runtime.errors import raise_failure
+
+            raise_failure(
+                create_error_response(
+                    ErrorCode.CONFIG_NOT_FOUND,
+                    "The stored helper no longer exists; no update was sent.",
+                    context={
+                        "helper_type": arguments["helper_type"],
+                        "helper_id": arguments["item_id"],
+                    },
+                ),
+                status="not_started",
+            )
         if not json_values_equal(current.get("item"), expected):
             raise ToolFailure(
                 "CONFIG_CONFLICT",

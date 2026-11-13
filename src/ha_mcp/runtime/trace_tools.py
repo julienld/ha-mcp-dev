@@ -12,16 +12,53 @@ class TraceFacade:
 
     async def ha_get_automation_traces(
         self,
-        automation_id: Annotated[
-            str,
+        entity_id: Annotated[
+            str | None,
             Field(
-                description="Automation or script entity_id (e.g., 'automation.motion_light' or 'script.morning_routine')"
+                description=(
+                    "Automation or script entity_id. Omit when resolving a "
+                    "context-only lookup."
+                ),
+                default=None,
             ),
-        ],
+        ] = None,
+        domain: Annotated[
+            Literal["automation", "script"] | None,
+            Field(
+                description=(
+                    "List recent traces across every automation or script when "
+                    "entity_id is omitted. Required with item_id."
+                ),
+                default=None,
+            ),
+        ] = None,
+        item_id: Annotated[
+            str | None,
+            Field(
+                description=(
+                    "Core's trace item id from a list row or context "
+                    "resolution. Use with domain and run_id when no entity_id "
+                    "is available."
+                ),
+                default=None,
+            ),
+        ] = None,
         run_id: Annotated[
             str | None,
             Field(
                 description="Specific trace run_id to retrieve detailed trace.",
+                default=None,
+            ),
+        ] = None,
+        context_id: Annotated[
+            str | None,
+            Field(
+                description=(
+                    "Context id to resolve to its trace. Accepts the trace "
+                    "run's own `context.id` or, with the ha_mcp_tools "
+                    "component, the context id of the event or service call "
+                    "that triggered it. Mutually exclusive with run_id."
+                ),
                 default=None,
             ),
         ] = None,
@@ -34,19 +71,10 @@ class TraceFacade:
                 le=50,
             ),
         ] = 10,
-        deduplicate: Annotated[
-            bool,
-            Field(
-                description="Deduplicate variables across action steps. Set to False to record the "
-                "variables at every step; steps whose variables carry 'trigger', and "
-                "null-valued entries, are omitted either way.",
-                default=True,
-            ),
-        ] = True,
         detailed: Annotated[
             bool,
             Field(
-                description="Include extra diagnostic data: logbook entries and context metadata.",
+                description="Include the run's logbook entries in the detail response.",
                 default=False,
             ),
         ] = False,
@@ -54,9 +82,12 @@ class TraceFacade:
             str | None,
             Field(
                 description=(
-                    "Comma-separated list of trace sections to return. "
-                    "Valid values: trigger, conditions, actions, config, error, logbook, context. "
-                    "Omit to return all sections. Example: 'actions' or 'trigger,conditions'."
+                    "Comma-separated top-level keys from Core's extended trace "
+                    "dict to return, plus 'logbook' for the run's logbook. "
+                    "Available keys depend on the run; examples: 'trace', "
+                    "'config', 'context', 'error', 'logbook'. A requested name "
+                    "this run lacks is reported in 'warnings'. Omit, or pass an "
+                    "empty string, to return Core's full extended dict."
                 ),
                 default=None,
             ),
@@ -82,35 +113,60 @@ class TraceFacade:
         """Get execution traces for automations and scripts to debug issues.
 
         Traces show what triggered a run, which conditions passed or failed,
-        which actions executed (for 'choose', which branch was taken), any
-        errors, and variable values during execution. Home Assistant keeps
-        only the most recent runs of each automation or script (its
-        stored_traces setting), so older runs are not available. The 'state'
-        field shows 'stopped' (completed), 'running', or an error state.
+        which actions executed, any errors, and variable values during
+        execution. Home Assistant keeps only the most recent runs of each
+        automation or script (its stored_traces setting), so older runs are
+        not available.
+
+        Do not use this tool for general log history or recorder statistics;
+        use `ha_get_logs` for logs and `ha_get_history` for history/statistics.
 
         USAGE MODES:
-        1. List recent traces (omit run_id): returns a summary of recent runs
-           with timestamps, triggers, and status. Use `offset` to page deeper
-           when `has_more` is true.
+        1. List recent traces (omit run_id and context_id).
            ha_get_automation_traces("automation.motion_light")
-        2. Get a detailed trace (provide run_id): full execution details
-           including trigger info, condition results, action trace with timing,
-           and context variables.
+           ha_get_automation_traces(domain="automation")
+        2. Get a detailed trace (provide run_id): returns Core's extended trace
+           dict unchanged, including config, raw step trace, context, errors
+           and variables. Pass `sections` to keep only named top-level keys
+           (plus 'logbook' for the run's logbook); a requested name the run
+           lacks is reported in `warnings` and the run's own keys are listed.
+           An empty `sections` string means omitted.
            ha_get_automation_traces("automation.motion_light", run_id="1705312800.123456")
-        3. Add logbook entries and context metadata: detailed=True. Script-style
-           action paths (sequence/, numeric) are always matched regardless of
-           this flag.
-        4. Variables at every step (trigger sets and null entries are still
-           omitted): deduplicate=False.
+           ha_get_automation_traces(domain="automation", item_id="uid", run_id="...")
+        3. Resolve a trace by context (provide context_id): the response
+           selects Core's run for that context and reports `context_match` as
+           `trace` or `parent`. With the ha_mcp_tools component,
+           `context_other_matches` lists the other runs that matched the
+           context id (own or triggering parent); Core's own `trace/contexts`
+           keeps one run per context id. A context Core does not hold is
+           reported as not found with a hint that the component resolves
+           triggering (parent) contexts.
+           ha_get_automation_traces(context_id="01J...")
+
+        RESPONSE FIELDS:
+        - A detail response is Core's extended `trace/get` dict: `config`,
+          `trace`, `context`, `timestamp`, `state`, `error`,
+          `script_execution`, `blueprint_inputs` and any run-specific fields.
+        - `success`, `run_id`, `domain` and `item_id` identify the run.
+          `entity_id` is present when the caller supplied it; a context-only
+          lookup returns Core's `domain`/`item_id` instead of inventing one.
+        - `context_match` is `trace` or `parent`; `context_scanned` reports
+          how many stored runs the ha_mcp_tools component inspected while
+          resolving the context id, and is 0 when Core's own-context map
+          answered.
+        - `logbook_entries`, `logbook_transport`, `logbook_total` and
+          `logbook_truncated` describe the run's logbook rows.
         """
         return await self.get_traces(
-            automation_id,
-            run_id,
-            limit,
-            deduplicate,
-            detailed,
-            sections,
-            offset,
-            order,
-            ctx,
+            entity_id=entity_id,
+            domain=domain,
+            item_id=item_id,
+            context_id=context_id,
+            run_id=run_id,
+            limit=limit,
+            detailed=detailed,
+            sections=sections,
+            offset=offset,
+            order=order,
+            ctx=ctx,
         )

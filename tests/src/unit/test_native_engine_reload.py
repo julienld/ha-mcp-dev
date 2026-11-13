@@ -15,11 +15,11 @@ from ha_mcp.runtime import Engine
 from ha_mcp.runtime.config_reload import config_reload_waiter
 from ha_mcp.tool_api import CallContext, ToolFailure
 
+from ._native_backend_module import native as native
 from .test_native_catalog_contract_config import (
     _real_aiohttp_router as _real_aiohttp_router,
 )
 from .test_native_config_mutations import _mutation_setup
-from .test_native_engine_backend import native as native
 
 
 @pytest.fixture(autouse=True)

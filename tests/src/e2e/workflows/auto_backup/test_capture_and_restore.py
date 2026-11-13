@@ -74,9 +74,9 @@ def _enable_auto_backup(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AUTO_BACKUP_THROTTLE_MINUTES", "0")
     monkeypatch.setenv("AUTO_BACKUP_RETAIN_PER_ENTITY", "20")
     # The directory's autouse fixture pins HAMCP_BACKUP_DIR for in-process tests.
-    from ha_mcp.config import _reset_global_settings
+    from ha_mcp.config import reset_global_settings
 
-    _reset_global_settings()
+    reset_global_settings()
 
 
 def _backups_for(
@@ -824,8 +824,8 @@ class TestTemplateHelperCaptureRestore:
                 {
                     "helper_type": "template",
                     "name": f"Backup Template {uuid.uuid4().hex[:8]}",
+                    "menu_choice": template_type,
                     "config": {
-                        "next_step_id": template_type,
                         "state": "{{ 12 }}"
                         if template_type == "sensor"
                         else "{{ true }}",
@@ -986,24 +986,24 @@ class TestComplexHelperCaptureRestore:
         suffix = uuid.uuid4().hex[:8]
         helper_id = f"e2e_sched_{suffix}"
 
-        # Original config — multiple days with multiple time ranges each.
-        # Picks days/times deterministically so the assertion on captured
-        # content has something concrete to check.
+        # Several days with several time ranges each, fixed for the assertions.
         original = {
             "helper_type": "schedule",
             "name": helper_id,
             "icon": "mdi:calendar-clock",
-            "monday": [
-                {"from": "08:00:00", "to": "12:00:00"},
-                {"from": "13:00:00", "to": "17:00:00"},
-            ],
-            "tuesday": [{"from": "09:00:00", "to": "18:00:00"}],
-            "wednesday": [
-                {"from": "07:00:00", "to": "11:30:00"},
-                {"from": "12:30:00", "to": "16:00:00"},
-                {"from": "18:00:00", "to": "20:00:00"},
-            ],
-            "friday": [{"from": "08:30:00", "to": "14:30:00"}],
+            "config": {
+                "monday": [
+                    {"from": "08:00:00", "to": "12:00:00"},
+                    {"from": "13:00:00", "to": "17:00:00"},
+                ],
+                "tuesday": [{"from": "09:00:00", "to": "18:00:00"}],
+                "wednesday": [
+                    {"from": "07:00:00", "to": "11:30:00"},
+                    {"from": "12:30:00", "to": "16:00:00"},
+                    {"from": "18:00:00", "to": "20:00:00"},
+                ],
+                "friday": [{"from": "08:30:00", "to": "14:30:00"}],
+            },
         }
         mcp = MCPAssertions(mcp_client)
         await mcp.call_tool_success("ha_config_set_helper", original)
@@ -1013,21 +1013,21 @@ class TestComplexHelperCaptureRestore:
             # pre-edit fetch via ``schedule/list`` needs the entity present.
             await asyncio.sleep(_HA_PROPAGATION_SETTLE_SECONDS)
 
-            # Edit — shrink Monday, split Tuesday, drop Wednesday entirely.
-            # ``name`` is required by HA's schedule schema on every update
-            # (validator rejects the WS payload otherwise).
+            # Edit: shrink Monday, split Tuesday, drop Wednesday entirely.
             edited = {
                 "helper_type": "schedule",
                 "helper_id": helper_id,
                 "name": helper_id,
                 "icon": "mdi:calendar-remove",
-                "monday": [{"from": "10:00:00", "to": "12:00:00"}],
-                "tuesday": [
-                    {"from": "08:00:00", "to": "12:00:00"},
-                    {"from": "13:00:00", "to": "17:00:00"},
-                ],
-                "wednesday": [],
-                "friday": [{"from": "08:30:00", "to": "14:30:00"}],
+                "config": {
+                    "monday": [{"from": "10:00:00", "to": "12:00:00"}],
+                    "tuesday": [
+                        {"from": "08:00:00", "to": "12:00:00"},
+                        {"from": "13:00:00", "to": "17:00:00"},
+                    ],
+                    "wednesday": [],
+                    "friday": [{"from": "08:30:00", "to": "14:30:00"}],
+                },
             }
             await mcp.call_tool_success("ha_config_set_helper", edited)
 
@@ -1075,7 +1075,7 @@ class TestComplexHelperCaptureRestore:
             assert restored is not None, f"schedule {helper_id} missing: {listed}"
             for day in ("monday", "tuesday", "wednesday"):
                 assert [(r["from"], r["to"]) for r in restored.get(day, [])] == [
-                    (r["from"], r["to"]) for r in original[day]
+                    (r["from"], r["to"]) for r in original["config"][day]
                 ], day
 
             # Delete the snapshot.
@@ -1175,9 +1175,9 @@ class TestToggleOffSkipsCapture:
         self, mcp_client, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setenv("ENABLE_AUTO_BACKUP", "false")
-        from ha_mcp.config import _reset_global_settings
+        from ha_mcp.config import reset_global_settings
 
-        _reset_global_settings()
+        reset_global_settings()
         # The reset above rebuilds the process-global settings singleton
         # with auto-backup DISABLED, and monkeypatch teardown restores only
         # the env var — the singleton would stay disabled for the rest of
@@ -1190,7 +1190,7 @@ class TestToggleOffSkipsCapture:
             await self._run_disabled_capture_check(mcp_client)
         finally:
             monkeypatch.undo()
-            _reset_global_settings()
+            reset_global_settings()
 
     async def _run_disabled_capture_check(self, mcp_client) -> None:
 

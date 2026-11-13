@@ -11,7 +11,7 @@ import pytest
 from ha_mcp.runtime.bulk_selection import prepare_bulk_selection, resolve_bulk_selection
 from ha_mcp.tool_api import CallContext
 
-from .test_native_engine_backend import native as native
+from ._native_backend_module import native as native
 
 
 @pytest.mark.parametrize(

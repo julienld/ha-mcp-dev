@@ -2,31 +2,26 @@
 
 An existing subentry goes through its reconfigure flow, a deleted one through
 its create flow; either is filled form by form as an options restore is
-(:class:`_OptionsFlowProgress`). Home Assistant ends a successful reconfigure
+(:func:`replay_snapshot`). Home Assistant ends a successful reconfigure
 with a ``reconfigure_successful`` abort instead of ``create_entry``.
 """
 
 from __future__ import annotations
 
 import asyncio
-from functools import partial
 from typing import Any
 
-from .entry import (
-    _SUBENTRY_CREATE_LOCKS,
+from ha_mcp.runtime.flows.entry import (
     OptionsFlowError,
     _created_subentry_id,
     _OptionsFlowProgress,
     _reject_redaction_sentinels,
-    _restore_flow_failure,
     _subentry_ids,
+    replay_snapshot,
+    subentry_create_lock,
 )
-from .introspect import abort_failed_flow
-from .walker import (
-    _RECONFIGURE_SUCCESS_REASONS,
-    _FlowType,
-    _handle_flow_steps,
-)
+from ha_mcp.runtime.flows.introspect import _FlowType, abort_failed_flow
+from ha_mcp.runtime.flows.submit import RECONFIGURE_SUCCESS_REASONS
 
 
 class _SubentryFlowProgress(_OptionsFlowProgress):
@@ -37,7 +32,7 @@ class _SubentryFlowProgress(_OptionsFlowProgress):
     def record_reply(self, result: dict[str, Any]) -> None:
         if (
             result.get("type") == _FlowType.ABORT
-            and result.get("reason") in _RECONFIGURE_SUCCESS_REASONS
+            and result.get("reason") in RECONFIGURE_SUCCESS_REASONS
         ):
             self.current_step = result
             self.apply_status = "applied"
@@ -87,19 +82,13 @@ async def _walk_snapshot(
         progress.flow_id = initial_step.get("flow_id")
         progress.start(initial_step)
         _feed_title_as_name(progress, initial_step, title)
-        await _handle_flow_steps(
-            client,
-            progress.flow_id or "",
-            initial_step,
-            dict(progress.config),
-            submit_fn=partial(progress.submit, client),
-            is_reconfigure=subentry_id is not None,
-            complete_snapshot=True,
-            flow=None,
-            refuse_progress=True,
-        )
+        result = await replay_snapshot(client, progress, initial_step)
+        # A reconfigure ends in its success abort, a creation in create_entry.
+        wanted = _FlowType.ABORT if subentry_id is not None else _FlowType.CREATE_ENTRY
+        if result.get("type") != wanted or progress.apply_status != "applied":
+            raise progress.failure()
     except (Exception, asyncio.CancelledError) as err:
-        failure = _restore_flow_failure(progress, err)
+        failure = err if isinstance(err, OptionsFlowError) else progress.failure()
         if failure.flow_id and failure.apply_status == "not_applied":
             await abort_failed_flow(
                 client.abort_config_subentry_flow,
@@ -143,7 +132,7 @@ async def recreate_config_subentry(
     """Create a deleted subentry again from its data; a field no form takes is
     refused before a form Home Assistant marks as last."""
     progress = _SubentryFlowProgress(entry_id, config=dict(data), fixed={})
-    async with _SUBENTRY_CREATE_LOCKS[entry_id]:
+    async with subentry_create_lock(entry_id):
         before = await _subentry_ids(client, entry_id)
         if before is None:
             # Without the listing the new subentry could not be identified.

@@ -218,10 +218,10 @@ installs both. Native activates the paired library on Core restart; it does not 
 Legacy also retains its explicit advanced package override.
 
 HA-MCP is in the default catalog, which the Marketplace refreshes every six
-hours without a GitHub connection. Custom repositories, including the legacy
-distribution mirror, still need a GitHub connection for the Marketplace's
-48-hour background checks. To have a newly updated server ask for a repository
-refresh right away, turn on **Refresh the component in HACS after an update** in
+hours without a GitHub connection. Custom repositories, including the
+`homeassistant-ai/ha-mcp-integration` distribution mirror, still need a GitHub
+connection for the Marketplace's 48-hour background checks. To have a newly
+updated server ask for a repository refresh right away, turn on **Refresh the component in HACS after an update** in
 the settings panel's Advanced settings (Operations); installs that already did
 this before it became optional keep it on.
 

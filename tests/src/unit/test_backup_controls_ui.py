@@ -8,16 +8,16 @@ import pytest
 from starlette.requests import Request
 
 from ._js_harness import extract_script_body, run_script
-from .test_settings_ui_js_behavior import DEFAULT_FETCHES
+from ._settings_ui_dom import DEFAULT_FETCHES
 
 
 @pytest.mark.parametrize("is_addon", [False, True])
 def test_backup_controls_show_action_limits_and_save_both_values(
     is_addon: bool,
 ) -> None:
-    from ha_mcp.settings_ui import _render_settings_html
+    from ha_mcp.settings_ui import render_settings_html
 
-    page = _render_settings_html(
+    page = render_settings_html(
         Request({"type": "http", "query_string": b"", "headers": []})
     )
     fields = [

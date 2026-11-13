@@ -5,12 +5,13 @@ from typing import Any
 
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp.errors import ErrorCode, create_error_response
-from ha_mcp.runtime.device_records import _device_config_entries
 from ha_mcp.runtime.device_values import device_update_values as _device_update_values
 from ha_mcp.tools.coercion import parse_string_list_param
+from ha_mcp.tools.component_api import UNKNOWN_COMMAND_CODE
 from ha_mcp.tools.config_helpers.registry import validate_registry_ids
 from ha_mcp.tools.helpers import (
     exception_to_structured_error,
+    raise_core_refusal,
     raise_tool_error,
     validate_identifier_not_empty,
 )
@@ -141,73 +142,48 @@ class LegacyDevices:
         )
 
     async def remove(self, device_id: str) -> dict[str, Any]:
-        from ha_mcp.tools.tools_registry import (
-            _lookup_device_for_remove,
-            _remove_device_config_entries,
-        )
+        from ha_mcp.tools.tools_registry import _lookup_device_for_remove
 
         try:
-            # Empty/whitespace device_id would slip past the local-filter dict
-            # lookup below and surface as a generic "Device not found: " error
-            # after a wasted registry-list round-trip.
+            # Empty/whitespace device_id would surface as a generic
+            # "Device not found: " error after a wasted lookup round-trip.
             validate_identifier_not_empty(
                 device_id,
                 "device_id",
                 suggestions=["Use ha_get_device() to find valid device IDs"],
             )
             device = await _lookup_device_for_remove(self._client, device_id)
-
-            config_entries = _device_config_entries(device)
-            device_name = device.get("name_by_user") or device.get("name")
-            if not config_entries:
-                raise_tool_error(
-                    create_error_response(
-                        ErrorCode.SERVICE_CALL_FAILED,
-                        "Device has no config entries - cannot be removed via this method",
-                        suggestions=[
-                            "This device may be managed by an integration directly. Try disabling it instead.",
-                        ],
-                        context={"device_id": device_id, "device_name": device_name},
-                    )
-                )
-
-            removal_results = await _remove_device_config_entries(
-                self._client, device_id, config_entries
+            result = await self._client.send_websocket_message(
+                {"type": "config/device_registry/remove", "device_id": device_id},
+                expected_error_codes=frozenset({UNKNOWN_COMMAND_CODE}),
             )
-            all_succeeded = all(r["success"] for r in removal_results)
-            any_succeeded = any(r["success"] for r in removal_results)
-
-            if all_succeeded:
-                return {
-                    "success": True,
-                    "device_id": device_id,
-                    "device_name": device_name,
-                    "config_entries_removed": len(config_entries),
-                    "message": f"Successfully removed device from {len(config_entries)} config entry/entries",
-                }
-            elif any_succeeded:
-                return {
-                    "success": True,
-                    "partial": True,
-                    "device_id": device_id,
-                    "device_name": device_name,
-                    "removal_results": removal_results,
-                    "message": "Device partially removed - some config entries could not be removed",
-                }
-            else:
-                raise_tool_error(
-                    create_error_response(
-                        ErrorCode.SERVICE_CALL_FAILED,
-                        "Failed to remove device from any config entries",
-                        suggestions=[
-                            "Device may be actively managed by its integration. Try disabling it instead.",
-                        ],
-                        context={
-                            "device_id": device_id,
-                            "removal_results": removal_results,
-                        },
-                    )
+            if result.get("error_code") == UNKNOWN_COMMAND_CODE:
+                # Core before 2026.9 has no ``remove``; its predecessor detaches
+                # the device's one config entry, which removes the device.
+                result = await self._client.send_websocket_message(
+                    {
+                        "type": "config/device_registry/remove_config_entry",
+                        "device_id": device_id,
+                        "config_entry_id": device["config_entry_id"],
+                    }
                 )
+            if not result.get("success"):
+                raise_core_refusal(
+                    "Failed to remove device",
+                    result,
+                    {"device_id": device_id},
+                    [
+                        "If the integration does not support removing devices, "
+                        "disable the device instead: "
+                        "ha_set_device(device_id=..., disabled_by='user')",
+                    ],
+                )
+            return {
+                "success": True,
+                "device_id": device_id,
+                "device_name": device.get("name_by_user") or device.get("name"),
+                "message": "Device removed",
+            }
 
         except ToolError:
             raise
@@ -218,4 +194,3 @@ class LegacyDevices:
                 context={"device_id": device_id},
             )
             return None  # unreachable: exception_to_structured_error always raises
-        return None  # py/mixed-returns: explicit terminal; error handlers above always raise (NoReturn), unreachable

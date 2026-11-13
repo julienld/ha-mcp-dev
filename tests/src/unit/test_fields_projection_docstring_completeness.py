@@ -23,7 +23,7 @@ import importlib.util
 import re
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -213,29 +213,25 @@ _IDENT_RE = re.compile(r"\b([a-z_][a-z0-9_]*)\b")
 _PAREN_NOTE_RE = re.compile(r"\([^)]*\)")
 
 
+class SourceModule(ast.Module):
+    source_path: Path
+
+
 def _read_module(rel_path: str) -> ast.Module:
     path = SRC_ROOT / rel_path
-    module = ast.parse(path.read_text(encoding="utf-8"))
-    module._source_path = path  # type: ignore[attr-defined]
+    module = cast(SourceModule, ast.parse(path.read_text(encoding="utf-8")))
+    module.source_path = path
     return module
 
 
 @lru_cache(maxsize=1)
 def _shared_resolver() -> Any:
-    scripts = SRC_ROOT.parents[1] / "scripts"
-    modules = []
-    for name in ("extract_tools", "extract_tools_shared"):
-        spec = importlib.util.spec_from_file_location(name, scripts / f"{name}.py")
-        assert spec is not None and spec.loader is not None
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        modules.append(module)
-    extractor, shared = modules
-    return shared.SharedToolExtractor(
-        extractor._import_source,
-        extractor._module_scope,
-        extractor._extract_tool_from_node,
-    )
+    path = SRC_ROOT.parents[1] / "scripts" / "extract_tools.py"
+    spec = importlib.util.spec_from_file_location("extract_tools", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.shared_tool_extractor()
 
 
 def _find_function(
@@ -247,7 +243,7 @@ def _find_function(
             and node.name == name
         ):
             return node
-    path = getattr(module, "_source_path", None)
+    path = getattr(module, "source_path", None)
     if path is not None:
         resolved = _shared_resolver().resolve_function(path, name)
         if resolved is not None:
@@ -617,7 +613,7 @@ def test_entities_branch_emissions_are_either_stripped_or_documented() -> None:
 
     Require every emitted key to be either:
 
-    - in ``_ENTITIES_BRANCH_SKIP_KEYS`` (intentionally stripped by the
+    - in ``ENTITIES_BRANCH_SKIP_KEYS`` (intentionally stripped by the
       orchestrator), OR
     - in the ``documented_must_equal`` manifest for ``ha_search``
       (intentionally surfaced at the top level + listed in the
@@ -627,7 +623,7 @@ def test_entities_branch_emissions_are_either_stripped_or_documented() -> None:
     Adding a new key to either bucket forces the contract decision
     explicitly; landing in neither raises this test.
     """
-    from ha_mcp.tools.search.response import _ENTITIES_BRANCH_SKIP_KEYS
+    from ha_mcp.tools.search.response import ENTITIES_BRANCH_SKIP_KEYS
 
     markers = frozenset({"results", "total_matches"})
     # _ha_search_entities is a dispatcher; response-shaped dicts live in
@@ -651,15 +647,15 @@ def test_entities_branch_emissions_are_either_stripped_or_documented() -> None:
 
     ha_search_spec = next(s for s in TOOL_SPECS if s["tool"] == "ha_search")
     documented = ha_search_spec["documented_must_equal"]
-    stripped = set(_ENTITIES_BRANCH_SKIP_KEYS)
+    stripped = set(ENTITIES_BRANCH_SKIP_KEYS)
 
     uncategorised = emitted - stripped - documented - _AUTO_RETAINED
     assert not uncategorised, (
         f"_ha_search_entities emits {sorted(uncategorised)!r} into its "
         f"sub-payload, but the orchestrator neither strips them (not in "
-        f"_ENTITIES_BRANCH_SKIP_KEYS) nor documents them (not in the "
+        f"ENTITIES_BRANCH_SKIP_KEYS) nor documents them (not in the "
         f"`Available keys:` enumeration / documented_must_equal manifest). "
-        f"Either add to _ENTITIES_BRANCH_SKIP_KEYS to strip, or add to the "
+        f"Either add to ENTITIES_BRANCH_SKIP_KEYS to strip, or add to the "
         f"manifest + docstring + _ALWAYS_KEEP_PROJECTION to surface."
     )
 
@@ -692,15 +688,15 @@ def test_harvester_finds_dismissed_repair_count_in_ha_get_overview() -> None:
 def test_overview_routing_sets_partition_every_documented_field() -> None:
     """Every public overview key belongs to exactly one collection path."""
     from ha_mcp.tools.search.overview import (
-        _OVERVIEW_AVAILABLE_FIELDS,
-        _OVERVIEW_ENTITY_FIELDS,
-        _OVERVIEW_INDEPENDENT_FIELDS,
+        OVERVIEW_AVAILABLE_FIELDS,
+        OVERVIEW_ENTITY_FIELDS,
+        OVERVIEW_INDEPENDENT_FIELDS,
     )
 
     documented = _extract_documented_keys("tools/tools_search.py", "ha_get_overview")
 
-    assert _OVERVIEW_INDEPENDENT_FIELDS.isdisjoint(_OVERVIEW_ENTITY_FIELDS)
-    assert documented == _OVERVIEW_AVAILABLE_FIELDS
+    assert OVERVIEW_INDEPENDENT_FIELDS.isdisjoint(OVERVIEW_ENTITY_FIELDS)
+    assert documented == OVERVIEW_AVAILABLE_FIELDS
 
 
 def test_tool_specs_covers_every_fields_using_tool() -> None:

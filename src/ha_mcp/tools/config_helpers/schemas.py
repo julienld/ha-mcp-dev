@@ -1,56 +1,20 @@
-"""Compatibility exports for the shared helper schema and response contract."""
+"""Legacy bindings over the shared Core helper schema contract."""
 
 from typing import Any
 
-from ...runtime.helper_schema import (
-    _CORE_HELPER_SCHEMAS as _CORE_HELPER_SCHEMAS,
-)
-from ...runtime.helper_schema import (
-    _HELPER_SKILL_FILES as _HELPER_SKILL_FILES,
-)
-from ...runtime.helper_schema import (
-    _INITIAL_DISABLES_RESTORE_DESCRIPTION as _INITIAL_DISABLES_RESTORE_DESCRIPTION,
-)
-from ...runtime.helper_schema import (
-    _SIMPLE_CONFIG_KEYS_DESCRIPTION as _SIMPLE_CONFIG_KEYS_DESCRIPTION,
-)
-from ...runtime.helper_schema import (
-    SIMPLE_HELPER_SCHEMAS as SIMPLE_HELPER_SCHEMAS,
-)
-from ...runtime.helper_schema import (
-    SIMPLE_HELPER_TYPES as SIMPLE_HELPER_TYPES,
-)
-from ...runtime.helper_schema import (
-    HelperResponse as HelperResponse,
-)
-from ...runtime.helper_schema import (
-    StorageHelperType as StorageHelperType,
-)
-from ...runtime.helper_schema import (
-    __all__ as _SHARED_EXPORTS,
-)
-from ...runtime.helper_schema import (
-    _core_helper_fields as _core_helper_fields,
-)
-from ...runtime.helper_schema import (
-    _helper_response as _helper_response,
-)
-from ...runtime.helper_schema import (
-    _HelperFieldSpec as _HelperFieldSpec,
-)
-from ...runtime.helper_schema import (
-    _HelperFieldSpecBase as _HelperFieldSpecBase,
-)
-from ...runtime.helper_schema import (
-    _simple_helper_error_context as _simple_helper_error_context,
-)
-from ...runtime.helper_schema import (
-    get_simple_helper_schema as get_simple_helper_schema,
-)
+from ha_mcp.runtime import helper_schema as _shared
+
 from ..config_write_helpers import attach_skill_content
 
-__all__ = list(_SHARED_EXPORTS)
-__all__.append("_attach_helper_skill")
+SIMPLE_HELPER_TYPES = _shared.SIMPLE_HELPER_TYPES
+StorageHelperType = _shared.StorageHelperType
+_CORE_HELPER_SCHEMAS = _shared._CORE_HELPER_SCHEMAS
+_HELPER_SKILL_FILES = _shared._HELPER_SKILL_FILES
+_SIMPLE_CONFIG_KEYS_DESCRIPTION = _shared._SIMPLE_CONFIG_KEYS_DESCRIPTION
+HelperResponse = _shared.HelperResponse
+_core_helper_fields = _shared._core_helper_fields
+_helper_response = _shared._helper_response
+_simple_helper_error_context = _shared._simple_helper_error_context
 
 
 def _attach_helper_skill(response: dict[str, Any], MandatoryBPS: bool) -> None:

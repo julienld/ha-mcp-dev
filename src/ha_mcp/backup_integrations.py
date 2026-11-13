@@ -100,7 +100,7 @@ async def restore_integration(client: Any, entity_id: str, config: Any) -> Any:
 async def _restore_options(
     client: Any, entity_id: str, config: Any, current_options: dict[str, Any]
 ) -> None:
-    from .tools.config_entry_flow import update_config_entry_options
+    from .tools.config_entry_flow import restore_config_entry_options
 
     options = config["options"]
     from .runtime.snapshot_flow_values import _apply_and_verify, _verify_readback
@@ -108,12 +108,11 @@ async def _restore_options(
     await _apply_and_verify(
         f"{config.get('domain')} integration",
         partial(
-            update_config_entry_options,
+            restore_config_entry_options,
             client,
             entity_id,
             options,
             expected_domain=config.get("domain"),
-            keep_current_values=False,
             fixed_options=current_options,
         ),
         partial(

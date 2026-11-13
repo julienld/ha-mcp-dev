@@ -11,9 +11,9 @@ from ha_mcp.runtime import Engine
 from ha_mcp.runtime.catalog import build_initial_catalog
 from ha_mcp.tool_api import CallContext
 
+from ._native_backend_module import native as native
 from .test_component_ws_phase2_async import _call_hass, _FakeCallServices
 from .test_native_engine_backend import EventBus, authorize
-from .test_native_engine_backend import native as native
 
 
 @pytest.mark.parametrize(

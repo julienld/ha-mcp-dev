@@ -6,6 +6,7 @@ from typing import Any, NoReturn
 from ha_mcp.config import get_global_settings
 from ha_mcp.errors import ErrorCode, create_error_response
 
+from .error_text import core_error_message
 from .errors import raise_failure as raise_tool_error
 from .errors import ws_failure_code
 
@@ -47,12 +48,12 @@ def _json_names(value: str) -> list[str] | None:
 def _raise_core_failure(
     command: str, result: dict[str, Any], context: dict[str, Any], applied: str = ""
 ) -> NoReturn:
-    error = str(result.get("error", "Unknown error")).removeprefix("Command failed: ")
+    error = core_error_message(result.get("error", "Unknown error"))
     raise_tool_error(
         create_error_response(
             ws_failure_code(result),
             f"{command} failed: {error}{applied}",
-            context=context,
+            context={**context, "ha_error_code": result.get("error_code")},
         )
     )
 

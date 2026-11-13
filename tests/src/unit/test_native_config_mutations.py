@@ -14,6 +14,7 @@ import pytest
 from ha_mcp.runtime import Engine
 from ha_mcp.tool_api import CallContext
 
+from ._native_backend_module import native as native
 from .test_component_ws_search import FakeHass
 from .test_native_catalog_contract_config import (
     _CoreAutomationView,
@@ -23,7 +24,6 @@ from .test_native_catalog_contract_config import (
     _real_aiohttp_router as _real_aiohttp_router,
 )
 from .test_native_engine_backend import authorize
-from .test_native_engine_backend import native as native
 
 
 class _MutableView(_CoreAutomationView):

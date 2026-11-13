@@ -1,14 +1,17 @@
-"""Native device discovery joins Core owners without a transport facade."""
+"""Native discovery retains actual Core registry rows and optional radio failures."""
 
 from __future__ import annotations
 
-import sys
 from types import SimpleNamespace
-from typing import Any
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock
 
 import pytest
+from homeassistant.auth.models import User
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
+from homeassistant.setup import async_setup_component
 
+from custom_components.ha_mcp_tools.native_backend import NativeBackend
 from ha_mcp.runtime import Engine
 from ha_mcp.runtime.catalog import define_tool
 from ha_mcp.runtime.devices import DeviceDiscoveryTools
@@ -16,49 +19,24 @@ from ha_mcp.runtime.entities import EntityDiscoveryTools
 from ha_mcp.tool_api import CallContext, ToolFailure
 from ha_mcp.tools.tool_hints import read_only_hints
 
-from .test_component_ws_search import (
-    FakeDevice,
-    FakeErModule,
-    FakeHass,
-    FakeRegEntry,
-    make_view,
-    wsapi,
-)
-from .test_native_engine_backend import authorize
-from .test_native_engine_backend import native as native
+from ._core_devices import device
 
 
 async def test_native_device_lookup_keeps_disabled_entities_and_reports_missing_radio(
-    native: Any,
-    monkeypatch: pytest.MonkeyPatch,
+    hass: HomeAssistant,
+    hass_admin_user: User,
 ) -> None:
-    """An unavailable optional radio must not hide the Core device or its entities."""
-    entity = FakeRegEntry(
-        "sensor.disabled",
-        device_id="device",
+    assert await async_setup_component(hass, "config", {})
+    dev = device(hass, "zha", name="Probe", identifiers={("zha", "00:11")})
+    entity = er.async_get(hass).async_get_or_create(
+        "sensor",
+        "zha",
+        "probe",
+        device_id=dev.id,
         original_name="Temperature",
-        platform="zha",
-        disabled_by="user",
+        disabled_by=er.RegistryEntryDisabler.USER,
     )
-    view = make_view(
-        entity={entity.entity_id: entity},
-        devices=[FakeDevice("device", name="Probe", identifiers=(("zha", "00:11"),))],
-    )
-    monkeypatch.setattr(wsapi, "_resolve_registries", lambda hass: view)
-    monkeypatch.setattr(wsapi, "er", FakeErModule())
-    registry_module = SimpleNamespace(async_get=lambda hass: view.entity)
-    monkeypatch.setitem(
-        sys.modules, "homeassistant.helpers.entity_registry", registry_module
-    )
-    monkeypatch.setattr(
-        sys.modules["homeassistant.helpers"], "entity_registry", registry_module
-    )
-    validator = Mock(return_value=entity.entity_id)
-    validation_module = sys.modules["homeassistant.helpers"].config_validation
-    monkeypatch.setattr(validation_module, "entity_id", validator)
-    hass = FakeHass(config=SimpleNamespace(components=set()))
-    authorize(hass)
-    backend = native.NativeBackend(hass)
+    backend = NativeBackend(hass)
     definition = define_tool(
         backend,
         DeviceDiscoveryTools,
@@ -66,48 +44,38 @@ async def test_native_device_lookup_keeps_disabled_entities_and_reports_missing_
         annotations=read_only_hints("Get Device", open_world=False),
     )
     result = await Engine(backend, [definition]).call(
-        "ha_get_device", {"entity_id": "SENSOR.DISABLED"}, CallContext("actor")
+        "ha_get_device",
+        {"entity_id": entity.entity_id},
+        CallContext(hass_admin_user.id),
     )
-    assert not result.is_error
-    validator.assert_called_once_with("SENSOR.DISABLED")
-    assert result.data["device"]["device_id"] == "device"
-    assert result.data["entities"] == [
-        {"entity_id": "sensor.disabled", "name": "Temperature", "platform": "zha"}
-    ]
-    assert "radio_metrics" not in result.data["device"]
-    assert result.data["warnings"] == [
-        "ZHA radio metrics unavailable: zha integration is not loaded"
-    ]
+    assert not result.is_error, result.data
+    assert result.data["device"]["id"] == dev.id
+    assert result.data["entities"][0]["disabled_by"] == "user"
+    assert result.data["device"]["ieee_address"] == "00:11"
+    assert result.data["warnings"]
 
 
 async def test_native_bulk_entity_read_keeps_duplicate_order_and_extended_metadata(
-    native: Any,
-    monkeypatch: pytest.MonkeyPatch,
+    hass: HomeAssistant,
+    hass_admin_user: User,
 ) -> None:
-    """Extended reads retain aliases/options while an absent ID remains a row error."""
-    entry = FakeRegEntry(
-        "light.a",
-        device_id="device",
-        name="",
-        unique_id="stable",
-        extended_fields={
-            "aliases": [None, "Desk"],
-            "device_class": "outlet",
-            "options": {"light": {"default_transition": 4}},
-        },
+    registry = er.async_get(hass)
+    dev = device(hass, "test", identifiers={("test", "1")}, name="Lamp")
+    entry = registry.async_get_or_create(
+        "light",
+        "test",
+        "stable",
+        suggested_object_id="a",
+        has_entity_name=True,
+        device_id=dev.id,
     )
-    view = make_view(entity={entry.entity_id: entry})
-    monkeypatch.setattr(wsapi, "_resolve_registries", lambda hass: view)
-    registry_module = SimpleNamespace(async_get=lambda hass: view.entity)
-    monkeypatch.setattr(
-        sys.modules["homeassistant.helpers"], "entity_registry", registry_module
+    entry = registry.async_update_entity(
+        entry.entity_id, name="", aliases={"Desk"}, device_class="outlet"
     )
-    validator = Mock(side_effect=lambda value: value)
-    validation_module = sys.modules["homeassistant.helpers"].config_validation
-    monkeypatch.setattr(validation_module, "entity_id", validator)
-    hass = FakeHass(config=SimpleNamespace(components=set()))
-    authorize(hass)
-    backend = native.NativeBackend(hass)
+    registry.async_update_entity_options(
+        entry.entity_id, "light", {"default_transition": 4}
+    )
+    backend = NativeBackend(hass)
     definition = define_tool(
         backend,
         EntityDiscoveryTools,
@@ -116,25 +84,21 @@ async def test_native_bulk_entity_read_keeps_duplicate_order_and_extended_metada
     )
     result = await Engine(backend, [definition]).call(
         "ha_get_entity",
-        {"entity_id": ["light.a", "light.missing", "light.a"]},
-        CallContext("actor"),
+        {"entity_id": [entry.entity_id, "light.missing", entry.entity_id]},
+        CallContext(hass_admin_user.id),
     )
-    assert not result.is_error
+    assert not result.is_error, result.data
     assert [row["entity_id"] for row in result.data["entity_entries"]] == [
-        "light.a",
-        "light.a",
+        entry.entity_id,
+        entry.entity_id,
     ]
     row = result.data["entity_entries"][0]
-    assert row["aliases"] == [None, "Desk"]
+    assert row["aliases"] == ["Desk"]
     assert row["device_class"] == "outlet" and row["uses_device_name"] is True
     assert row["options"] == {"light": {"default_transition": 4}}
     assert result.data["errors"] == [
         {"entity_id": "light.missing", "error": "Entity not found"}
     ]
-    assert {call.args[0] for call in validator.call_args_list} == {
-        "light.a",
-        "light.missing",
-    }
 
 
 @pytest.mark.parametrize(

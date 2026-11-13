@@ -729,7 +729,7 @@ async def _request_or_collect_failure(
             raise
         try:
             failure = json.loads(str(exc))
-        except (json.JSONDecodeError, TypeError):
+        except json.JSONDecodeError, TypeError:
             failure = None
         if not isinstance(failure, dict):
             failure = create_error_response(
@@ -797,7 +797,7 @@ def _reraise_with_guard_warnings(error: ToolError, warnings: list[str]) -> NoRet
         raise error
     try:
         payload = json.loads(str(error))
-    except (json.JSONDecodeError, TypeError):
+    except json.JSONDecodeError, TypeError:
         payload = None
     if not isinstance(payload, dict):
         raise error

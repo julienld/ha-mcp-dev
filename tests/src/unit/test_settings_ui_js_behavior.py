@@ -21,173 +21,16 @@ from typing import ClassVar, get_args
 import pytest
 
 from ._js_harness import HarnessResult, extract_script_body, run_script
+from ._locale_catalogs import catalog_messages
+from ._settings_ui_dom import (
+    _TOP_LEVEL_ELEMENT_IDS,
+    DEFAULT_FETCHES,
+    MIN_DOM,
+)
 
 # ---------------------------------------------------------------------------
 # Shared fixtures
 # ---------------------------------------------------------------------------
-
-
-@pytest.fixture(scope="module")
-def settings_script() -> str:
-    """The rendered ``<script>`` body from ``_SETTINGS_HTML``.
-
-    Module-scoped because the body is pure and large; re-extracting on
-    every test would be wasted work.
-    """
-    from ha_mcp.settings_ui import _SETTINGS_HTML
-
-    return extract_script_body(_SETTINGS_HTML)
-
-
-# Element ids the script binds top-level handlers on. Drift between
-# this set and what the production script reaches via
-# ``document.getElementById(...).addEventListener(...)`` is checked at
-# import time by ``_assert_min_dom_covers_handlers`` below, so a future
-# handler that lands without a matching DOM stub fails the suite
-# immediately with a clear message instead of letting tests silently
-# fail at init.
-_TOP_LEVEL_ELEMENT_IDS = [
-    "status",
-    "restartBtn",
-    "restartNotice",
-    "restartNoticeText",
-    "sidecarStopRow",
-    "stopSidecarBtn",
-    "search",
-    "groups",
-    "summary",
-    "featuresBody",
-    "backupConfigForm",
-    "backupConfigActions",
-    "backupConfigSave",
-    "backupConfigStatus",
-    "backupRefresh",
-    "backupBulkDelete",
-    "backupDomain",
-    "backupEntity",
-    "backupState",
-    "backupList",
-    "modalBackdrop",
-    "modalBody",
-    "modalTitle",
-    "modalClose",
-    "panel-tools",
-    "panel-server",
-    "panel-backups",
-    # Tool Security Policies tab (#966): the master-toggle checkbox
-    # mirrors the Server-Settings flag and posts to /api/settings/features;
-    # the global-settings save button writes wait_seconds / TTL.
-    "policy-master-toggle",
-    # enable_security_policy_tool (#2148) — registers
-    # ha_manage_security_policy; same save-then-verify flow as the master.
-    "policy-manage-tool-toggle",
-    "policy-save-global-btn",
-    "policy-set-pin-btn",
-    "policy-clear-pin-btn",
-    # Read Only Mode toggle (#1569) — Tools tab, above the search box.
-    # Same save-then-verify flow as the policy master toggle.
-    "read-only-mode-toggle",
-    # Where applyFlagToggle writes the env-locked note for that switch.
-    "read-only-locked",
-    # Advanced settings panel — the 5 section containers that
-    # loadAdvancedSettings() writes to via innerHTML. Without container
-    # divs in MIN_DOM, renderSection silently no-ops (getElementById
-    # returns null) and the behavioural tests find an empty body.
-    # (The advanced fields auto-save on change, so there is no Save
-    # button/status row here anymore.)
-    # Connection section was removed from the panel;
-    # advSearch is now the first rendered advanced section.
-    "advSearch",
-    "advOperations",
-    "advToolsSurface",
-    "advDiagnostics",
-    # Developer section (issue #1775) — bottom of panel-server; hosts the
-    # dev-mode toggle whose enable path is confirm()-gated.
-    "advDeveloper",
-    # Beta features dedicated container — beta
-    # master + sub-flags render here, NOT into featuresBody, so the
-    # dangerous block sits at the bottom of panel-server.
-    "betaBody",
-    # Version footer span — populated from /api/settings/info on
-    # init; without the container element the JS would no-op.
-    "versionFooterText",
-]
-
-
-def _min_dom_row(el_id: str) -> str | None:
-    """DOM stub markup for ``el_id`` (first half of the dispatch); None emits nothing."""
-    if el_id.startswith("backup") and el_id.endswith(("Domain", "Entity", "State")):
-        return f'<select id="{el_id}"></select>'
-    if el_id in ("backupList", "featuresBody"):
-        return f'<table><tbody id="{el_id}"></tbody></table>'
-    if el_id == "modalBackdrop":
-        # Full modal scaffold (mirrors settings.html) so the focus-trap
-        # code in showModal/closeModal — which queries `.modal` and
-        # #modalClose — has the structure it depends on.
-        return (
-            '<div id="modalBackdrop">'
-            '<div class="modal" role="dialog" tabindex="-1">'
-            '<div class="modal-header">'
-            '<span class="modal-title" id="modalTitle"></span>'
-            '<button class="modal-close" id="modalClose">×</button>'
-            "</div>"
-            '<div class="modal-body" id="modalBody"></div>'
-            "</div>"
-            "</div>"
-        )
-    if el_id in ("modalBody", "modalTitle", "modalClose"):
-        return None  # rendered as children of modalBackdrop above
-    if el_id.startswith("panel-"):
-        return f'<div id="{el_id}" class="panel"></div>'
-    return _min_dom_row_tail(el_id)
-
-
-def _min_dom_row_tail(el_id: str) -> str | None:
-    """DOM stub markup for ``el_id`` (second half of the dispatch); None emits nothing."""
-    if el_id in (
-        "restartBtn",
-        "stopSidecarBtn",
-        "backupConfigSave",
-        "backupRefresh",
-        "backupBulkDelete",
-    ):
-        return f'<button id="{el_id}"></button>'
-    if el_id == "restartNotice":
-        return '<div id="restartNotice"><span id="restartNoticeText"></span></div>'
-    if el_id == "restartNoticeText":
-        return None  # rendered as a child of restartNotice above
-    if el_id == "search":
-        return '<input id="search" />'
-    if el_id in (
-        "policy-master-toggle",
-        "policy-manage-tool-toggle",
-        "read-only-mode-toggle",
-    ):
-        return f'<input id="{el_id}" type="checkbox" />'
-    if el_id in (
-        "policy-save-global-btn",
-        "policy-set-pin-btn",
-        "policy-clear-pin-btn",
-    ):
-        return f'<button id="{el_id}"></button>'
-    return f'<div id="{el_id}"></div>'
-
-
-def _build_min_dom() -> str:
-    """Render an HTML document that supplies every element the script
-    binds a top-level handler on, so the init pass doesn't throw on a
-    missing-element addEventListener call.
-    """
-    rows = []
-    for el_id in _TOP_LEVEL_ELEMENT_IDS:
-        row = _min_dom_row(el_id)
-        if row is not None:
-            rows.append(row)
-    body = "\n  ".join(rows)
-    return f"<!DOCTYPE html>\n<html><body>\n  {body}\n</body></html>"
-
-
-MIN_DOM = _build_min_dom()
 
 
 def _assert_min_dom_covers_handlers() -> None:
@@ -200,9 +43,9 @@ def _assert_min_dom_covers_handlers() -> None:
     maintainer would have to dig through ``result.errors`` to find the
     actual root cause.
     """
-    from ha_mcp.settings_ui import _SETTINGS_HTML
+    from ha_mcp.settings_ui import render_settings_html
 
-    script = extract_script_body(_SETTINGS_HTML)
+    script = extract_script_body(render_settings_html())
     # Top-level (not indented) getElementById(...) calls — handlers
     # bound at script load time. Indented calls are inside functions
     # and only run when those functions execute, which our tests
@@ -220,34 +63,6 @@ def _assert_min_dom_covers_handlers() -> None:
 
 
 _assert_min_dom_covers_handlers()
-
-
-# Default routes for the init-time fetches. Individual tests merge in
-# their own entries via ``{**DEFAULT_FETCHES, "/restart": ...}``.
-DEFAULT_FETCHES: dict[str, dict] = {
-    "/api/settings/features": {
-        "status": 200,
-        "json": {"features": [], "values": {}},
-    },
-    "/api/settings/tools": {
-        "status": 200,
-        "json": {"tools": [], "states": {}, "addon_mode": True},
-    },
-    "/api/settings/info": {
-        "status": 200,
-        "json": {"instance_id": "baseline-id"},
-    },
-    "/api/settings/backup-config": {
-        "status": 200,
-        "json": {},
-    },
-    # policyLoadConfig asks whether an approval PIN exists on every load; the
-    # PIN lives outside the policy document, so it is its own endpoint.
-    "/api/policy/decision-pin": {
-        "status": 200,
-        "json": {"set": False},
-    },
-}
 
 
 # The add-on tool as the settings API renders it, plus a Russian translation
@@ -269,7 +84,7 @@ class TestLocalizationBehavior:
         tools: dict[str, dict[str, str]] | None = None,
         tool_groups: dict[str, str] | None = None,
     ) -> str:
-        from ha_mcp.settings_ui._i18n import build_payload, serialize_payload
+        from ha_mcp.settings_ui import build_payload, serialize_payload
 
         catalog = build_payload(locale)
         if tools:
@@ -535,7 +350,7 @@ class TestTranslationHtmlSanitization:
 
     @staticmethod
     def _dom_with_catalog(messages: dict[str, str], extra_html: str = "") -> str:
-        from ha_mcp.settings_ui._i18n import build_payload, serialize_payload
+        from ha_mcp.settings_ui import build_payload, serialize_payload
 
         catalog = build_payload("en")
         catalog["messages"].update(messages)
@@ -756,7 +571,7 @@ class TestVersionFooter:
         deployment_mode: str,
         translated_label: str,
     ) -> None:
-        from ha_mcp.settings_ui._i18n import build_payload, serialize_payload
+        from ha_mcp.settings_ui import build_payload, serialize_payload
 
         catalog = build_payload("fr")
         catalog["messages"].update(
@@ -1402,7 +1217,7 @@ class TestPolicyTabFlow:
                 continue
             try:
                 body = json.loads(raw)
-            except (json.JSONDecodeError, TypeError):
+            except json.JSONDecodeError, TypeError:
                 continue
             flags = body.get("flags") if isinstance(body, dict) else None
             if (
@@ -1474,7 +1289,7 @@ class TestPolicyTabFlow:
                 continue
             try:
                 body = json.loads(f.get("body", ""))
-            except (json.JSONDecodeError, TypeError):
+            except json.JSONDecodeError, TypeError:
                 continue
             flags = body.get("flags") if isinstance(body, dict) else None
             if (
@@ -2253,7 +2068,7 @@ class TestPolicyTabFlow:
 
 def _localized_policy_dom(locale: str) -> str:
     """Policy-tab DOM carrying ``locale``'s catalog as the i18n payload."""
-    from ha_mcp.settings_ui._i18n import build_payload, serialize_payload
+    from ha_mcp.settings_ui import build_payload, serialize_payload
 
     payload = serialize_payload(build_payload(locale))
     element = f'<script id="ha-mcp-i18n" type="application/json">{payload}</script>'
@@ -2267,10 +2082,12 @@ def _already_decided_cases() -> list[tuple[str, str]]:
     here as new cases instead of as untested copy.
     """
     from ha_mcp.policy.approval_queue import Decision
-    from ha_mcp.settings_ui._i18n import CATALOGS, DEFAULT_LOCALE
-    from ha_mcp.settings_ui._locale_policy import BEST_EFFORT_LOCALES
+    from ha_mcp.settings_ui import build_payload, select_locale
+    from ha_mcp.settings_ui.locale_policy import BEST_EFFORT_LOCALES
 
-    locales = sorted(set(CATALOGS) - {DEFAULT_LOCALE} - BEST_EFFORT_LOCALES)
+    default = select_locale()
+    served = {language["code"] for language in build_payload(default)["languages"]}
+    locales = sorted(served - {default} - BEST_EFFORT_LOCALES)
     outcomes = sorted(set(get_args(Decision)) - {"pending"})
     # Both sides are discovered, so either emptying out collects zero cases
     # and the class below passes without driving the handler once.
@@ -2583,8 +2400,6 @@ class TestAlreadyDecidedCopy:
     def test_alert_shows_the_catalog_word_and_never_the_enum(
         self, settings_script: str, locale: str, outcome: str
     ) -> None:
-        from ha_mcp.settings_ui._i18n import CATALOGS
-
         fetches = {
             **DEFAULT_FETCHES,
             "/api/policy/approve": {
@@ -2605,7 +2420,7 @@ class TestAlreadyDecidedCopy:
             f"expected the single 409 alert; got {result.alerts}"
         )
         alert = result.alerts[0]
-        messages = CATALOGS[locale]["messages"]
+        messages = catalog_messages(locale)
         word = messages[f"policies.pending.decision.{outcome}"]
         # Whole sentence, not containment: the host a containment check
         # searches is that same catalog value with the word already
@@ -2678,12 +2493,10 @@ class TestDecideUnavailableCopy:
     def test_flag_known_off_shows_the_translated_off_message(
         self, settings_script: str
     ) -> None:
-        from ha_mcp.settings_ui._i18n import CATALOGS
-
         result = self._decide_under_503(settings_script, enabled=False)
         _assert_clean_init(result)
 
-        expected = CATALOGS["it"]["messages"]["policies.pending.disabled"]
+        expected = catalog_messages("it")["policies.pending.disabled"]
         assert result.alerts == [expected], (
             f"expected the Italian off-message {expected!r}; got {result.alerts}. "
             "A user who simply turned the feature off is being told to read the "
@@ -2714,8 +2527,6 @@ class TestDecideUnavailableCopy:
         server message to the branch, so it would shadow the catalog line and
         alert a bare ``HTTP 503`` in every language.
         """
-        from ha_mcp.settings_ui._i18n import CATALOGS
-
         result = self._decide_under_503(
             settings_script,
             enabled=True,
@@ -2726,7 +2537,7 @@ class TestDecideUnavailableCopy:
         )
         _assert_clean_init(result)
 
-        expected = CATALOGS["it"]["messages"]["policies.pending.unavailable"]
+        expected = catalog_messages("it")["policies.pending.unavailable"]
         assert result.alerts == [expected], (
             f"expected the Italian unavailable line {expected!r}; got "
             f"{result.alerts}. Anything else here is untranslated text — or the "
@@ -4245,12 +4056,13 @@ class TestBetaBlockRendersAtBottom:
         Asserted against the production HTML (the header lives in the
         static panel-server markup, not in any JS-rendered container).
         """
-        from ha_mcp.settings_ui import _SETTINGS_HTML
+        from ha_mcp.settings_ui import render_settings_html
 
-        assert "Beta features (dangerous)" in _SETTINGS_HTML, (
+        page = render_settings_html()
+        assert "Beta features (dangerous)" in page, (
             "beta section heading copy missing or changed in production HTML"
         )
-        assert "beta-section-title" in _SETTINGS_HTML, (
+        assert "beta-section-title" in page, (
             "beta section title class missing in production HTML"
         )
 
@@ -5593,7 +5405,7 @@ class TestReadOnlyModeToggle:
                 continue
             try:
                 body = json.loads(raw)
-            except (json.JSONDecodeError, TypeError):
+            except json.JSONDecodeError, TypeError:
                 continue
             flags = body.get("flags") if isinstance(body, dict) else None
             if isinstance(flags, dict) and flags.get("read_only_mode") is True:
@@ -6730,11 +6542,12 @@ class TestGoogleFontsRemoved:
     """
 
     def test_settings_html_has_no_google_fonts_or_preconnect(self) -> None:
-        from ha_mcp.settings_ui import _SETTINGS_HTML
+        from ha_mcp.settings_ui import render_settings_html
 
-        assert "fonts.googleapis.com" not in _SETTINGS_HTML
-        assert "fonts.gstatic.com" not in _SETTINGS_HTML
-        assert "preconnect" not in _SETTINGS_HTML
+        page = render_settings_html()
+        assert "fonts.googleapis.com" not in page
+        assert "fonts.gstatic.com" not in page
+        assert "preconnect" not in page
 
 
 class TestAriaLabelledbyOnRenderedInputs:

@@ -66,7 +66,7 @@ async def _get_installed_integration_domains(client: Any) -> set[str]:
         if isinstance(entries, list):
             return {e.get("domain", "") for e in entries} - {""}
         return set()
-    except (httpx.RequestError, ValueError, KeyError):
+    except httpx.RequestError, ValueError, KeyError:
         return set()
 
 
@@ -477,7 +477,7 @@ class UpdateTools(UpdateToolsFacade):
                 action, entity_ids, categories, bool(backup)
             )
 
-        except (ToolError, ToolFailure):
+        except ToolError, ToolFailure:
             raise
         except Exception as e:  # noqa: BLE001
             self._handle_update_error(e, action, entity_ids)

@@ -14,8 +14,8 @@ from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp._vendor.fastmcp.tools import ToolResult, tool
 from ha_mcp.backends.legacy import legacy_errors, legacy_errors_sync
 from ha_mcp.runtime.dashboard_search import (
-    _MAX_CARD_DEPTH,
     _SEARCH_MATCH_CAP,
+    MAX_CARD_DEPTH,
     _find_cards_matching,
     _SearchCriteria,
     _SearchGaps,
@@ -268,7 +268,7 @@ def _is_no_stored_dashboard_config_error(exc: ToolError) -> bool:
     """Return whether HA confirms that an existing dashboard has no config."""
     try:
         error_data = json.loads(str(exc))
-    except (json.JSONDecodeError, TypeError):
+    except json.JSONDecodeError, TypeError:
         return False
     if (
         not isinstance(error_data, dict)
@@ -797,7 +797,7 @@ async def _maybe_attach_screenshot(
     options: _DashboardScreenshotOptions | None = None,
     full_page: bool = False,
     raise_on_failure: bool = False,
-) -> "dict[str, Any] | ToolResult":
+) -> dict[str, Any] | ToolResult:
     """Optionally render a dashboard and attach ordered native image blocks.
 
     Shared by ``ha_config_get_dashboard`` (include_screenshot) and
@@ -874,7 +874,7 @@ def _attach_screenshot_tool_error(
     """Preserve a structured capture failure on an already-committed write."""
     try:
         error_payload = json.loads(str(error))
-    except (json.JSONDecodeError, TypeError):
+    except json.JSONDecodeError, TypeError:
         error_payload = {}
     if not isinstance(error_payload, dict):
         error_payload = {}
@@ -1316,7 +1316,7 @@ class LegacyDashboards:
         view_path: str | None,
         include_screenshot: bool,
         screenshot_options: _DashboardScreenshotOptions,
-    ) -> "dict[str, Any] | ToolResult":
+    ) -> dict[str, Any] | ToolResult:
         """Get mode: return the full Lovelace config for a single dashboard.
 
         The component ``get`` serves this from one in-process, freshness-safe read
@@ -1419,7 +1419,7 @@ class LegacyDashboards:
         include_screenshot: bool,
         screenshot_options: _DashboardScreenshotOptions,
         stored_config: bool = True,
-    ) -> "dict[str, Any] | ToolResult":
+    ) -> dict[str, Any] | ToolResult:
         """Shape + return the get-mode response for an already-fetched config.
 
         Shared by the component fast path and the legacy path so both produce a
@@ -1728,7 +1728,7 @@ class LegacyDashboards:
         *,
         return_screenshot: bool,
         screenshot_options: _DashboardScreenshotOptions,
-    ) -> "dict[str, Any] | ToolResult":
+    ) -> dict[str, Any] | ToolResult:
         """Execute python_transform mode and return the tool response."""
         if config_hash is None:
             raise_tool_error(
@@ -1811,7 +1811,7 @@ class LegacyDashboards:
         *,
         return_screenshot: bool,
         screenshot_options: _DashboardScreenshotOptions,
-    ) -> "dict[str, Any] | ToolResult":
+    ) -> dict[str, Any] | ToolResult:
         """Apply structured edits in Core, or use the existing legacy save path."""
         if config_hash is None:
             raise_tool_error(
@@ -1896,7 +1896,7 @@ class LegacyDashboards:
         return_screenshot: bool,
         screenshot_options: _DashboardScreenshotOptions,
         python_transform: str | None = None,
-    ) -> "dict[str, Any] | ToolResult":
+    ) -> dict[str, Any] | ToolResult:
         """Preserve public edit fields, authoritative paths, BPS and screenshots."""
         result = legacy_errors_sync(edit_dashboard_result)(
             url_path, edit, action, pre_resolved_from, python_transform=python_transform
@@ -2367,7 +2367,7 @@ class LegacyDashboards:
         return_screenshot: bool,
         screenshot_options: _DashboardScreenshotOptions,
         MandatoryBPS: bool,
-    ) -> "dict[str, Any] | ToolResult":
+    ) -> dict[str, Any] | ToolResult:
         """Execute config-replacement mode (create-or-update) and return the tool response."""
         reject_malformed_dashboard_config(config, url_path)
         (
@@ -2591,7 +2591,7 @@ def register_config_dashboard_tools(mcp: Any, client: Any, **kwargs: Any) -> Non
 
 __all__ = [
     "DashboardConfigTools",
-    "_MAX_CARD_DEPTH",
+    "MAX_CARD_DEPTH",
     "_SEARCH_MATCH_CAP",
     "_SearchGaps",
     "_find_cards_matching",

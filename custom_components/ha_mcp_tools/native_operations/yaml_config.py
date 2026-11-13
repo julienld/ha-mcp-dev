@@ -9,8 +9,8 @@ from ha_mcp.runtime.skill_content import apply_skill_content
 from ha_mcp.runtime.skill_files import read_skill_files
 from ha_mcp.runtime.yaml_lookup import YamlLookup
 from ha_mcp.runtime.yaml_values import (
-    _YAML_PACKAGES_FLAG_BY_KEY,
     _YAML_SKILL_FILES,
+    YAML_PACKAGES_FLAG_BY_KEY,
     _append_yaml_result_warnings,
     _validate_yaml_action_and_content,
 )
@@ -57,7 +57,7 @@ class NativeYamlConfig(NativeFileEntry):
             ),
             "disabled_packages_keys": [
                 key
-                for key, flag in _YAML_PACKAGES_FLAG_BY_KEY.items()
+                for key, flag in YAML_PACKAGES_FLAG_BY_KEY.items()
                 if not self.manager.policy.flag(flag)
             ],
         }

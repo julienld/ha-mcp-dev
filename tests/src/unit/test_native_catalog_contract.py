@@ -15,7 +15,7 @@ import pytest
 
 from tests.native.catalog_contract import structural_schema as _structural_schema
 
-from .test_container_param_coercion_complete import _all_registered_tools
+from ._registered_tools import all_registered_tools as _all_registered_tools
 
 _CONTRACTS = Path(__file__).resolve().parents[3] / "docs" / "native-migration"
 _ANNOTATIONS = (
@@ -89,6 +89,24 @@ def _optional_nullable_input(before: dict[str, Any], after: dict[str, Any]) -> b
     return _structural_schema(before) == {"type": "string"} and _structural_schema(
         after
     ) == {"default": None, "anyOf": [{"type": "string"}, {"type": "null"}]}
+
+
+def _adds_helper_step_answers(before: Any, after: Any) -> bool:
+    """Main accepts a list of form answers in addition to every old config type."""
+    old, new = _structural_schema(before), _structural_schema(after)
+    if not isinstance(new, dict) or not isinstance(new.get("anyOf"), list):
+        return False
+    extension = {
+        "type": "array",
+        "items": {"type": "object", "additionalProperties": True},
+    }
+    branches = new["anyOf"]
+    if branches.count(extension) != 1:
+        return False
+    return {
+        **new,
+        "anyOf": [branch for branch in branches if branch != extension],
+    } == old
 
 
 def _preserved_definitions(before: Any, after: Any) -> bool:
@@ -167,6 +185,11 @@ def _changed_inputs(
                     tool_name, name, schema, new_properties[name]
                 )
                 or (
+                    tool_name == "ha_config_set_helper"
+                    and name == "config"
+                    and _adds_helper_step_answers(schema, new_properties[name])
+                )
+                or (
                     tool_name == "ha_manage_backup"
                     and name == "restore_database"
                     and _structural_schema(schema)
@@ -210,6 +233,11 @@ def test_current_interfaces_match_the_independent_upstream_source_receipt() -> N
     definitions = {tool.name: tool for tool in build_initial_catalog(MagicMock())}
     definitions["ha_manage_hacs"] = define_tool(
         MagicMock(), HacsFacade, "ha_manage_hacs", annotations={}
+    )
+    from ha_mcp.runtime.trace_tools import TraceFacade
+
+    definitions["ha_get_automation_traces"] = define_tool(
+        MagicMock(), TraceFacade, "ha_get_automation_traces", annotations={}
     )
     existing_extensions = {"ha_config_get_automation": {"config_format"}}
     for name, source in reference["tools"].items():
@@ -549,3 +577,38 @@ def test_optional_schema_extensions_keep_existing_call_restrictions():
         else:
             broken["properties"]["identifier"] = {"type": "integer"}
         assert _changed_inputs(before, broken), mutation
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [None, "old_type", "default", "array_items", "another_tool", "another_parameter"],
+)
+def test_helper_answer_list_extension_preserves_every_old_branch(
+    mutation: str | None,
+) -> None:
+    old = {
+        "anyOf": [
+            {"type": "string"},
+            {"type": "object", "additionalProperties": True},
+            {"type": "null"},
+        ],
+        "default": None,
+    }
+    new = json.loads(json.dumps(old))
+    new["anyOf"].insert(
+        2, {"type": "array", "items": {"type": "object", "additionalProperties": True}}
+    )
+    if mutation == "old_type":
+        new["anyOf"][0] = {"type": "integer"}
+    if mutation == "default":
+        new["default"] = ""
+    if mutation == "array_items":
+        new["anyOf"][2]["items"] = {"type": "string"}
+    tool = "other_tool" if mutation == "another_tool" else "ha_config_set_helper"
+    parameter = "another_parameter" if mutation == "another_parameter" else "config"
+    changes = _changed_inputs(
+        {"properties": {parameter: old}},
+        {"properties": {parameter: new}},
+        tool_name=tool,
+    )
+    assert bool(changes) is (mutation is not None)

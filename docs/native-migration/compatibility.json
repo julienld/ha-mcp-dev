@@ -330,8 +330,8 @@
     }
   ],
   "upstream_contract_updates": {
-    "revision": "8b022630215c7a516d9e0b92aa39c4d3cc94dc5d",
-    "reference": "upstream-contract-8b0226302.json",
+    "revision": "40e86d65750ad8cfa4ed5ea933a5fbb82dec6ce2",
+    "reference": "upstream-contract-40e86d657.json",
     "decision": "Julien: upstream remains the functional reference; adapt Native to upstream choices without preserving retired upstream APIs. Historical baseline files remain immutable.",
     "tools": {
       "ha_config_get_automation": {
@@ -368,6 +368,19 @@
           ]
         },
         "reason": "Confirmed per-user Marketplace warning acceptance added upstream."
+      },
+      "ha_config_set_helper": {
+        "extension": "config accepts a list of Core form answers in addition to all prior input types; no historical baseline recaptured",
+        "source": "src/ha_mcp/tools/tools_config_helpers.py"
+      },
+      "ha_get_automation_traces": {
+        "rename_parameters": {
+          "automation_id": "entity_id"
+        },
+        "remove_parameters": [
+          "deduplicate"
+        ],
+        "replacement": "Core trace selectors and extended dictionaries replace deduplicated, inferred trace projections in Main; no Native alias for the retired parameters."
       }
     }
   }

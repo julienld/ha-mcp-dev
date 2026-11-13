@@ -65,6 +65,28 @@ async def integration_commands(
     return result
 
 
+async def flow_record(hass: HomeAssistant, arguments: dict[str, Any]) -> dict[str, Any]:
+    from ..flow_record import flow_record as read_record
+
+    return read_record(hass, arguments)
+
+
+async def component_capabilities(
+    hass: HomeAssistant, arguments: dict[str, Any]
+) -> dict[str, Any]:
+    from ..websocket_api.constants import CAPABILITIES
+
+    return {"capabilities": list(CAPABILITIES)}
+
+
+async def flow_outline(
+    hass: HomeAssistant, arguments: dict[str, Any]
+) -> dict[str, Any]:
+    from ..flow_outline import async_flow_outline
+
+    return await async_flow_outline(hass, arguments)
+
+
 DIRECT_OPERATIONS: dict[
     str, tuple[Callable[[HomeAssistant, dict[str, Any]], Awaitable[Any]], bool]
 ] = {
@@ -72,5 +94,8 @@ DIRECT_OPERATIONS: dict[
     "integrations.commands": (integration_commands, False),
     "helpers.flow.core_types": (core_helper_types, False),
     "config.entries.read": (entry_metadata, False),
+    "config.flow.record": (flow_record, False),
+    "config.flow.outline": (flow_outline, False),
+    "component.capabilities": (component_capabilities, False),
     "config.subentries.list": (subentries, False),
 }

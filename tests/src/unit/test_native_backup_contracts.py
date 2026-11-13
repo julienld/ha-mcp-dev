@@ -10,7 +10,7 @@ import pytest
 from ha_mcp.runtime.backup_tools import BackupFacade
 from ha_mcp.tool_api import CallContext, ToolFailure
 
-from .test_native_engine_backend import native as native
+from ._native_backend_module import native as native
 from .test_native_full_backup_restore import restore as restore
 from .test_native_full_backups import backups as backups
 

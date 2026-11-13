@@ -8,7 +8,7 @@ import pytest
 from ha_mcp.runtime.snapshot_payloads import BackupRestoreError
 from ha_mcp.tool_api import CallContext, ToolFailure
 
-from .test_native_engine_backend import native as native
+from ._native_backend_module import native as native
 from .test_native_resource_service import CoreResources
 from .test_native_resource_service import resources as resources
 from .test_native_snapshot_restore import runtime as runtime

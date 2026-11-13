@@ -15,9 +15,9 @@ from yarl import URL
 from ha_mcp.runtime import Engine
 from ha_mcp.tool_api import CallContext, ToolFailure
 
+from ._native_backend_module import native as native
 from .test_native_app_actions import actions as actions
 from .test_native_apps import apps as apps
-from .test_native_engine_backend import native as native
 
 
 @pytest.fixture

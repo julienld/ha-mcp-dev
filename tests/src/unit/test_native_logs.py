@@ -21,8 +21,8 @@ from ha_mcp.runtime import Engine
 from ha_mcp.runtime.log_tools import LogsFacade
 from ha_mcp.tool_api import CallContext
 
+from ._native_backend_module import native as native
 from .test_native_engine_backend import authorize
-from .test_native_engine_backend import native as native
 
 
 def _log_line(kind: str, index: int) -> str:

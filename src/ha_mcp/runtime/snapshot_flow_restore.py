@@ -11,8 +11,8 @@ from ha_mcp.errors import HomeAssistantCommandError, HomeAssistantError
 from .flows.entry import (
     CreationFlowError,
     OptionsFlowError,
-    create_flow_helper,
-    update_config_entry_options,
+    recreate_flow_helper,
+    restore_config_entry_options,
 )
 from .flows.subentry_restore import recreate_config_subentry, restore_config_subentry
 from .snapshot_files import _flow_entry_id, _flow_label, _require_dict
@@ -128,13 +128,11 @@ async def _restore_flow_helper(
     return await _apply_and_verify(
         f"{label} helper",
         partial(
-            update_config_entry_options,
+            restore_config_entry_options,
             ports.session,
             entry_id,
             options,
             expected_domain=helper_type,
-            noun="helper",
-            keep_current_values=False,
             fixed_options=current["options"],
         ),
         partial(
@@ -166,11 +164,10 @@ async def _recreate_flow_helper(
             reason="recreation_preflight_unavailable",
         ) from err
     try:
-        result = await create_flow_helper(
+        result = await recreate_flow_helper(
             ports.session,
             helper_type,
             dict(snapshot["options"]),
-            complete_snapshot=True,
         )
     except CreationFlowError as err:
         ports.log_failure("create_entry", err)

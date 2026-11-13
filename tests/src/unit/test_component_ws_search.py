@@ -26,34 +26,31 @@ config_get was withdrawn pre-release). Highlights:
 from __future__ import annotations
 
 import asyncio
-import importlib
 import json
 import logging
-import sys
 from collections.abc import Iterable, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
+import orjson
 import pytest
 import voluptuous as vol
+from homeassistant.core import Context, State
 from homeassistant.exceptions import HomeAssistantError
 
 # Server-side scoring path the component must stay in parity with.
 from ha_mcp.tools.search.entities import _match_exact_search_entity
 from ha_mcp.utils.fuzzy_search import calculate_ratio
 
-from ._component_ws_api import COMPONENT_VERSION, wsapi
+from ._component_ws_api import COMPONENT_VERSION, NATIVE_COMMANDS, wsapi
 from ._component_ws_fakes import (
-    FakeFragment,
     FakeRegEntry,
     FakeServices,
-    FakeState,
     _FakeConnection,
     _FakeWSApi,
     _Unauthorized,
-    fake_json_bytes,
 )
 
 _REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -62,6 +59,25 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
 # =============================================================================
 # Fakes
 # =============================================================================
+def FakeState(
+    entity_id: str,
+    state: str = "on",
+    friendly_name: str | None = None,
+    last_changed: str = "2026-07-16T00:00:00+00:00",
+    last_updated: str = "2026-07-16T00:00:00+00:00",
+    **attrs: Any,
+) -> State:
+    """Build Core's actual State for the existing callers of this fixture."""
+    if friendly_name is not None:
+        attrs["friendly_name"] = friendly_name
+    return State(
+        entity_id,
+        state,
+        attrs,
+        last_changed=datetime.fromisoformat(last_changed),
+        last_updated=datetime.fromisoformat(last_updated),
+        context=Context(id="01ABC"),
+    )
 
 
 class FakeStates:
@@ -135,7 +151,7 @@ class FakeErModule:
     """Faithful stand-in for the ``entity_registry`` module's device index.
 
     ``_do_device_get(include_entities)`` calls ``er.async_entries_for_device``;
-    the real ``er`` is MagicMock-stubbed at import, so tests monkeypatch
+    a fake registry view has no real index, so tests on one monkeypatch
     ``wsapi.er`` with this. Mirrors core's filter — disabled entities are excluded
     unless ``include_disabled_entities`` (the component passes True, matching
     ``config/entity_registry/list``)."""
@@ -330,10 +346,10 @@ class FakeDevice:
 
     @property
     def dict_repr(self):
-        # Mirrors core ``DeviceEntry.dict_repr`` (one ``config/device_registry/
-        # list`` element): the key set + order the device_get/device_list commands
-        # return VERBATIM. Sets are rendered to lists here as core does; timestamps
-        # are fixed floats (their exact value is irrelevant to the consumers).
+        # Part of core's ``DeviceEntry.dict_repr`` in its key order: Core 2026.11
+        # also emits config_entry_id, config_subentry_id, next_name_part and
+        # parent_device_id, so a consumer of those is tested on Core's registry.
+        # Sets render as lists; timestamps are fixed floats.
         return {
             "area_id": self.area_id,
             "configuration_url": self.configuration_url,
@@ -634,14 +650,7 @@ class FakeConfigEntry:
             "num_subentries": len(self.subentries or {}),
             **self.extra_fragment_fields,
         }
-        return FakeFragment(json.dumps(row).encode())
-
-
-# ``homeassistant.helpers.json`` is a MagicMock stub in unit tests; give the
-# config_entries command a json_bytes that serializes the fake fragment.
-_core_config_entries = sys.modules["custom_components.ha_mcp_tools.core_config_entries"]
-
-_core_config_entries.json_bytes = fake_json_bytes
+        return orjson.Fragment(json.dumps(row).encode())
 
 
 class FakeSubentry:
@@ -1800,7 +1809,6 @@ class TestMatchTypeTaxonomy:
 
 @pytest.fixture
 def functional_ws(monkeypatch):
-    importlib.import_module("custom_components.ha_mcp_tools.websocket_api.hacs_cache")
     fake = _FakeWSApi()
     monkeypatch.setattr(wsapi, "websocket_api", fake)
     monkeypatch.setattr(
@@ -1838,8 +1846,7 @@ _CMD_MSG_EXTRA: dict[str, dict[str, object]] = {
     # exposure, list mode: registries resolve empty, so the probe stays pure.
     "ha_mcp_tools/entity_lookup": {"unique_id": "x"},
     "ha_mcp_tools/registries": {"registries": []},
-    # registry_lookup now REQUIRES a target (entity_ids or config_entry_id) —
-    # a neither-present request raises HomeAssistantError (issue #1813 M2).
+    # registry_lookup REQUIRES a target; neither-present raises (issue #1813 M2).
     "ha_mcp_tools/registry_lookup": {"entity_ids": ["light.x"]},
     "ha_mcp_tools/call_event": {"event_type": "probe_event"},
     # config_entries / system_snapshot need no required params.
@@ -1881,6 +1888,7 @@ class TestRegistrationAndAdminGate:
             wsapi.WS_BULK_CALL_SERVICE,
             wsapi.WS_TEMPLATE_DIAGNOSE,
             wsapi.WS_LOGBOOK_EVENTS,
+            wsapi.WS_TRACE_CONTEXT,
             wsapi.WS_OAUTH_CALLBACKS,
             wsapi.WS_OAUTH_CALLBACKS_UPDATE,
             *wsapi.helper_collections.COMMANDS + wsapi.entity_restore.COMMANDS,
@@ -1890,8 +1898,10 @@ class TestRegistrationAndAdminGate:
             wsapi.card_definitions.WS_DASHBOARD_CARDS,  # test_card_definitions.py
             wsapi.todo_items.WS_TODO_ITEM,  # test_component_todo_items.py
             wsapi.automation_config.WS_AUTOMATION_CONFIG,
-            "ha_mcp_tools/hacs_cache",  # test_hacs_cache_bridge.py covers its gates.
             wsapi.config_references.WS_CONFIG_REFERENCES,  # its own test file
+        } | NATIVE_COMMANDS | {
+            wsapi.flow_record.WS_FLOW_RECORD,
+            wsapi.flow_outline.WS_FLOW_OUTLINE,
         }
         assert "ha_mcp_tools/config_get" not in functional_ws.registered
 

@@ -35,6 +35,10 @@ and serves the settings UI at `http://localhost:8086/mcp/settings`. Settings UI
 details are in
 [`src/ha_mcp/settings_ui/AGENTS.md`](../../src/ha_mcp/settings_ui/AGENTS.md).
 
+The repository-root checkout is where `master` is kept; feature work goes in
+`worktree/` per the root `AGENTS.md`, and `git worktree prune` removes stale
+worktree references.
+
 ## Test commands
 
 E2E tests live in `tests/src/e2e/` (not `tests/e2e/`), use testcontainers,
@@ -90,6 +94,15 @@ slow host or network:
   falling back to the budget it was meant to escape. CI leaves it unset: its
   runners are not the slow case this knob exists for.
 
+A separate opt-in variable covers containerized pytest runs rather than boot
+time:
+
+- `HA_E2E_BASE_HOST=<host>` replaces `localhost` in the testcontainer URL. Set
+  it when pytest runs inside a container and the sibling testcontainer is
+  reachable through the Docker host address (typically the bridge gateway), not
+  the test process's localhost. Only the host changes; the port is the one
+  testcontainers resolves for its connection mode. CI leaves it unset.
+
 Do not set `HOMEASSISTANT_URL` manually before testcontainer E2E tests.
 `tests/.env.test` contains placeholders, and the fixture supplies the real
 URL dynamically. The shared token is in `tests/test_constants.py`.
@@ -100,8 +113,14 @@ URL dynamically. The shared token is in `tests/test_constants.py`.
 uv run ruff format src/ tests/
 uv run ruff check src/ tests/ --fix
 uv run mypy src/
+uv run python scripts/mypy_tests_exact.py
 uv run ast-grep scan
 ```
+
+The unit and app test trees carry extra checks that keep a test on real Home
+Assistant Core: eight ast-grep rules, ruff's `SLF001` (their own `ruff.toml`)
+and the mypy script above. [`tests/AGENTS.md`](../../tests/AGENTS.md#unit-tests-run-on-real-home-assistant-core)
+owns the rules and the lists of files written before them.
 
 C901 complexity is capped at 10 repository-wide with no per-file exemptions;
 issue #925 removed the grandfathered list, so extract helpers instead of

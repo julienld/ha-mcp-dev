@@ -43,7 +43,7 @@ from .component_api import (
     is_unknown_command,
 )
 from .config_entry_flow import COMPONENT_DOMAIN
-from .config_entry_flow_form import _MISSING_DEFAULT, _step_owned_submission_value
+from .config_entry_flow_form import MISSING, shown_value
 from .config_entry_flow_introspect import abort_probe_flow
 from .helpers import (
     exception_to_structured_error,
@@ -339,9 +339,9 @@ def _preserved_flow_overrides(flow: dict[str, Any]) -> dict[str, Any]:
     A partial ``update_source`` submit must resend these or it would blank
     them: an omitted optional field reads as "cleared", not "unchanged". The
     resend is harvested from ``description.suggested_value`` on the flow's own
-    schema — the clearable text fields, per the same suggestion-over-default
-    rule as the generic walker's ``keep_current_values`` backfill (issue
-    #2254) — rather than a hardcoded key list, so a field added to the
+    schema — the clearable text fields, the values ``form_submission`` posts
+    back for a field left out (issue #2254) — rather than a hardcoded key
+    list, so a field added to the
     component's options flow later cannot be silently wiped here. A toggle or
     dropdown carries only a schema default (= its current value), never a
     suggestion, so it drops out naturally; an empty or cleared override carries no
@@ -352,8 +352,8 @@ def _preserved_flow_overrides(flow: dict[str, Any]) -> dict[str, Any]:
     for item in flow.get("data_schema") or []:
         if not isinstance(item, dict) or not item.get("name"):
             continue
-        stored = _step_owned_submission_value(item)
-        if stored is _MISSING_DEFAULT or stored in (None, ""):
+        stored = shown_value(item)
+        if stored is MISSING or stored in (None, ""):
             continue
         preserved[str(item["name"])] = stored
     return preserved
@@ -1335,7 +1335,7 @@ class LegacyDevTools:
         Extracted verbatim from the inline branch: rejects env/addon-managed
         settings, removes any file override, and reports whether one existed.
         """
-        from ..config import _reset_global_settings
+        from ..config import reset_global_settings
 
         if origin == "env":
             raise_tool_error(
@@ -1357,7 +1357,7 @@ class LegacyDevTools:
         had_override = origin == "file"
         if had_override:
             await self._merge_file_override({setting: _REMOVE})
-            _reset_global_settings()
+            reset_global_settings()
         return {
             "success": True,
             "data": {
@@ -1387,8 +1387,8 @@ class LegacyDevTools:
         """
         from ..config import (
             BETA_FEATURE_FIELDS,
-            _reset_global_settings,
             get_global_settings,
+            reset_global_settings,
         )
 
         if value is None:
@@ -1465,7 +1465,7 @@ class LegacyDevTools:
             mode = "addon"
         else:
             await self._merge_file_override({setting: coerced})
-            _reset_global_settings()
+            reset_global_settings()
             mode = "file"
         return {
             "success": True,
@@ -1626,8 +1626,8 @@ class LegacyDevTools:
         # the component's options form exposes OPT_OAUTH_CLIENT_SECRET as a
         # suggested_value — echoing the whole payload would hand that
         # credential to the MCP client. This probe submits the flow directly
-        # rather than through the walker, so the flow-schema redaction path
-        # never sees it either. Preserve it in the submission, keep it out of
+        # rather than through the step driver, so the flow-schema redaction
+        # path never sees it either. Preserve it in the submission, keep it out of
         # the response.
         requested: dict[str, Any] = {}
         if pip_spec is not None:

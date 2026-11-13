@@ -1,267 +1,213 @@
-"""Trace reads use Core owners, detached snapshots and live caller authorization."""
+"""Native trace reads on real Core stores, registries and authenticated users."""
+
+from __future__ import annotations
 
 import asyncio
-import importlib
 import json
-import sys
-import threading
-from types import SimpleNamespace
+from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
+from freezegun import freeze_time
+from homeassistant.auth.models import User
+from homeassistant.components.trace import util as trace_util
+from homeassistant.components.trace.const import DATA_TRACE_STORE
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.json import ExtendedJSONEncoder
+from homeassistant.setup import async_setup_component
 
-from ha_mcp.runtime import Engine
+from custom_components.ha_mcp_tools.native_backend import NativeBackend
+from custom_components.ha_mcp_tools.native_operations.traces import NativeTraces
 from ha_mcp.runtime.trace_tools import TraceFacade
-from ha_mcp.tool_api import CallContext
+from ha_mcp.tool_api import CallContext, ToolFailure, UnsupportedOperation
 
-from .test_native_engine_backend import authorize
-from .test_native_engine_backend import native as native
+from ._trace_fixtures import automation_run, script_run, store_runs
 
 
 @pytest.fixture
-async def traces(native: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
-    entity_id = "automation.renamed"
-    entries = {entity_id: SimpleNamespace(unique_id="stable-id")}
-    states = {
-        entity_id: SimpleNamespace(state="on", attributes={"last_triggered": "before"}),
-        "script.idle": SimpleNamespace(state="off", attributes={}),
-    }
-    entities = {
-        key: SimpleNamespace(_trace_config={"stored_traces": 5}) for key in states
-    }
-    component = SimpleNamespace(get_entity=entities.get)
-    worker_threads = []
-
-    async def execute(function: Any, *args: Any) -> Any:
-        def run() -> Any:
-            worker_threads.append(threading.get_ident())
-            return function(*args)
-
-        return await asyncio.to_thread(run)
-
-    hass = SimpleNamespace(
-        data={
-            "trace": {},
-            "trace_store": object(),
-            "automation": component,
-            "script": component,
-        },
-        states=SimpleNamespace(get=states.get),
-        async_add_executor_job=execute,
+async def traces(hass: HomeAssistant, hass_admin_user: User) -> NativeTraces:
+    assert await async_setup_component(hass, "trace", {})
+    er.async_get(hass).async_get_or_create(
+        "automation", "automation", "stable-id", suggested_object_id="renamed"
     )
-    user = authorize(hass)
-    registry = SimpleNamespace(async_get=entries.get)
-    monkeypatch.setattr(
-        sys.modules["homeassistant.helpers"],
-        "entity_registry",
-        SimpleNamespace(async_get=lambda _: registry),
-    )
-    const = SimpleNamespace(
-        DATA_TRACE="trace",
-        DATA_TRACE_STORE="trace_store",
-        CONF_STORED_TRACES="stored_traces",
-    )
-    owner = SimpleNamespace(
-        async_get_trace=AsyncMock(), async_list_traces=AsyncMock(return_value=[])
-    )
-    monkeypatch.setitem(sys.modules, "homeassistant.components.trace.const", const)
-    monkeypatch.setitem(sys.modules, "homeassistant.components.trace.util", owner)
-    monkeypatch.setitem(
-        sys.modules,
-        "homeassistant.components.automation",
-        SimpleNamespace(DATA_COMPONENT="automation"),
-    )
-    monkeypatch.setitem(
-        sys.modules,
-        "homeassistant.components.script.const",
-        SimpleNamespace(DOMAIN="script"),
-    )
-    encoded_threads = []
-
-    class CoreEncoder(json.JSONEncoder):
-        def default(self, value: Any) -> Any:
-            encoded_threads.append(threading.get_ident())
-            return {"core_value": value.example}
-
-    monkeypatch.setattr(
-        sys.modules["homeassistant.helpers.json"],
-        "ExtendedJSONEncoder",
-        CoreEncoder,
-        raising=False,
-    )
-    backend = native.NativeBackend(hass)
-    binding = importlib.import_module(
-        "custom_components.ha_mcp_tools.native_trace_tools"
-    )
-    manager = SimpleNamespace(hass=hass, backend=backend)
-    definition = binding.trace_definition(manager)
-    engine = Engine(backend, [definition])
-    module = importlib.import_module(
-        "custom_components.ha_mcp_tools.native_operations.traces"
-    )
-    return SimpleNamespace(
-        engine=engine,
-        hass=hass,
-        user=user,
-        owner=owner,
-        entries=entries,
-        states=states,
-        entities=entities,
-        definition=definition,
-        module=module,
-        backend=backend,
-        worker_threads=worker_threads,
-        encoded_threads=encoded_threads,
+    return NativeTraces(
+        hass, CallContext(hass_admin_user.id), authorize=NativeBackend(hass).authorize
     )
 
 
-async def test_trace_list_resolves_renamed_identity_and_pages_detached_core_results(
-    traces: Any,
+async def test_trace_list_uses_registry_identity_and_core_timestamp_paging(
+    hass: HomeAssistant,
+    traces: NativeTraces,
 ) -> None:
-    traces.owner.async_list_traces.return_value = [
-        {"run_id": str(index), "state": "stopped"} for index in range(5)
-    ]
+    for index in range(5):
+        with freeze_time(f"2026-11-08T16:00:0{index}+00:00"):
+            await store_runs(
+                hass,
+                automation_run(
+                    str(index), context_id=f"ctx-{index}", item_id="stable-id"
+                ),
+            )
     progress = AsyncMock()
-    result = await traces.engine.call(
-        "ha_get_automation_traces",
-        {"automation_id": "automation.renamed", "limit": 2, "offset": 1},
-        CallContext("actor", read_only=True, progress=progress),
+    traces.actor = CallContext(traces.actor.user_id, read_only=True, progress=progress)
+    result = await TraceFacade(traces.get).ha_get_automation_traces(
+        entity_id="automation.renamed", limit=2, offset=1
     )
-    assert not result.is_error, result.data
-    assert [item["run_id"] for item in result.data["traces"]] == ["3", "2"]
-    assert result.data["total_available"] == 5 and result.data["has_more"]
-    traces.owner.async_list_traces.assert_awaited_once_with(
-        traces.hass, "automation", "automation.stable-id"
-    )
-    assert traces.worker_threads and all(
-        value != threading.get_ident() for value in traces.worker_threads
-    )
+    assert [row["run_id"] for row in result["traces"]] == ["3", "2"]
+    assert result["total_available"] == 5 and result["has_more"]
     assert [call.kwargs["progress"] for call in progress.await_args_list] == [0, 1, 3]
 
 
-async def test_trace_detail_uses_core_extended_encoder_then_shared_section_projection(
-    traces: Any,
+async def test_detail_preserves_cores_extended_dict_and_variable_values(
+    hass: HomeAssistant,
+    traces: NativeTraces,
 ) -> None:
-    value = SimpleNamespace(example="Core-serialized variable")
-    traces.owner.async_get_trace.return_value = {
-        "state": "stopped",
-        "config": {"alias": "Debug"},
-        "context": {"id": "context-id"},
-        "logbook_entries": [{"name": "entry"}],
-        "trace": {
-            "sequence/0": [{"changed_variables": {"value": value}}],
-            "sequence/1": [{"changed_variables": {"value": value}}],
-        },
-    }
-    result = await traces.engine.call(
-        "ha_get_automation_traces",
+    run = automation_run(
+        "run",
+        context_id="ctx",
+        item_id="stable-id",
+        changed_variables={"when": datetime(2026, 11, 8, tzinfo=UTC)},
+    )
+    await store_runs(hass, run)
+    expected = json.loads(
+        json.dumps(
+            await trace_util.async_get_trace(hass, "automation.stable-id", "run"),
+            cls=ExtendedJSONEncoder,
+        )
+    )
+    result = await traces.get(
+        entity_id="automation.renamed", run_id="run", sections="trace,config,context"
+    )
+    for key in ("trace", "config", "context"):
+        assert result[key] == expected[key]
+    assert "action_trace" not in result and "config_summary" not in result
+
+
+async def test_domain_lists_include_each_core_item_without_an_entity_selector(
+    hass: HomeAssistant,
+    traces: NativeTraces,
+) -> None:
+    await store_runs(
+        hass,
+        automation_run("a", context_id="ctx-a"),
+        automation_run("b", context_id="ctx-b", item_id="other"),
+    )
+    result = await traces.get(domain="automation")
+    assert {row["item_id"] for row in result["traces"]} == {"uid_1", "other"}
+    assert "entity_id" not in result
+
+
+async def test_context_resolves_actual_core_run_and_filters_other_domains(
+    hass: HomeAssistant,
+    traces: NativeTraces,
+) -> None:
+    await store_runs(
+        hass,
+        automation_run("a", context_id="ctx-a", parent_id="cause"),
+        script_run("s", context_id="ctx-s", parent_id="cause"),
+    )
+    result = await traces.get(domain="script", context_id="cause", sections="context")
+    assert result["run_id"] == "s" and result["item_id"] == "uid_2"
+    assert result["context_match"] == "parent"
+    assert result["context"]["parent_id"] == "cause"
+
+
+@pytest.mark.parametrize("storage", [5, 0])
+async def test_idle_script_diagnostics_read_core_configuration(
+    hass: HomeAssistant,
+    traces: NativeTraces,
+    storage: int,
+) -> None:
+    assert await async_setup_component(
+        hass,
+        "script",
         {
-            "automation_id": "script.idle",
-            "run_id": "run",
-            "detailed": True,
-            "sections": "actions,context",
+            "script": {
+                "idle": {
+                    "sequence": [{"event": "native_trace_probe"}],
+                    "trace": {"stored_traces": storage},
+                }
+            }
         },
-        CallContext("actor"),
     )
-    assert not result.is_error, result.data
-    assert result.data["action_trace"][0]["variables"] == {
-        "value": {"core_value": value.example}
-    }
-    assert "variables" not in result.data["action_trace"][1]
-    assert result.data["context"] == {"id": "context-id"}
-    assert "config_summary" not in result.data and "logbook_entries" not in result.data
-    assert traces.encoded_threads == [threading.get_ident(), threading.get_ident()]
-    traces.owner.async_get_trace.assert_awaited_once_with(
-        traces.hass, "script.idle", "run"
-    )
-
-
-@pytest.mark.parametrize("storage", [5, 0, None])
-async def test_idle_script_diagnostics_use_actual_core_trace_settings(
-    traces: Any, storage: int | None
-) -> None:
-    traces.entities["script.idle"]._trace_config = (
-        {"stored_traces": storage} if storage is not None else {}
-    )
-    result = await traces.engine.call(
-        "ha_get_automation_traces",
-        {"automation_id": "script.idle"},
-        CallContext("actor"),
-    )
-    assert not result.is_error, result.data
-    diagnostics = result.data["diagnostics"]
-    assert diagnostics["automation_enabled"] is True
-    assert diagnostics["trace_storage_enabled"] is (
-        storage > 0 if storage is not None else None
-    )
-    assert "currently disabled" not in diagnostics["suggestion"]
+    await hass.async_block_till_done()
+    result = await traces.get(entity_id="script.idle")
+    diagnostics = result["diagnostics"]
+    assert diagnostics["entity_exists"] and diagnostics["entity_enabled"]
+    assert diagnostics["trace_storage_enabled"] is (storage > 0)
+    assert "disabled (state off)" not in diagnostics["suggestion"]
     if storage == 0:
-        assert "Trace storage is disabled for this script" in diagnostics["suggestion"]
-    if storage is None:
-        assert "could not be read" in diagnostics["suggestion"]
+        assert "stored_traces: 0" in diagnostics["suggestion"]
 
 
-@pytest.mark.parametrize("missing", ["storage", "run"])
-async def test_trace_owner_or_run_absence_is_not_fabricated_as_an_empty_success(
-    traces: Any, missing: str
+async def test_missing_entity_diagnostic_uses_main_contract(
+    traces: NativeTraces,
 ) -> None:
-    if missing == "storage":
-        del traces.hass.data["trace_store"]
-    else:
-        traces.owner.async_get_trace.side_effect = KeyError("run")
-    result = await traces.engine.call(
-        "ha_get_automation_traces",
-        {"automation_id": "automation.renamed", "run_id": "run"},
-        CallContext("actor"),
-    )
-    assert result.is_error and result.status == "not_started"
-    assert result.data["error"]["code"] == (
-        "UNSUPPORTED_OPERATION" if missing == "storage" else "SERVICE_CALL_FAILED"
-    )
-    if missing == "storage":
-        traces.owner.async_get_trace.assert_not_awaited()
-    else:
-        assert result.data["error"]["message"] == "The trace could not be found"
+    result = await traces.get(entity_id="script.missing")
+    assert result["diagnostics"]["entity_exists"] is False
+    assert "automation_exists" not in result["diagnostics"]
 
 
-async def test_revocation_after_formatting_prevents_disclosing_trace_payload(
-    traces: Any,
+async def test_missing_storage_is_explicitly_unsupported(
+    hass: HomeAssistant,
+    traces: NativeTraces,
 ) -> None:
-    execute = traces.hass.async_add_executor_job
+    del hass.data[DATA_TRACE_STORE]
+    with pytest.raises(UnsupportedOperation):
+        await traces.get(entity_id="automation.renamed", run_id="missing")
 
-    async def revoke(function: Any) -> Any:
-        result = await execute(function)
-        traces.user.is_active = False
+
+async def test_missing_run_keeps_core_failure_visible(traces: NativeTraces) -> None:
+    with pytest.raises(ToolFailure, match="trace could not be found") as raised:
+        await traces.get(entity_id="automation.renamed", run_id="missing")
+    assert raised.value.status == "not_started"
+
+
+async def test_revocation_after_formatting_prevents_disclosing_private_trace(
+    hass: HomeAssistant,
+    hass_admin_user: User,
+    traces: NativeTraces,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await store_runs(
+        hass,
+        automation_run(
+            "private-run", context_id="private-context", item_id="stable-id"
+        ),
+    )
+    execute = hass.async_add_executor_job
+
+    async def revoke(function: Callable[..., Any], *args: Any) -> Any:
+        result = await execute(function, *args)
+        hass_admin_user.is_active = False
         return result
 
-    traces.hass.async_add_executor_job = revoke
-    traces.owner.async_list_traces.return_value = [{"run_id": "private-run"}]
-    result = await traces.engine.call(
-        "ha_get_automation_traces",
-        {"automation_id": "automation.renamed"},
-        CallContext("actor"),
-    )
-    assert result.is_error and "private-run" not in json.dumps(result.data)
-    assert result.data["error"]["code"] == "AUTH_FORBIDDEN"
+    monkeypatch.setattr(hass, "async_add_executor_job", revoke)
+    with pytest.raises(ToolFailure) as raised:
+        await traces.get(entity_id="automation.renamed")
+    assert raised.value.code == "AUTH_FORBIDDEN"
+    assert "private-run" not in str(raised.value)
 
 
-async def test_cancellation_waits_for_issued_core_trace_restore_io(traces: Any) -> None:
+async def test_cancellation_drains_issued_core_restore_io(
+    hass: HomeAssistant,
+    traces: NativeTraces,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     started, release, drained = asyncio.Event(), asyncio.Event(), asyncio.Event()
+    original = trace_util.async_list_traces
 
-    async def read(*_args: Any) -> list:
+    async def delayed(*args: Any) -> Any:
         started.set()
         await release.wait()
+        result = await original(*args)
         drained.set()
-        return []
+        return result
 
-    traces.owner.async_list_traces.side_effect = read
-    service = traces.module.NativeTraces(
-        traces.hass, CallContext("actor"), authorize=traces.backend.authorize
-    )
-    task = asyncio.create_task(
-        TraceFacade(service.get).ha_get_automation_traces("automation.renamed")
-    )
+    monkeypatch.setattr(trace_util, "async_list_traces", delayed)
+    task = asyncio.create_task(traces.get(entity_id="automation.renamed"))
     await asyncio.wait_for(started.wait(), 1)
     task.cancel()
     await asyncio.sleep(0)

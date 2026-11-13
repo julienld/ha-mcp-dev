@@ -36,7 +36,7 @@ jobs:
         with:
           # renovate: datasource=github-releases depName=astral-sh/uv
           version: "0.13.4"
-          python-version: '3.13'
+          python-version: '3.14'
       - name: Launch both continuity installations and compare over loopback
         env:
           PROTOCOL_STATE: ${{ runner.temp }}/protocol-cleanup.json

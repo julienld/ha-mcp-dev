@@ -32,6 +32,7 @@ class OverviewResultBuilder:
         visibility_warnings: list[str],
     ) -> dict[str, Any]:
         entity_area_map = self._build_entity_area_map(entity_registry, device_registry)
+        entity_names = self._build_entity_name_map(entity_registry)
 
         (
             max_entities_per_domain,
@@ -57,6 +58,7 @@ class OverviewResultBuilder:
             domains_filter_set,
             area_stats,
             entity_area_map,
+            entity_names,
             include_state,
             include_entity_id,
         )
@@ -115,6 +117,17 @@ class OverviewResultBuilder:
                     entry, device_area_map
                 )
         return entity_area_map
+
+    @staticmethod
+    def _build_entity_name_map(
+        entity_registry: list[dict[str, Any]],
+    ) -> dict[str, str]:
+        """Use names Core composed for the component's overview registry rows."""
+        return {
+            entry["entity_id"]: entry["full_name"]
+            for entry in entity_registry
+            if entry.get("entity_id") and entry.get("full_name")
+        }
 
     @staticmethod
     def _resolve_overview_display_opts(
@@ -182,6 +195,7 @@ class OverviewResultBuilder:
         domains_filter_set: set[str] | None,
         area_stats: dict[str, dict[str, Any]],
         entity_area_map: dict[str, str | None],
+        entity_names: dict[str, str],
         include_state: bool,
         include_entity_id: bool,
     ) -> tuple[dict[str, dict[str, Any]], dict[str, int]]:
@@ -207,6 +221,8 @@ class OverviewResultBuilder:
             entity_data: dict[str, Any] = {
                 "friendly_name": attributes.get("friendly_name", entity_id),
             }
+            if name := entity_names.get(entity_id):
+                entity_data["name"] = name
             if include_entity_id:
                 entity_data["entity_id"] = entity_id
             if include_state:

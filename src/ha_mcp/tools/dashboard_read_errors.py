@@ -59,7 +59,7 @@ def is_no_stored_config_error(exc: ToolError) -> bool:
     """Whether ``_get_dashboard_config_internal``'s ToolError means no config."""
     try:
         error_data = json.loads(str(exc))
-    except (json.JSONDecodeError, TypeError):
+    except json.JSONDecodeError, TypeError:
         return False
     if (
         not isinstance(error_data, dict)

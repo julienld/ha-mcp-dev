@@ -10,7 +10,7 @@ from .errors import raise_failure
 _YAML_SKILL_FILES: tuple[str, ...] = ("references/template-guidelines.md",)
 
 
-_YAML_PACKAGES_FLAG_BY_KEY = {
+YAML_PACKAGES_FLAG_BY_KEY = {
     "automation": "enable_yaml_packages_automation",
     "script": "enable_yaml_packages_script",
     "scene": "enable_yaml_packages_scene",
@@ -96,6 +96,6 @@ def _append_yaml_result_warnings(
 
 
 __all__ = [
-    "_YAML_PACKAGES_FLAG_BY_KEY",
+    "YAML_PACKAGES_FLAG_BY_KEY",
     "_YAML_SKILL_FILES",
 ]

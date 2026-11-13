@@ -4,13 +4,13 @@ import json
 from pathlib import Path
 from types import SimpleNamespace
 
+from ._native_backend_module import native as native
 from .test_native_catalog_contract import (
     _ANNOTATIONS,
     _changed_inputs,
     _shared_annotation_overrides,
     _structural_schema,
 )
-from .test_native_engine_backend import native as native
 
 
 def test_composed_bulk_keeps_schemas_tags_and_annotations(native: object) -> None:

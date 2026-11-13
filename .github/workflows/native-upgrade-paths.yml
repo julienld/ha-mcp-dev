@@ -63,7 +63,7 @@ jobs:
         with:
           # renovate: datasource=github-releases depName=astral-sh/uv
           version: "0.13.4"
-          python-version: '3.13'
+          python-version: '3.14'
       - name: Resolve and freeze a current supported Core release
         id: core
         run: uv run --locked -s harness/scripts/core_window.py --output "$RUNNER_TEMP/upgrade-core-window.json"

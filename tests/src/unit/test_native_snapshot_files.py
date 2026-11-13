@@ -5,7 +5,7 @@ import pytest
 from ha_mcp.runtime.snapshot_payloads import BackupRestoreError
 from ha_mcp.tool_api import CallContext
 
-from .test_native_engine_backend import native as native
+from ._native_backend_module import native as native
 from .test_native_file_access import files as files
 from .test_native_filesystem import filesystem as filesystem
 from .test_native_yaml import yaml_files as yaml_files

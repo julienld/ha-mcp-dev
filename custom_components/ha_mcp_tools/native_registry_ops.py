@@ -177,6 +177,49 @@ async def _device_list_snapshot(hass: HomeAssistant, arguments: dict[str, Any]) 
     return {"devices": devices, "device_to_entities": entity_map}
 
 
+async def _device_linked(hass: HomeAssistant, arguments: dict[str, Any]) -> list[str]:
+    from homeassistant.helpers import device_registry as dr
+
+    registry = dr.async_get(hass)
+    device_id = arguments["device_id"]
+    device = registry.async_get(device_id)
+    if device is None:
+        raise ToolFailure(
+            "RESOURCE_NOT_FOUND", "Device not found", status="not_started"
+        )
+    if isinstance(device, dr.ChildDeviceEntry):
+        return []
+    return [
+        entry.id
+        for entry in registry.async_get_devices(
+            identifiers=device.identifiers, connections=device.connections
+        )
+        if entry.id != device_id
+    ]
+
+
+async def device_composite_splits(
+    hass: HomeAssistant, arguments: dict[str, Any]
+) -> dict[str, Any]:
+    from homeassistant.helpers import device_registry as dr
+
+    registry = dr.async_get(hass)
+    return {
+        composite_id: {
+            "split_ids": [device.id for device in devices],
+            "primary_id": next(
+                (
+                    device.id
+                    for device in devices
+                    if device.config_entry_id == device.composite_primary_config_entry
+                ),
+                None,
+            ),
+        }
+        for composite_id, devices in registry._devices.get_composite_splits().items()
+    }
+
+
 DIRECT_OPERATIONS: dict[
     str, Callable[[HomeAssistant, dict[str, Any]], Awaitable[Any]]
 ] = {
@@ -186,6 +229,8 @@ DIRECT_OPERATIONS: dict[
     "radio.matter.node_diagnostics": _matter_node_diagnostics,
     "devices.resolve": _device_resolve,
     "devices.single_snapshot": _device_single_snapshot,
+    "devices.linked": _device_linked,
+    "devices.composite_splits": device_composite_splits,
     "devices.list_snapshot": _device_list_snapshot,
     "entities.registry.read": _entity_read,
     "entities.registry.list": _entity_list,

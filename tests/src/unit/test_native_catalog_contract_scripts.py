@@ -19,6 +19,7 @@ from ha_mcp.tool_api import CallContext
 from ha_mcp.utils.config_hash import compute_config_hash
 
 from ._component_ws_fakes import _FakeCallServices
+from ._native_backend_module import native as native
 from .test_component_ws_search import (
     FakeEntityReg,
     FakeRegEntry,
@@ -36,7 +37,6 @@ from .test_native_catalog_contract_config import (
 )
 from .test_native_config_mutations import _mutation_setup
 from .test_native_engine_backend import EventBus
-from .test_native_engine_backend import native as native
 
 
 class _ScriptRegistry(FakeEntityReg):

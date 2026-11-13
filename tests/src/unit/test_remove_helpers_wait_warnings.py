@@ -1,14 +1,24 @@
 """ha_remove_helpers_integrations reports a failed removal check after a delete
-that succeeded as a warning, as the sibling delete tools do."""
+that succeeded as a warning, as the sibling delete tools do.
+
+The tool runs on the server's own client against a real ``hass``; only the
+removal check, this repository's own waiter, is replaced.
+"""
 
 import asyncio
 import logging
-from unittest.mock import AsyncMock, MagicMock, patch
+import uuid
+from unittest.mock import AsyncMock, patch
 
 import pytest
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
+from homeassistant.setup import async_setup_component
+from pytest_homeassistant.common import MockConfigEntry
 
 from ha_mcp.client.rest_client import (
     HomeAssistantAuthError,
+    HomeAssistantClient,
     HomeAssistantConnectionError,
 )
 from ha_mcp.tools.tools_integrations import IntegrationTools
@@ -24,17 +34,25 @@ class TestRemovalCheckAfterSuccessfulDelete:
         )
 
     @pytest.fixture
-    def mock_client(self) -> MagicMock:
-        return MagicMock(
-            get_entity_state=AsyncMock(return_value={"state": "on"}),
-            get_config_entry=AsyncMock(return_value={"domain": "utility_meter"}),
-            send_websocket_message=AsyncMock(),
-            delete_config_entry=AsyncMock(return_value={"require_restart": False}),
-        )
+    async def tools(
+        self, hass: HomeAssistant, core_client: HomeAssistantClient
+    ) -> IntegrationTools:
+        assert await async_setup_component(hass, "config", {})
+        return IntegrationTools(core_client)
 
     @pytest.fixture
-    def tools(self, mock_client: MagicMock) -> IntegrationTools:
-        return IntegrationTools(mock_client)
+    async def my_button(
+        self, hass: HomeAssistant, core_client: HomeAssistantClient
+    ) -> str:
+        """A stored input_button, freshly named; returns its entity_id."""
+        name = f"my_button_{uuid.uuid4().hex[:8]}"
+        assert await async_setup_component(hass, "input_button", {})
+        created = await core_client.send_websocket_message(
+            {"type": "input_button/create", "name": name}
+        )
+        assert created["success"], created
+        await hass.async_block_till_done()
+        return f"input_button.{name}"
 
     @pytest.mark.parametrize(
         ("failure", "logs_traceback"),
@@ -43,8 +61,9 @@ class TestRemovalCheckAfterSuccessfulDelete:
     )
     async def test_flow_path_wait_true_reports_a_failed_check_as_a_warning(
         self,
+        hass: HomeAssistant,
         tools: IntegrationTools,
-        mock_client: MagicMock,
+        entity_registry: er.EntityRegistry,
         failure: Exception,
         logs_traceback: bool,
         caplog: pytest.LogCaptureFixture,
@@ -53,26 +72,16 @@ class TestRemovalCheckAfterSuccessfulDelete:
         error while checking one sub-entity is a warning on a successful delete
         that names the entity, which is not reported as still present. An
         unexpected error is also logged with its traceback."""
-        mock_client.send_websocket_message.side_effect = [
-            {
-                "success": True,
-                "result": {"platform": "utility_meter", "config_entry_id": "entry_um"},
-            },
-            {
-                "success": True,
-                "result": [
-                    {
-                        "entity_id": "sensor.energy_peak",
-                        "config_entry_id": "entry_um",
-                    },
-                    {
-                        "entity_id": "sensor.energy_offpeak",
-                        "config_entry_id": "entry_um",
-                    },
-                ],
-            },
-        ]
-        mock_client.delete_config_entry.return_value = {"require_restart": False}
+        entry = MockConfigEntry(domain="utility_meter")
+        entry.add_to_hass(hass)
+        for tariff in ("peak", "offpeak"):
+            entity_registry.async_get_or_create(
+                "sensor",
+                "utility_meter",
+                f"energy_{tariff}",
+                config_entry=entry,
+                suggested_object_id=f"energy_{tariff}",
+            )
         with (
             patch(
                 "ha_mcp.tools.tools_integrations.wait_for_entity_removed",
@@ -109,7 +118,7 @@ class TestRemovalCheckAfterSuccessfulDelete:
     async def test_simple_path_wait_true_reports_a_failed_check_as_a_warning(
         self,
         tools: IntegrationTools,
-        mock_client: MagicMock,
+        my_button: str,
         failure: Exception,
         logs_traceback: bool,
         caplog: pytest.LogCaptureFixture,
@@ -118,12 +127,6 @@ class TestRemovalCheckAfterSuccessfulDelete:
         error while checking its removal is a warning on a successful delete,
         as in the sibling delete tools, not an error. An unexpected error is
         also logged with its traceback."""
-        mock_client.send_websocket_message.side_effect = [
-            {"success": True, "result": []},  # input_button/list: not a stored id
-            {"success": True, "result": {"unique_id": "uid-w3"}},
-            {"success": True},
-        ]
-        mock_client.get_entity_state.return_value = {"state": "off"}
         with (
             patch(
                 "ha_mcp.tools.ws_waiters.wait_for_entity_removed",
@@ -133,7 +136,7 @@ class TestRemovalCheckAfterSuccessfulDelete:
             caplog.at_level(logging.WARNING),
         ):
             result = await tools.ha_remove_helpers_integrations(
-                target="input_button.my_button",
+                target=my_button,
                 helper_type="input_button",
                 confirm=True,
                 wait=True,
@@ -148,16 +151,10 @@ class TestRemovalCheckAfterSuccessfulDelete:
         )
 
     async def test_simple_path_wait_true_lets_cancellation_propagate(
-        self, tools: IntegrationTools, mock_client: MagicMock
+        self, tools: IntegrationTools, my_button: str
     ) -> None:
         """Cancelling the removal check cancels the call; it is not turned
         into a warning."""
-        mock_client.send_websocket_message.side_effect = [
-            {"success": True, "result": []},  # input_button/list: not a stored id
-            {"success": True, "result": {"unique_id": "uid-w3"}},
-            {"success": True},
-        ]
-        mock_client.get_entity_state.return_value = {"state": "off"}
         with (
             patch(
                 "ha_mcp.tools.ws_waiters.wait_for_entity_removed",
@@ -167,7 +164,7 @@ class TestRemovalCheckAfterSuccessfulDelete:
             pytest.raises(asyncio.CancelledError),
         ):
             await tools.ha_remove_helpers_integrations(
-                target="input_button.my_button",
+                target=my_button,
                 helper_type="input_button",
                 confirm=True,
                 wait=True,

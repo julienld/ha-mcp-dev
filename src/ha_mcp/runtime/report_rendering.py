@@ -287,8 +287,6 @@ def render_report(
     report_type: str,
     text: _ReportText,
     parsed_fields: list[str] | None,
-    *,
-    python_hint: str | None = None,
 ) -> dict[str, Any]:
     mcp_transport = diagnostic_info["mcp_transport"]
     client_info = diagnostic_info["mcp_client_info"]
@@ -385,7 +383,6 @@ def render_report(
         "duplicate_check_urls": duplicate_check_urls,
         "missing_tool_hint": MISSING_TOOL_HINT,
         "known_client_issues_hint": KNOWN_CLIENT_ISSUES_HINT,
-        "python_upgrade_hint": python_hint,
         "instructions": (
             "WORKFLOW FOR FILING A REPORT:\n\n"
             "0. **PRE-CHECK — missing tool or unknown parameter?** If "
@@ -401,8 +398,6 @@ def render_report(
             "bug with an upstream ticket. See the `known_client_issues_hint` "
             "field for the workaround to give the user, and only continue "
             "if the problem persists after it.\n\n"
-            "0c. **Python upgrade?** If `python_upgrade_hint` is set, pass "
-            "it on to the user, whatever the report is about.\n\n"
             "1. **Check for duplicates FIRST**:\n"
             "   - Use the duplicate_check_urls to search for similar issues\n"
             '   - If gh CLI is available: use `gh issue list --search "keyword"`\n'

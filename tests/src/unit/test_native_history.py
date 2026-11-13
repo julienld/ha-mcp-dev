@@ -16,8 +16,8 @@ from ha_mcp.runtime import Engine
 from ha_mcp.runtime.history_tools import HistoryFacade
 from ha_mcp.tool_api import CallContext, ToolFailure
 
+from ._native_backend_module import native as native
 from .test_native_engine_backend import authorize
-from .test_native_engine_backend import native as native
 
 START = "2024-01-01T00:00:00+00:00"
 END = "2024-01-01T01:00:00+00:00"

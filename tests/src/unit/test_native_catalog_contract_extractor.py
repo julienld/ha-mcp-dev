@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-from .test_native_engine_backend import native as native
+from ._native_backend_module import native as native
 
 _ROOT = Path(__file__).resolve().parents[3]
 

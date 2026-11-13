@@ -38,7 +38,6 @@ from ..runtime.report_rendering import (
     render_report,
 )
 from ..runtime.report_tools import ReportFacade
-from ..update_check import python_upgrade_hint
 from ..utils.mcp_client_host import detect_client_host
 from ..utils.usage_logger import (
     AVG_LOG_ENTRIES_PER_TOOL,
@@ -295,7 +294,7 @@ def _detect_mcp_transport() -> str:
     try:
         if not sys.stdin.isatty():
             return "stdio"
-    except (AttributeError, OSError, ValueError):
+    except AttributeError, OSError, ValueError:
         # ``sys.stdin`` can be None or detached (pythonw, daemonized
         # contexts, certain test harnesses). Treat as no signal.
         pass
@@ -586,7 +585,6 @@ class LegacyBugReportTools:
                 report_type,
                 text,
                 parsed_fields,
-                python_hint=python_upgrade_hint(),
             )
             if identifier_warning:
                 result.setdefault("warnings", []).append(identifier_warning)

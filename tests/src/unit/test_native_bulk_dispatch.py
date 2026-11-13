@@ -11,9 +11,9 @@ import pytest
 from ha_mcp.runtime.mutation_guard import MutationAdmission, current_admission
 from ha_mcp.tool_api import CallContext, ToolFailure
 
+from ._native_backend_module import native as native
 from .test_component_ws_search import FakeState
 from .test_native_engine_backend import EventBus
-from .test_native_engine_backend import native as native
 
 
 @pytest.fixture

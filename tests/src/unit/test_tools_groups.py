@@ -23,6 +23,8 @@ from ha_mcp.client.rest_client import (
 )
 from ha_mcp.tools.tools_groups import GroupTools
 
+from ._tool_errors import _error as _error
+
 # Core's WebSocket ``call_service`` reply for a payload its schema rejects, as
 # ``send_websocket_message`` returns it (probatio renders the path as "at").
 _CORE_SLUG_REJECTION = {
@@ -51,11 +53,6 @@ def _group_state(object_id: str, *, auto: bool, members: list[str]) -> dict[str,
         "last_updated": "2026-10-23T10:00:00+00:00",
         "context": {"id": "ctx", "parent_id": None, "user_id": None},
     }
-
-
-def _error(exc_info: pytest.ExceptionInfo[ToolError]) -> dict[str, Any]:
-    error: dict[str, Any] = json.loads(str(exc_info.value))["error"]
-    return error
 
 
 @pytest.fixture
@@ -222,6 +219,7 @@ class TestSetGroup:
         assert error["code"] == "VALIDATION_INVALID_PARAMETER"
         assert "invalid slug group.lights (try group_lights)" in error["message"]
         assert "Command failed" not in error["message"]
+        assert json.loads(str(exc_info.value))["ha_error_code"] == "invalid_format"
         # Core's "try group_lights" names a different group.
         assert "Drop the 'group.' prefix: object_id='lights'" in error["suggestion"]
 

@@ -79,3 +79,11 @@ async def _attach_helper_skill(
         requested=mandatory,
         vendor_missing=resolved["vendor_missing"],
     )
+
+
+async def _check_name_collision(
+    session: FlowSession, helper_type: str, name: str | None
+) -> str | None:
+    from ..helper_names import _check_name_collision as check
+
+    return await check(session, helper_type, name)

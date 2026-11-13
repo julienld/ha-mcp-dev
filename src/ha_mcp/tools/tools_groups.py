@@ -24,6 +24,7 @@ from ha_mcp.runtime.group_values import (
 
 from .auto_backup import with_auto_backup
 from .helpers import (
+    core_error_message,
     exception_to_structured_error,
     get_entity_state_or_none,
     log_tool_usage,
@@ -70,9 +71,7 @@ class RemoteGroups:
             )
         if result.get("success"):
             return
-        error = str(result.get("error", "Unknown error")).removeprefix(
-            "Command failed: "
-        )
+        error = core_error_message(result.get("error", "Unknown error"))
         error_code = result.get("error_code")
         code = ws_failure_code(result)
         suggestions: list[str] | None = None
@@ -89,7 +88,7 @@ class RemoteGroups:
             create_error_response(
                 code,
                 f"group.{service} failed: {error}",
-                context={"object_id": object_id},
+                context={"object_id": object_id, "ha_error_code": error_code},
                 suggestions=suggestions,
             )
         )

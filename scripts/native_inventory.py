@@ -585,7 +585,7 @@ async def _capture_server_extras() -> list[dict[str, Any]]:
 def capture_runtime(*, server_extras: bool = False) -> dict[str, Any]:
     """Use actual registration with feature flags, isolated settings and no HA I/O."""
     sys.path.insert(0, str(ROOT / "src"))
-    from ha_mcp.config import FEATURE_FLAG_FIELDS, _reset_global_settings
+    from ha_mcp.config import FEATURE_FLAG_FIELDS, reset_global_settings
     from ha_mcp.utils.data_paths import get_data_dir
 
     previous = os.environ.copy()
@@ -604,7 +604,7 @@ def capture_runtime(*, server_extras: bool = False) -> dict[str, Any]:
                     os.environ[flag.env] = "true"
             os.environ["HAMCP_ENABLE_DEV_MODE"] = "true"
             get_data_dir.cache_clear()
-            _reset_global_settings()
+            reset_global_settings()
             tools = asyncio.run(
                 _capture_server_extras()
                 if server_extras
@@ -622,7 +622,7 @@ def capture_runtime(*, server_extras: bool = False) -> dict[str, Any]:
         os.environ.clear()
         os.environ.update(previous)
         get_data_dir.cache_clear()
-        _reset_global_settings()
+        reset_global_settings()
 
 
 def _write_or_check(path: Path, value: dict[str, Any], check: bool) -> bool:

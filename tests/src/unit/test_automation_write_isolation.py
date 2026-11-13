@@ -16,11 +16,11 @@ from ha_mcp.runtime.automation_writes import AutomationWriteTools
 from ha_mcp.tool_api import CallContext
 from ha_mcp.utils.config_hash import compute_config_hash
 
+from ._native_backend_module import native as native
 from .test_native_catalog_contract_automations import _setup_automation
 from .test_native_catalog_contract_config import (
     _real_aiohttp_router as _real_aiohttp_router,
 )
-from .test_native_engine_backend import native as native
 
 
 def _reused_owner(native, monkeypatch):

@@ -11,7 +11,7 @@ import pytest
 
 from ha_mcp.tool_api import CallContext, ToolFailure
 
-from .test_native_engine_backend import native as native
+from ._native_backend_module import native as native
 
 
 class ConfigNotFound(Exception):

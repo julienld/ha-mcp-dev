@@ -13,9 +13,9 @@ from ha_mcp.runtime.overview_sections import (
     apply_overview_system_info,
 )
 from ha_mcp.runtime.overview_values import (
-    _OVERVIEW_AVAILABLE_FIELDS,
     _OVERVIEW_NOTIFICATION_FIELDS,
     _OVERVIEW_REPAIR_FIELDS,
+    OVERVIEW_AVAILABLE_FIELDS,
     _OverviewInputs,
     resolve_overview_request,
 )
@@ -76,7 +76,7 @@ def _project_overview(
 
     raw: dict[str, Any] = json.loads(snapshot)
     errors = set(raw.get("slice_errors", []))
-    requested = set(fields or ()) if independent else _OVERVIEW_AVAILABLE_FIELDS
+    requested = set(fields or ()) if independent else OVERVIEW_AVAILABLE_FIELDS
     if independent:
         result: dict[str, Any] = {"success": True}
     else:
@@ -110,7 +110,7 @@ def _project_overview(
             visibility_warnings=[],
         )
     _project_sections(result, raw, inputs, requested, errors, base_url, independent)
-    return project_fields(result, fields, available_fields=_OVERVIEW_AVAILABLE_FIELDS)
+    return project_fields(result, fields, available_fields=OVERVIEW_AVAILABLE_FIELDS)
 
 
 @dataclass(slots=True)

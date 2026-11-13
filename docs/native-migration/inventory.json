@@ -825,14 +825,14 @@
       ],
       "client_call_candidates": [
         {
-          "line": 51,
+          "line": 52,
           "call": "self._client.send_websocket_message",
           "wire_literals": [
             "call_service"
           ]
         },
         {
-          "line": 99,
+          "line": 98,
           "call": "self._client.get_states",
           "wire_literals": []
         }
@@ -1064,14 +1064,14 @@
       ],
       "client_call_candidates": [
         {
-          "line": 51,
+          "line": 52,
           "call": "self._client.send_websocket_message",
           "wire_literals": [
             "call_service"
           ]
         },
         {
-          "line": 99,
+          "line": 98,
           "call": "self._client.get_states",
           "wire_literals": []
         }
@@ -1501,14 +1501,14 @@
       ],
       "client_call_candidates": [
         {
-          "line": 51,
+          "line": 52,
           "call": "self._client.send_websocket_message",
           "wire_literals": [
             "call_service"
           ]
         },
         {
-          "line": 99,
+          "line": 98,
           "call": "self._client.get_states",
           "wire_literals": []
         }
@@ -1869,17 +1869,17 @@
       ],
       "client_call_candidates": [
         {
-          "line": 114,
+          "line": 118,
           "call": "self._client.send_websocket_message",
           "wire_literals": []
         },
         {
-          "line": 200,
+          "line": 204,
           "call": "get_websocket_client",
           "wire_literals": []
         },
         {
-          "line": 172,
+          "line": 176,
           "call": "get_websocket_client",
           "wire_literals": []
         }
@@ -1950,38 +1950,28 @@
       "evidence": [],
       "boundary_scope": "containing module; includes sibling tools and excludes unresolved transitive calls",
       "operation_candidates": [
-        "automation/config",
         "config/entity_registry/get",
         "trace/get",
         "trace/list"
       ],
       "client_call_candidates": [
         {
-          "line": 150,
+          "line": 320,
           "call": "self._client.send_websocket_message",
-          "wire_literals": [
-            "trace/get"
-          ]
+          "wire_literals": []
         },
         {
-          "line": 188,
-          "call": "self._client.send_websocket_message",
-          "wire_literals": [
-            "trace/list"
-          ]
-        },
-        {
-          "line": 299,
+          "line": 419,
           "call": "client.send_websocket_message",
           "wire_literals": [
             "config/entity_registry/get"
           ]
         },
         {
-          "line": 402,
-          "call": "client.send_websocket_message",
+          "line": 255,
+          "call": "self._client.send_websocket_message",
           "wire_literals": [
-            "automation/config"
+            "trace/get"
           ]
         }
       ]
@@ -2060,6 +2050,9 @@
       "native_catalog_declaration": true,
       "shared_source": "src/ha_mcp/runtime/devices.py",
       "semantic_operation_candidates": [
+        "devices.composite_splits",
+        "devices.entries",
+        "devices.linked",
         "devices.list_snapshot",
         "devices.resolve",
         "devices.single_snapshot"
@@ -2068,6 +2061,7 @@
       "boundary_scope": "containing module; includes sibling tools and excludes unresolved transitive calls",
       "operation_candidates": [
         "config/device_registry/list",
+        "config/device_registry/list_composite_splits",
         "config/device_registry/remove",
         "config/device_registry/remove_config_entry",
         "config/entity_registry/get",
@@ -2075,42 +2069,49 @@
       ],
       "client_call_candidates": [
         {
-          "line": 48,
+          "line": 49,
           "call": "client.send_websocket_message",
           "wire_literals": [
             "config/entity_registry/list"
           ]
         },
         {
-          "line": 64,
+          "line": 65,
           "call": "client.send_websocket_message",
           "wire_literals": [
             "config/entity_registry/list"
           ]
         },
         {
-          "line": 83,
+          "line": 79,
           "call": "client.send_websocket_message",
           "wire_literals": [
             "config/device_registry/list"
           ]
         },
         {
-          "line": 156,
+          "line": 147,
           "call": "client.send_websocket_message",
           "wire_literals": [
             "config/entity_registry/get"
           ]
         },
         {
-          "line": 267,
+          "line": 219,
+          "call": "client.send_websocket_message",
+          "wire_literals": [
+            "config/device_registry/list_composite_splits"
+          ]
+        },
+        {
+          "line": 281,
           "call": "client.send_websocket_message",
           "wire_literals": [
             "config/device_registry/remove"
           ]
         },
         {
-          "line": 283,
+          "line": 297,
           "call": "client.send_websocket_message",
           "wire_literals": [
             "config/device_registry/remove_config_entry"
@@ -2352,14 +2353,14 @@
       ],
       "client_call_candidates": [
         {
-          "line": 351,
+          "line": 356,
           "call": "client.send_websocket_message",
           "wire_literals": [
             "history/history_during_period"
           ]
         },
         {
-          "line": 416,
+          "line": 421,
           "call": "client.send_websocket_message",
           "wire_literals": [
             "recorder/statistics_during_period"
@@ -3562,6 +3563,7 @@
       "boundary_scope": "containing module; includes sibling tools and excludes unresolved transitive calls",
       "operation_candidates": [
         "config/device_registry/list",
+        "config/device_registry/list_composite_splits",
         "config/device_registry/remove",
         "config/device_registry/remove_config_entry",
         "config/entity_registry/get",
@@ -3569,42 +3571,49 @@
       ],
       "client_call_candidates": [
         {
-          "line": 48,
+          "line": 49,
           "call": "client.send_websocket_message",
           "wire_literals": [
             "config/entity_registry/list"
           ]
         },
         {
-          "line": 64,
+          "line": 65,
           "call": "client.send_websocket_message",
           "wire_literals": [
             "config/entity_registry/list"
           ]
         },
         {
-          "line": 83,
+          "line": 79,
           "call": "client.send_websocket_message",
           "wire_literals": [
             "config/device_registry/list"
           ]
         },
         {
-          "line": 156,
+          "line": 147,
           "call": "client.send_websocket_message",
           "wire_literals": [
             "config/entity_registry/get"
           ]
         },
         {
-          "line": 267,
+          "line": 219,
+          "call": "client.send_websocket_message",
+          "wire_literals": [
+            "config/device_registry/list_composite_splits"
+          ]
+        },
+        {
+          "line": 281,
           "call": "client.send_websocket_message",
           "wire_literals": [
             "config/device_registry/remove"
           ]
         },
         {
-          "line": 283,
+          "line": 297,
           "call": "client.send_websocket_message",
           "wire_literals": [
             "config/device_registry/remove_config_entry"
@@ -3885,24 +3894,24 @@
       ],
       "client_call_candidates": [
         {
-          "line": 361,
+          "line": 360,
           "call": "self._client.call_service",
           "wire_literals": []
         },
         {
-          "line": 413,
+          "line": 412,
           "call": "self._client.send_websocket_message",
           "wire_literals": [
             "config_entries/get"
           ]
         },
         {
-          "line": 464,
+          "line": 463,
           "call": "self._client.get_config",
           "wire_literals": []
         },
         {
-          "line": 482,
+          "line": 481,
           "call": "self._client.get_states",
           "wire_literals": []
         }
@@ -4098,6 +4107,7 @@
       "boundary_scope": "containing module; includes sibling tools and excludes unresolved transitive calls",
       "operation_candidates": [
         "config/device_registry/list",
+        "config/device_registry/list_composite_splits",
         "config/device_registry/remove",
         "config/device_registry/remove_config_entry",
         "config/entity_registry/get",
@@ -4105,42 +4115,49 @@
       ],
       "client_call_candidates": [
         {
-          "line": 48,
+          "line": 49,
           "call": "client.send_websocket_message",
           "wire_literals": [
             "config/entity_registry/list"
           ]
         },
         {
-          "line": 64,
+          "line": 65,
           "call": "client.send_websocket_message",
           "wire_literals": [
             "config/entity_registry/list"
           ]
         },
         {
-          "line": 83,
+          "line": 79,
           "call": "client.send_websocket_message",
           "wire_literals": [
             "config/device_registry/list"
           ]
         },
         {
-          "line": 156,
+          "line": 147,
           "call": "client.send_websocket_message",
           "wire_literals": [
             "config/entity_registry/get"
           ]
         },
         {
-          "line": 267,
+          "line": 219,
+          "call": "client.send_websocket_message",
+          "wire_literals": [
+            "config/device_registry/list_composite_splits"
+          ]
+        },
+        {
+          "line": 281,
           "call": "client.send_websocket_message",
           "wire_literals": [
             "config/device_registry/remove"
           ]
         },
         {
-          "line": 283,
+          "line": 297,
           "call": "client.send_websocket_message",
           "wire_literals": [
             "config/device_registry/remove_config_entry"
@@ -4620,22 +4637,22 @@
       "functions": [
         {
           "name": "_do_helpers_list",
-          "line": 48,
+          "line": 49,
           "async": false
         },
         {
           "name": "_helpers_list_prep",
-          "line": 110,
+          "line": 111,
           "async": true
         },
         {
           "name": "_do_overview",
-          "line": 266,
+          "line": 267,
           "async": false
         },
         {
           "name": "_do_states",
-          "line": 523,
+          "line": 525,
           "async": false
         }
       ],
@@ -4657,12 +4674,12 @@
       "functions": [
         {
           "name": "_do_search",
-          "line": 52,
+          "line": 53,
           "async": false
         },
         {
           "name": "_search_prep",
-          "line": 327,
+          "line": 328,
           "async": true
         }
       ],
@@ -4731,23 +4748,42 @@
       "wire_literals": []
     },
     {
+      "path": "custom_components/ha_mcp_tools/websocket_api/trace_context.py",
+      "functions": [
+        {
+          "name": "_trace_context_prep",
+          "line": 36,
+          "async": true
+        },
+        {
+          "name": "_do_trace_context",
+          "line": 160,
+          "async": false
+        }
+      ],
+      "wire_literals": [
+        "ha_mcp_tools/trace_context"
+      ]
+    },
+    {
       "path": "custom_components/ha_mcp_tools/helper_collections.py",
       "functions": [
         {
           "name": "command_specs",
-          "line": 328,
+          "line": 383,
           "async": false
         },
         {
           "name": "write_prep",
-          "line": 348,
+          "line": 403,
           "async": true
         }
       ],
       "wire_literals": [
         "ha_mcp_tools/helper_item",
         "ha_mcp_tools/helper_schemas",
-        "ha_mcp_tools/helper_write"
+        "ha_mcp_tools/helper_write",
+        "ha_mcp_tools/helpers_named"
       ]
     },
     {

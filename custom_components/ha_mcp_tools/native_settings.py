@@ -125,14 +125,14 @@ class NativeSettings:
         )
 
     def _render(self, request: Any) -> str:
-        from ha_mcp.settings_ui import _render_settings_html
+        from ha_mcp.settings_ui import render_settings_html
         from ha_mcp.settings_ui._theme import _sanitize_theme_prefs
 
         theme = (
             _sanitize_theme_prefs(_read_object(self.directory / "theme_prefs.json"))
             or {}
         )
-        return _render_settings_html(request, theme_prefs=theme)
+        return render_settings_html(request, theme_prefs=theme)
 
     async def _tools(self, request: web.Request) -> web.Response:
         if request.method == "POST":

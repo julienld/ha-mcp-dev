@@ -12,10 +12,10 @@ from .registry import _ws_error_msg
 
 
 def _build_create_message(
-    helper_type: str, name: str, icon: str | None, fields: dict[str, Any]
+    helper_type: str, name: str | None, icon: str | None, fields: dict[str, Any]
 ) -> dict[str, Any]:
     """The WebSocket {type}/create message: the caller's fields under Core's names."""
-    message: dict[str, Any] = {"name": name}
+    message: dict[str, Any] = {} if name is None else {"name": name}
     if icon:
         message["icon"] = icon
     message.update(with_create_defaults(helper_type, fields))

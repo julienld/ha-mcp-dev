@@ -15,13 +15,17 @@ has installed the ``homeassistant.*`` stubs.
 
 from __future__ import annotations
 
+import importlib
 import sys
 from typing import Any
 
 from custom_components.ha_mcp_tools import const, websocket_api
 from custom_components.ha_mcp_tools.const import COMPONENT_VERSION
 
-__all__ = ["COMPONENT_VERSION", "wsapi"]
+__all__ = ["COMPONENT_VERSION", "wsapi", "NATIVE_COMMANDS"]
+
+NATIVE_COMMANDS = {"ha_mcp_tools/hacs_cache"}
+importlib.import_module("custom_components.ha_mcp_tools.websocket_api.hacs_cache")
 
 
 def _command_modules() -> list[Any]:

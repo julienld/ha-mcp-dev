@@ -35,7 +35,11 @@ from .component_api import (
     invalidate_caps,
     is_unknown_command,
 )
-from .helpers import exception_to_structured_error, log_tool_usage, raise_tool_error
+from .helpers import (
+    exception_to_structured_error,
+    log_tool_usage,
+    raise_tool_error,
+)
 from .tool_hints import read_only_hints
 
 logger = logging.getLogger(__name__)

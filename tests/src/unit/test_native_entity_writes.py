@@ -12,8 +12,8 @@ import pytest
 from ha_mcp.runtime import Engine
 from ha_mcp.tool_api import CallContext
 
+from ._native_backend_module import native as native
 from .test_native_devices import august_registry
-from .test_native_engine_backend import native as native
 from .test_native_legacy_exposure import _setup as exposure_setup
 
 

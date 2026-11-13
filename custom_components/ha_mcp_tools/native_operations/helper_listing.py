@@ -17,7 +17,7 @@ from ha_mcp.runtime.helper_listing_shape import (
 from ha_mcp.runtime.helper_schema import SIMPLE_HELPER_TYPES
 from ha_mcp.tool_api import UnsupportedOperation
 
-from ..helper_collections import read_item
+from ..helper_collections import helpers_named, read_item
 from ..websocket_api.overview import _do_helpers_list, _helpers_list_prep
 from .helpers import list_storage_items
 
@@ -109,10 +109,22 @@ async def translations(
     }
 
 
+async def named_helpers(
+    hass: HomeAssistant, arguments: dict[str, Any]
+) -> dict[str, Any]:
+    return {
+        **helpers_named(
+            hass, er.async_get(hass), arguments["helper_type"], arguments["name"]
+        ),
+        "normalized": True,
+    }
+
+
 DIRECT_OPERATIONS: dict[
     str, tuple[Callable[[HomeAssistant, dict[str, Any]], Awaitable[Any]], bool]
 ] = {
     "helpers.catalog": (catalog, False),
+    "helpers.named": (named_helpers, False),
     "helpers.storage.describe_item": (description_item, False),
     "helpers.translations": (translations, False),
 }

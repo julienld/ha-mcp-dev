@@ -37,9 +37,9 @@ from ..backup_manager import (
 from ..backup_todo import TodoListNotLoaded
 from ..config import (
     BACKUP_OVERRIDE_FIELDS,
-    _reset_global_settings,
     get_backup_setting_origin,
     get_global_settings,
+    reset_global_settings,
 )
 from ..config_backup_validation import (
     _coerce_int_field,
@@ -454,7 +454,7 @@ def _apply_backup_config_file(clean: dict[str, Any]) -> JSONResponse:
     # File-mode auto-backup settings take effect immediately on the next
     # ``get_global_settings()`` read — no restart needed, hence
     # ``restart_required=False``.
-    _reset_global_settings()
+    reset_global_settings()
     return JSONResponse(
         {"success": True, "applied": clean, "mode": "file", "restart_required": False}
     )
@@ -497,7 +497,7 @@ async def _save_backup_config(
     """
     try:
         payload = await request.json()
-    except (ValueError, json.JSONDecodeError):
+    except ValueError, json.JSONDecodeError:
         return _bad_request("Invalid JSON body")
     clean, err = _validate_backup_payload(payload)
     if err is not None:

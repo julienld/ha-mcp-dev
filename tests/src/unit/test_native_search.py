@@ -18,6 +18,7 @@ from ha_mcp.runtime.search_tools import SearchFacade
 from ha_mcp.tool_api import CallContext
 from ha_mcp.visibility.model import VisibilityConfig
 
+from ._native_backend_module import native as native
 from .test_component_ws_search import (
     FakeEntityReg,
     FakeHass,
@@ -25,7 +26,6 @@ from .test_component_ws_search import (
     FakeState,
     wsapi,
 )
-from .test_native_engine_backend import native as native
 
 
 class ConfigOwner:

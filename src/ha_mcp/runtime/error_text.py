@@ -5,6 +5,11 @@ import json
 from ha_mcp.tool_api import ToolFailure
 
 
+def core_error_message(error: object) -> str:
+    """Keep Core's refusal text without the remote client's transport prefix."""
+    return str(error).removeprefix("Command failed: ")
+
+
 def extract_tool_error_message(te: BaseException | str) -> str:
     """Extract a human-readable error message from a ToolError or its logged text.
 
@@ -15,7 +20,7 @@ def extract_tool_error_message(te: BaseException | str) -> str:
         error_data = json.loads(str(te))
         msg = error_data.get("error", {}).get("message", str(te))
         return str(msg)
-    except (json.JSONDecodeError, TypeError, AttributeError):
+    except json.JSONDecodeError, TypeError, AttributeError:
         return str(te)
 
 
@@ -33,7 +38,7 @@ def extract_structured_error_reason(exc: BaseException) -> str | None:
     """
     try:
         payload = exc.data if isinstance(exc, ToolFailure) else json.loads(str(exc))
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
     if not isinstance(payload, dict):
         return None

@@ -4,7 +4,7 @@ import pytest
 
 from ha_mcp.tool_api import ToolFailure
 
-from .test_native_engine_backend import native as native
+from ._native_backend_module import native as native
 from .test_native_file_access import files as files
 from .test_native_filesystem import filesystem as filesystem
 

@@ -61,7 +61,7 @@ class _OverviewInputs:
     include_dismissed_repairs: bool
 
 
-_OVERVIEW_INDEPENDENT_FIELDS = frozenset(
+OVERVIEW_INDEPENDENT_FIELDS = frozenset(
     {
         "success",
         "system_info",
@@ -92,7 +92,7 @@ _OVERVIEW_REPAIR_FIELDS = frozenset(
     }
 )
 
-_OVERVIEW_ENTITY_FIELDS = frozenset(
+OVERVIEW_ENTITY_FIELDS = frozenset(
     {
         "system_summary",
         "domain_stats",
@@ -106,7 +106,7 @@ _OVERVIEW_ENTITY_FIELDS = frozenset(
     }
 )
 
-_OVERVIEW_AVAILABLE_FIELDS = _OVERVIEW_INDEPENDENT_FIELDS | _OVERVIEW_ENTITY_FIELDS
+OVERVIEW_AVAILABLE_FIELDS = OVERVIEW_INDEPENDENT_FIELDS | OVERVIEW_ENTITY_FIELDS
 
 
 def resolve_overview_request(
@@ -134,13 +134,13 @@ def resolve_overview_request(
         include_dismissed_repairs=bool(arguments["include_dismissed_repairs"]),
     )
     independent = parsed["fields"] is not None and not (
-        set(parsed["fields"]) & _OVERVIEW_ENTITY_FIELDS
+        set(parsed["fields"]) & OVERVIEW_ENTITY_FIELDS
     )
     return inputs, parsed["fields"], independent
 
 
 __all__ = [
-    "_OVERVIEW_AVAILABLE_FIELDS",
+    "OVERVIEW_AVAILABLE_FIELDS",
     "_OVERVIEW_NOTIFICATION_FIELDS",
     "_OVERVIEW_REPAIR_FIELDS",
     "resolve_overview_request",

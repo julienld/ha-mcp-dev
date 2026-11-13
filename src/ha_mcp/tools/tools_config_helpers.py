@@ -50,7 +50,7 @@ from .config_helpers.schemas import (
     SIMPLE_HELPER_TYPES,
     _attach_helper_skill,
 )
-from .config_helpers.typed_config import _core_schema_context, _prepare_typed_params
+from .config_helpers.typed_config import _core_schema_context
 from .config_helpers.validation import _validate_set_helper_action
 from .config_write_helpers import (
     augment_error_dict_with_skill_content,
@@ -432,30 +432,37 @@ class HelperConfigTools(
     async def _validate_action(
         self, action: str | None, helper_id: str | None, helper_type: str
     ) -> str:
-        return await _validate_set_helper_action(
-            self._client, action, helper_id, helper_type
-        )
+        return _validate_set_helper_action(action, helper_id, helper_type)
 
     def _schema_context(self, helper_type: str, action: str | None) -> Any:
         return _core_schema_context(self._client, helper_type, action or "create")
 
-    _prepare_typed_params = staticmethod(_prepare_typed_params)
-
-    async def _check_name_collision(self, helper_type: str, name: str | None) -> None:
-        await _check_name_collision(self._client, helper_type, name)
+    async def _check_name_collision(
+        self, helper_type: str, name: str | None
+    ) -> str | None:
+        return await _check_name_collision(self._client, helper_type, name)
 
     async def _validate_registry_ids(self, *args: Any, **kwargs: Any) -> None:
         await validate_registry_ids(self._client, *args, **kwargs)
 
     async def _flow_helper(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        from ..runtime.flows.session import FlowSession
+
         return cast(
-            dict[str, Any], await _handle_flow_helper(self._client, *args, **kwargs)
+            dict[str, Any],
+            await _handle_flow_helper(
+                FlowSession(self.backend, self.context), *args, **kwargs
+            ),
         )
 
     async def _set_config_subentry(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        from ..runtime.flows.session import FlowSession
+
         return cast(
             dict[str, Any],
-            await _handle_set_config_subentry(self._client, *args, **kwargs),
+            await _handle_set_config_subentry(
+                FlowSession(self.backend, self.context), *args, **kwargs
+            ),
         )
 
     async def _attach_helper_skill(

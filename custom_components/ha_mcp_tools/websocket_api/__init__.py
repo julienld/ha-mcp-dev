@@ -124,6 +124,16 @@ the info handshake carries no capability entry:
   validated by Core, its references collected by Core's own helpers and
   checked against Core's registries, and each entity target put to Core's
   target lookups (the editor's target pickers). See ``config_references.py``.
+* ``ha_mcp_tools/flow_outline`` — the steps Core declares for a schema-based
+  config or options flow (most helper flows): each form's fields as Core
+  serializes a form it shows, and the step that follows it, read from the
+  loaded flow handler on every call. A form or next step Core computes from
+  earlier answers is marked, not evaluated. See ``flow_outline.py``.
+* ``ha_mcp_tools/flow_record`` — what a config, options or subentry flow in
+  progress was started for (its handler, source and entry anchors), read from
+  the flow manager that holds it. Core's flow endpoints do not report it, and
+  the server binds a ``flow_id`` it did not open itself (it restarted) to a
+  call's target with it. See ``flow_record.py``.
 * ``ha_mcp_tools/logbook_events`` — Core's own logbook query run in-process:
   ``EventProcessor`` with the REST flags (``timestamp=False`` ISO ``when``,
   ``include_entity_name=True``) and the ``logbook/get_events`` filter set
@@ -133,6 +143,14 @@ the info handshake carries no capability entry:
   the handler sends finished bytes instead of encoding on the event loop; the
   server's ``ha_get_logs`` logbook source prefers this command and keeps
   ``/api/logbook`` + ``logbook/get_events`` as its fallbacks.
+* ``ha_mcp_tools/trace_context`` — Core's live trace store scanned in process
+  for a run whose own context or ``context.parent_id`` matches the requested
+  context, preferring a real run over a not-triggered diagnostic and returning
+  the trace's ``as_extended_dict()`` (the frontend's trace-view/Download shape).
+  The server's ``ha_get_automation_traces`` prefers this command and keeps
+  Core's public ``trace/contexts`` (a run's own context) as its
+  component-absent fallback; a parent context there is a not-found that names
+  this command.
 * ``ha_mcp_tools/search`` (``search_visibility`` capability) — the search command
   additionally accepts a raw ``visibility`` config dict; when present it excludes
   the server's opt-in hidden entities before counts/pagination (the pure
@@ -304,7 +322,7 @@ code lives in the submodules:
 * ``registry``, ``secrets``, ``assist`` and ``flow_domains``: shared registry, secret-scrub, Assist exposure and flow-helper domain helpers.
 * ``search``, ``search_config``, ``search_score`` and ``visibility``: ``ha_mcp_tools/search``.
 * ``overview``, ``services``, ``lookups``, ``config_entries``, ``registries``,
-  ``dashboards`` and ``logbook``: the read commands.
+  ``dashboards``, ``logbook`` and ``trace_context``: the read commands.
 * ``system``: ``info``, ``system_snapshot``, ``server_entry``, ``server_entry_update`` and ``template_diagnose``.
 * ``call_service`` and ``bulk``: the write commands.
 * ``oauth_callbacks``: read and replace the none-mode OAuth callback allowlist.
@@ -333,6 +351,8 @@ from .. import (
     core_contract,
     dashboard_cards_ws,
     entity_restore,
+    flow_outline,
+    flow_record,
     helper_collections,
     todo_items,
 )
@@ -388,6 +408,7 @@ from .schemas import (
     _states_schema,
     _system_snapshot_schema,
     _template_diagnose_schema,
+    _trace_context_schema,
 )
 from .seam import PreSerializedResult
 from .search import _do_search, _search_prep
@@ -401,6 +422,7 @@ from .system import (
     _server_entry_update_prep,
     _template_diagnose_prep,
 )
+from .trace_context import _do_trace_context, _trace_context_prep
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -485,6 +507,9 @@ def _command_specs() -> list[tuple[dict[Any, Any], Any, Any]]:
         # the live process: the recorder read lives in the async prep, the
         # pure formatter only wraps the rows.
         (_logbook_events_schema(), _do_logbook_events, _logbook_events_prep),
+        # Core's live trace store: one in-process pass matches a run's own
+        # context or a triggering parent context across every stored item.
+        (_trace_context_schema(), _do_trace_context, _trace_context_prep),
         (_server_entry_schema(), _do_server_entry, None),
         # The WRITE counterpart of server_entry: the deferred ``async_update_entry``
         # scheduling is inherently async, so it lives in ``_server_entry_update_prep``
@@ -515,6 +540,8 @@ def _command_specs() -> list[tuple[dict[Any, Any], Any, Any]]:
         *entity_restore.command_specs(vol, er),
         *core_contract.command_specs(vol),
         *todo_items.command_specs(vol),
+        *flow_record.command_specs(vol),
+        *flow_outline.command_specs(vol),
         *automation_config.command_specs(vol),
         *config_references.command_specs(vol),
         *dashboard_cards_ws.command_specs(vol),
