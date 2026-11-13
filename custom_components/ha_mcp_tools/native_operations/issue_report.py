@@ -16,7 +16,7 @@ from ha_mcp.runtime.redaction import (
 )
 from ha_mcp.runtime.report_environment import _CONFIG_TOGGLE_FIELDS, detect_platform
 from ha_mcp.runtime.report_rendering import render_report
-from ha_mcp.runtime.report_templates import _ReportText, _sanitize_log_text
+from ha_mcp.runtime.report_templates import _ReportText, sanitize_log_text
 from ha_mcp.tool_api import CallContext
 from ha_mcp.tools.coercion import ANSI_ESCAPE_RE, parse_string_list_param
 from ha_mcp.tools.server_version import detect_installed_version, version_mismatch
@@ -218,7 +218,7 @@ class NativeIssueReport:
         def build() -> dict[str, Any]:
             def scrub(text: str | None) -> str | None:
                 return (
-                    _sanitize_log_text(scrub_text(text, secrets))
+                    sanitize_log_text(scrub_text(text, secrets))
                     if text is not None
                     else None
                 )
