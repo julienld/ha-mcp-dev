@@ -138,9 +138,10 @@ class EnergyFacade:
         electricity and water, and cost tariffs.
 
         WHEN NOT TO USE:
-        - To create the underlying statistics themselves — they must already
-          exist as HA entities before being referenced here; create them via
-          the relevant integration's config flow first.
+        - To create underlying statistics. Their recorder metadata must already
+          exist. For entity-backed statistics, create the HA entity through the
+          relevant integration's config flow first. External recorder statistics
+          (such as provider:consumption) do not require a corresponding entity.
 
         WHEN TO USE:
         - mode='get' / 'set': inspect or replace the full Energy Dashboard
