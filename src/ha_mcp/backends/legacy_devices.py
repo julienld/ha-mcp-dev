@@ -75,7 +75,7 @@ class LegacyDevices:
             raise
         except Exception as e:  # noqa: BLE001
             logger.error(f"Error updating device: {e}")
-            exception_to_structured_error(
+            return exception_to_structured_error(
                 e,
                 context={"device_id": device_id},
             )

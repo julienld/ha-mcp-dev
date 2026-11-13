@@ -43,6 +43,24 @@ from .rest_client import HomeAssistantAPIError, HomeAssistantConnectionError
 
 _PARAMS = {"no_colors": "true"}
 
+__all__ = [
+    "EPOCH",
+    "MAX_ENTRIES",
+    "WINDOW_TOKEN_PREFIX",
+    "JournalPage",
+    "JournalWindow",
+    "WindowRestart",
+    "WindowToken",
+    "is_window_token",
+    "parse_window_token",
+    "read_logs_page",
+    "read_logs_window",
+    "read_page",
+    "read_window",
+    "window_range",
+    "window_start",
+]
+
 
 async def _fetch(client: Any, path: str, range_header: str) -> JournaldPage:
     """One ``/<path>/logs`` read with ``range_header``, direct or via Core's proxy.

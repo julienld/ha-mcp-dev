@@ -37,10 +37,6 @@ import weakref
 from dataclasses import dataclass
 from typing import Any
 
-from ha_mcp.runtime.component_messages import (
-    COMPONENT_INSTALL_HINT as COMPONENT_INSTALL_HINT,
-)
-
 from ..client.rest_client import (
     HomeAssistantAdminRequiredError,
     HomeAssistantAuthError,

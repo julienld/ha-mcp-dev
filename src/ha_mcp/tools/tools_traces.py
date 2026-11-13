@@ -13,6 +13,7 @@ from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp._vendor.fastmcp.tools import tool
 from ha_mcp.backends.legacy import legacy_errors, legacy_errors_sync
 from ha_mcp.runtime import trace_results as _shared_trace
+from ha_mcp.runtime.trace_results import _requested_sections
 
 from ..client.rest_client import HomeAssistantError
 from ..errors import ErrorCode, create_error_response
@@ -31,16 +32,13 @@ from .trace_logbook import TraceLogbook, fetch_trace_logbook
 from .trace_lookup import (
     ContextTraceMatch,
     _raise_trace_ws_failure,
-    _requested_sections,
     resolve_context_trace,
     resolve_global_context,
 )
 
 _validate_trace_request = legacy_errors_sync(_shared_trace._validate_trace_request)
-_trace_start = _shared_trace._trace_start
 _format_trace_list = legacy_errors_sync(_shared_trace._format_trace_list)
 _format_detailed_trace = legacy_errors_sync(_shared_trace._format_detailed_trace)
-_filter_trace_sections = legacy_errors_sync(_shared_trace._filter_trace_sections)
 
 logger = logging.getLogger(__name__)
 

@@ -31,6 +31,7 @@ from ..mcp_client_context import (
     extract_client_info,
     protocol_version,
 )
+from ..runtime.report_environment import detect_platform
 from ..runtime.report_rendering import (
     _format_logs_for_report,
     _format_startup_logs,
@@ -50,7 +51,6 @@ from .bug_report_sources import (
     _fetch_addon_logs,
     _fetch_core_error_log,
     collect_known_identifiers,
-    detect_platform,
     fetch_ha_install,
 )
 from .bug_report_templates import _ReportText

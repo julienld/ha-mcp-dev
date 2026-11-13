@@ -6,9 +6,6 @@ from typing import Any
 
 from ha_mcp.backends.legacy_flows import legacy_helper_flow
 from ha_mcp.runtime.helper_names import (
-    _NEAR_DUPLICATES_UNCHECKED as _NEAR_DUPLICATES_UNCHECKED,
-)
-from ha_mcp.runtime.helper_names import (
     _check_name_collision as _shared_check_name_collision,
 )
 
@@ -20,6 +17,13 @@ from ..config_write_helpers import apply_entity_category
 from ..helpers import exception_to_structured_error, raise_tool_error
 
 logger = logging.getLogger(__name__)
+
+__all__ = [
+    "_check_name_collision",
+    "_enrich_helpers_with_current_registry",
+    "_flatten_helper_list_result",
+    "validate_registry_ids",
+]
 
 
 async def _ws_registry_lookup(

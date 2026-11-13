@@ -308,7 +308,7 @@ class SceneWriteTools(SceneConfigTools):
         except ToolFailure as failure:
             raise await self._augment_failure(failure, None) from None
         except Exception as error:  # noqa: BLE001 - facade-specific classification
-            await self._raise_scene_write_error(error, scene_id)
+            return await self._raise_scene_write_error(error, scene_id)
 
     async def _activate_scene_only(
         self, scene_id: str, category: str | None, MandatoryBPS: bool

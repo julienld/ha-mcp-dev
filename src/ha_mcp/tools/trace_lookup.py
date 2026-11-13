@@ -4,8 +4,6 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Literal, NoReturn, cast
 
-from ha_mcp.runtime.trace_results import _requested_sections as _requested_sections
-
 from ..client.rest_client import HomeAssistantConnectionError
 from ..errors import ErrorCode, create_error_response
 from .component_api import component_supports, get_component_caps, invalidate_caps
