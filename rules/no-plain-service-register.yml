@@ -3,7 +3,12 @@ language: python
 rule:
   any:
     - pattern: $REGISTRY.async_register($$$)
-    - pattern: $REGISTRY.register($$$)
+    # HA's synchronous service signature needs domain, service and handler.
+    # MCP Engine.register takes one tool and registers no Home Assistant service.
+    - pattern: $REGISTRY.register($DOMAIN, $SERVICE, $HANDLER)
+    - pattern: $REGISTRY.register($DOMAIN, $SERVICE, $HANDLER, $$$)
+    - pattern: $REGISTRY.register(*$ARGS)
+    - pattern: $REGISTRY.register(**$KWARGS)
 files:
   - "custom_components/ha_mcp_tools/**"
 message: |

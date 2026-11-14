@@ -236,17 +236,27 @@ missing required live-testing evidence blocks merging, not requesting review.
 
 | Workflow | Trigger | Purpose |
 |---|---|---|
+| `core-window.yml` | Reusable workflow call | Resolve supported Core releases, validate the source floor, and gate paired installation contracts across Core/architecture combinations. |
+| `native-migration.yml` | Selected paths on `feat/native-hacs`, or manual | Route candidate, published-artifact, HACS-owner, protocol, upgrade-path or temporary live qualification to the corresponding checks. |
+| `native-distribution.yml` | Reusable workflow call or manual | Build and verify paired component/wheel profiles and provenance without creating tags or publishing a release. |
+| `native-continuity.yml` | Push to `qualify/continuity`, or manual | Compare immutable Legacy and Native snapshots and qualify their paired distributions. |
+| `native-e2e.yml` | Push to `qualify/native-e2e`, or manual | Run Native container E2E against the supported Core matrix, including a server-entry-only lane. |
+| `haos-native.yml` | Push to `qualify/haos-native`, or manual | Bake an exact released Core image and exercise Native contracts in an isolated HAOS VM. |
+| `native-hacs-owner-qualification.yml` | Reusable workflow call or manual | Exercise actual installed HACS owners with disposable repositories and retain sanitized qualification evidence. |
+| `native-protocol-comparison.yml` | Reusable workflow call or manual | Compare frozen Legacy and Native MCP protocol behavior and collect paired runtime/provenance evidence. |
+| `legacy-core.yml` | Native candidate qualification or manual | Paired constrained install and Legacy restart/transport contracts on Core 2026.8/9, amd64/aarch64. |
+| `native-upgrade-paths.yml` | Manual fork run or `native-migration.yml` with `target=upgrade_paths` | Main-to-candidate embedded HTTP upgrade with five persisted auth profiles; separate Legacy-upgrade and explicit-Native gates. Scope and known failures: [upgrade qualification](../../tests/native/upgrade_paths/README.md). |
 | `pr.yml` | Pull request or manual | Fast checks and validation orchestration, plus the non-required beta Core unit lane. |
 | `renovate.yml` | Hourly, human dashboard/PR checkbox edit, or manual | Refresh dependency discovery and process eligible updates. |
 | `renovate-validation.yml` | Relevant pull request or manual | Validate configuration with the scanner’s pinned Renovate engine, without credentials. |
 | `renovate-auto-merge.yml` | Renovate enables auto-merge or updates its PR | Approve the verified current head with the separate maintainer account; GitHub enforces merge requirements. |
 | `mirror-python-base.yml` | Push touching a Dockerfile or the workflow, weekly, or manual | Copy the Dockerfiles' pinned `python` base digests unchanged to `ghcr.io/homeassistant-ai/ha-mcp-python-base`, which CI image builds and the HAOS bake pull first. |
-| `e2e-tests.yml` | Push to `master` touching code, or manual | Full container-backend E2E validation on the pinned stable Core image. |
+| `e2e-tests.yml` | Push to `main`, `master` or `qualify/upstream-main`, or manual; no path filter | Full container-backend E2E validation using the supported Core window. |
 | `haos-e2e-tests.yml` | Pull request or manual | Six HAOS lanes against a baked qcow2; required status checks. |
 | `haos-e2e-beta-tests.yml` | Push to `master`, nightly, or manual | The inaddon and embedded HAOS lanes against the current beta OS, Supervisor, and Core; skipped on push and nightly only when all three equal stable. |
 | `e2e-beta-tests.yml` | Push to `master`, nightly, or manual | The container-backend E2E jobs against the current beta Core image; skipped on push and nightly when beta equals the stable lane's pin. |
 | `publish-dev.yml` | Push to `master`, or manual; this repository only | Development `<next>.devN` release, published as `ha-mcp-dev`; its GitHub pre-release tags a commit with the component stamped to pin that build, for HACS, and the mirror sync pins the same build via its `dev-version` artifact. |
-| `sync-integration-mirror.yml` | `workflow_run` after SemVer Release or Publish Dev Channel; docs pushes; manual | HACS mirror releases: the component with its version and server pin (`ha-mcp` stable, `ha-mcp-dev` pre-release), tagged once PyPI serves the pinned build. |
+| `sync-integration-mirror.yml` | `workflow_run` after SemVer Release or Publish Dev Channel; selected `master` docs/metadata pushes; manual | Gate on the publisher's release job (Create GitHub pre-release for dev), verify the public paired assets, and synchronize immutable HACS mirror tags. Docs-only pushes refresh mirror metadata. |
 | `notify-dev-channel.yml` | Push to `master` touching `src/` | Development-testing notices. |
 | `semver-release.yml` | Biweekly or manual; this repository only | Stable version tag and GitHub release. |
 | `release-publish.yml` | `workflow_run` after SemVer Release, or manual | Stable container images and MCP registry. |

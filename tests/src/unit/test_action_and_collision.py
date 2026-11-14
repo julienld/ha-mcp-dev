@@ -23,7 +23,6 @@ from homeassistant.setup import async_setup_component
 
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp.client.rest_client import HomeAssistantClient
-from ha_mcp.tools.config_helpers import flow
 from ha_mcp.tools.tools_config_helpers import HelperConfigTools
 
 from ._client_spies import sent_messages
@@ -137,7 +136,11 @@ async def test_flow_helper_with_an_existing_title_is_refused_before_a_flow_opens
     (entry,) = hass.config_entries.async_entries("template")
 
     with (
-        patch.object(flow, "advance_flow", wraps=flow.advance_flow) as advance,
+        patch.object(
+            hass.config_entries.flow,
+            "async_init",
+            wraps=hass.config_entries.flow.async_init,
+        ) as start,
         pytest.raises(ToolError) as exc_info,
     ):
         await tools.ha_config_set_helper(
@@ -147,7 +150,7 @@ async def test_flow_helper_with_an_existing_title_is_refused_before_a_flow_opens
     error = error_of(exc_info)
     assert error["code"] == "VALIDATION_INVALID_PARAMETER"
     assert entry.entry_id in error["message"]
-    advance.assert_not_awaited()
+    start.assert_not_awaited()
     assert hass.config_entries.flow.async_progress() == []
     assert len(hass.config_entries.async_entries("template")) == 1
 

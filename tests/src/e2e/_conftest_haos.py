@@ -4,10 +4,12 @@ import itertools
 import json
 import logging
 import os
+import ssl
 import subprocess
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -41,6 +43,7 @@ from haos_runtime import (
 
 # Import test constants
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+from qualification_artifacts import native_runtime_selected
 from test_constants import TEST_PASSWORD, TEST_TOKEN, TEST_USER
 
 from ._conftest_embedded import (
@@ -132,6 +135,12 @@ def _prepare_haos_image(
     base_image_path: Path, inaddon: bool, haos_embedded: bool, haos_stdio: bool
 ) -> Path:
     """Set up the per-worker qcow2 overlay and stage all pre-boot mutations."""
+    if native_runtime_selected() and (
+        not haos_embedded or not os.environ.get("E2E_NATIVE_ARTIFACTS")
+    ):
+        raise RuntimeError(
+            "Native HAOS requires the embedded backend and paired artifacts"
+        )
     # Per-worker port + overlay setup for pytest-xdist parallel HAOS
     # (#1350). Single-worker runs short-circuit and reuse the base
     # image path unchanged.
@@ -172,7 +181,12 @@ def _prepare_haos_image(
     # embedded-server E2E (#1527) exercises the PR's own src/ha_mcp when it
     # enables the entry. Best-effort — a failure only affects that one test.
     # Must run before boot (offline qcow2 edit), like the refreshers above.
-    stage_embedded_server_wheel_in_qcow2(image_path, TEST_TOKEN)
+    if assets := os.environ.get("E2E_NATIVE_ARTIFACTS"):
+        from haos_candidate import stage_candidate_in_qcow2
+
+        stage_candidate_in_qcow2(image_path, Path(assets), TEST_TOKEN)
+    else:
+        stage_embedded_server_wheel_in_qcow2(image_path, TEST_TOKEN)
     # haos_embedded lane only: the WHOLE suite runs through the in-process
     # server, so deliver the same settings overrides the container
     # ``embedded`` backend injects — feature flags (yaml editing, filesystem
@@ -485,10 +499,23 @@ def _bringup_haos_out_of_process_server(
                 "runtime log in the HAOS diagnostics artifact for the "
                 f"{HA_MCP_SERVER_DOMAIN} config-entry state."
             )
+        if native_runtime_selected():
+            from haos_candidate import attest_native_runtime
+
+            attest_native_runtime(
+                base_url, token, Path(os.environ["E2E_NATIVE_ARTIFACTS"])
+            )
     return addon_mcp_url, embedded_webhook_url
 
 
-def _dump_haos_session_logs(base_url: str, token: str, inaddon: bool) -> None:
+def _dump_haos_session_logs(
+    base_url: str,
+    token: str,
+    inaddon: bool,
+    *,
+    verify_ssl: bool = True,
+    extra_apps: tuple[str, ...] = (),
+) -> None:
     """Pull HA Core + Supervisor (+ addon) logs before QEMU shutdown."""
     # Pull HA Core's runtime log + Supervisor's own log via the
     # Supervisor /core/logs and /supervisor/logs endpoints before
@@ -546,6 +573,17 @@ def _dump_haos_session_logs(base_url: str, token: str, inaddon: bool) -> None:
             f"{HA_MCP_WEBHOOK_PROXY_ADDON_SLUG}/logs?lines=20000",
         ),
     )
+    for index, slug in enumerate(extra_apps):
+        log_endpoints.append(
+            (
+                f"app-{index}-runtime.log",
+                f"{base_url}/api/hassio/addons/{urllib.parse.quote(slug, safe='')}/logs?lines=20000",
+            )
+        )
+    # Only the disposable TLS scenario opts out for its staged self-signed cert.
+    tls_options = (
+        {"context": ssl._create_unverified_context()} if not verify_ssl else {}
+    )
     # Narrow except: any non-network error (NameError, KeyError
     # from a future refactor) should propagate instead of being
     # misreported as "Failed to dump". Per-endpoint network
@@ -556,7 +594,7 @@ def _dump_haos_session_logs(base_url: str, token: str, inaddon: bool) -> None:
                 url,
                 headers={"Authorization": f"Bearer {token}"},
             )
-            with urllib.request.urlopen(req, timeout=60) as resp:
+            with urllib.request.urlopen(req, timeout=60, **tls_options) as resp:
                 (log_dest / name).write_bytes(resp.read())
             logger.info("Dumped %s via supervisor", name)
         except (

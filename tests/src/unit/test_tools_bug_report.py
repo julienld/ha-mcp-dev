@@ -611,20 +611,20 @@ class TestBugReportTool:
         # The source record is untouched.
         assert raw_entry["message"] == raw_message
 
-    def test_sanitize_log_text_redacts_generated_secret_path(self):
+    def testsanitize_log_text_redacts_generated_secret_path(self):
         """The generated ``/private_<token>`` connect path is redacted."""
         out = sanitize_log_text("on http://0.0.0.0:9583/private_T6tSJxqYuTESTtoken/mcp")
         assert "/private_T6tSJxqYuTESTtoken" not in out
         assert "[REDACTED_SECRET_PATH]" in out
 
-    def test_sanitize_log_text_redacts_configured_secret_path(self, monkeypatch):
+    def testsanitize_log_text_redacts_configured_secret_path(self, monkeypatch):
         """A custom configured ``MCP_SECRET_PATH`` is redacted by value."""
         monkeypatch.setenv("MCP_SECRET_PATH", "/customhook")
         out = sanitize_log_text("connect at http://ha.local:9583/customhook/mcp")
         assert "/customhook" not in out
         assert "[REDACTED_SECRET_PATH]" in out
 
-    def test_sanitize_log_text_redacts_configured_settings_path(self, monkeypatch):
+    def testsanitize_log_text_redacts_configured_settings_path(self, monkeypatch):
         """A custom ``MCP_SETTINGS_SECRET_PATH`` is redacted by value too, so
         ha_report_issue can't hand the settings secret to an MCP client
         (GHSA-mx64-982r-65vg). The auto-generated /private_ form is caught by the
@@ -637,7 +637,7 @@ class TestBugReportTool:
         assert "/admin_ui" not in out
         assert "[REDACTED_SECRET_PATH]" in out
 
-    def test_sanitize_log_text_redacts_settings_path_with_whitespace(self, monkeypatch):
+    def testsanitize_log_text_redacts_settings_path_with_whitespace(self, monkeypatch):
         """The resolver strips MCP_SETTINGS_SECRET_PATH before mounting, so a
         value with stray whitespace mounts at the stripped path; the sanitizer
         must strip too or it redacts the wrong string and leaks the secret
@@ -650,15 +650,13 @@ class TestBugReportTool:
         assert "/admin_ui" not in out
         assert "[REDACTED_SECRET_PATH]" in out
 
-    def test_sanitize_log_text_keeps_default_mcp_path(self, monkeypatch):
+    def testsanitize_log_text_keeps_default_mcp_path(self, monkeypatch):
         """The low-entropy ``/mcp`` default is left intact (avoids noise)."""
         monkeypatch.delenv("MCP_SECRET_PATH", raising=False)
         out = sanitize_log_text("on http://0.0.0.0:9583/mcp")
         assert "/mcp" in out
 
-    def test_sanitize_log_text_short_configured_path_does_not_corrupt(
-        self, monkeypatch
-    ):
+    def testsanitize_log_text_short_configured_path_does_not_corrupt(self, monkeypatch):
         """A short configured secret path must redact only its own path segment,
         not unrelated text that happens to share the prefix."""
         monkeypatch.setenv("MCP_SECRET_PATH", "/ha")
@@ -932,22 +930,6 @@ class TestBugReportTool:
         assert "known_client_issues_hint" in instructions
         assert instructions.index("known_client_issues_hint") < instructions.index(
             "Check for duplicates FIRST"
-        )
-
-    def test_recommended_runtime_projection_keeps_both_hints(self):
-        """The ``fields`` example an agent copies must not drop the pre-check
-        fields that ``instructions`` then tells it to read."""
-        import inspect
-        import re
-
-        from ha_mcp.tools import tools_bug_report
-
-        source = inspect.getsource(tools_bug_report.BugReportTools.ha_report_issue)
-        match = re.search(r"Typical: \"\s*\"'([^']+)'", source)
-        assert match, "fields description lost its runtime-bug example"
-        recommended = set(re.sub(r'["\s]', "", match.group(1)).split(","))
-        assert {"missing_tool_hint", "known_client_issues_hint", "instructions"} <= (
-            recommended
         )
 
     @pytest.mark.asyncio

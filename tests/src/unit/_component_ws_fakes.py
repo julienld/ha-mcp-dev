@@ -252,6 +252,7 @@ class FakeRegEntry:
         entity_category=None,
         platform=None,
         disabled_by=None,
+        extended_fields=None,
     ):
         self.entity_id = entity_id
         self.aliases = set(aliases)
@@ -267,6 +268,7 @@ class FakeRegEntry:
         self.entity_category = entity_category
         self.platform = platform
         self.disabled_by = disabled_by
+        self.extended_fields = dict(extended_fields or {})
 
     @property
     def as_partial_dict(self):

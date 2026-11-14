@@ -150,6 +150,7 @@ def test_failed_step_after_skipped_body_fails_the_test() -> None:
     assert ran == ["first", "second"]
 
 
+@pytest.mark.skipif(not hasattr(signal, "SIGALRM"), reason="requires POSIX SIGALRM")
 def test_timeout_in_a_blocking_step_is_recorded_and_later_steps_still_run() -> None:
     # pytest-timeout's signal method calls pytest.fail() in the frame that
     # runs when the alarm fires: here a blocking step, which records it.
