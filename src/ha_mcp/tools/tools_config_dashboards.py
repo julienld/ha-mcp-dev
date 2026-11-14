@@ -115,7 +115,7 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
-class _DashboardScreenshotOptions:
+class DashboardScreenshotOptions:
     """Shared render options for get/set screenshot paths."""
 
     view_path: str | None = None
@@ -623,7 +623,7 @@ async def _lazy_resolve_and_retry(
     return url_path, response
 
 
-async def _attach_dashboard_render_paths_after_write(
+async def attach_dashboard_render_paths_after_write(
     client: Any,
     result: dict[str, Any],
     url_path: str,
@@ -665,12 +665,12 @@ async def _attach_dashboard_render_paths_after_write(
     return authoritative_config
 
 
-def _note_screenshot_ignored(
+def note_screenshot_ignored(
     result: dict[str, Any],
     *,
     include_screenshot: bool,
     full_page: bool = False,
-    options: _DashboardScreenshotOptions | None = None,
+    options: DashboardScreenshotOptions | None = None,
     mode: str,
 ) -> None:
     """Warn when get-mode-only options are passed to a mode that ignores them.
@@ -681,8 +681,8 @@ def _note_screenshot_ignored(
     inapplicable, so surface a ``warnings`` entry rather than dropping the
     request as a silent no-op (matches the warn-don't-fail contract the
     params document)."""
-    capture_options = options or _DashboardScreenshotOptions(full_page=full_page)
-    if include_screenshot or capture_options != _DashboardScreenshotOptions():
+    capture_options = options or DashboardScreenshotOptions(full_page=full_page)
+    if include_screenshot or capture_options != DashboardScreenshotOptions():
         result.setdefault("warnings", []).append(
             f"include_screenshot, view_path, and screenshot render options are "
             f"ignored in {mode} mode; call "
@@ -697,7 +697,7 @@ async def _capture_dashboard_screenshot_result(
     *,
     client: Any | None,
     config: dict[str, Any] | None,
-    options: _DashboardScreenshotOptions,
+    options: DashboardScreenshotOptions,
 ) -> ToolResult:
     """Render configured captures and attach their ordered MCP metadata."""
     from ..dashboard_screenshot import capture as screenshot_capture
@@ -787,14 +787,14 @@ async def _capture_dashboard_screenshot_result(
     raise AssertionError("unreachable: raise_tool_error always raises")
 
 
-async def _maybe_attach_screenshot(
+async def maybe_attach_screenshot(
     result: dict[str, Any],
     url_path: str | None,
     requested: bool,
     *,
     client: Any | None = None,
     config: dict[str, Any] | None = None,
-    options: _DashboardScreenshotOptions | None = None,
+    options: DashboardScreenshotOptions | None = None,
     full_page: bool = False,
     raise_on_failure: bool = False,
 ) -> dict[str, Any] | ToolResult:
@@ -816,12 +816,12 @@ async def _maybe_attach_screenshot(
     warning the caller may never inspect. A disabled feature flag is always a
     warning either way — it is an expected configuration state, not a failure.
     """
-    capture_options = options or _DashboardScreenshotOptions(full_page=full_page)
+    capture_options = options or DashboardScreenshotOptions(full_page=full_page)
     if options is not None and full_page and not capture_options.full_page:
         capture_options = replace(capture_options, full_page=True)
 
     if not requested:
-        defaults = _DashboardScreenshotOptions()
+        defaults = DashboardScreenshotOptions()
         if capture_options != defaults:
             result.setdefault("warnings", []).append(
                 "Screenshot render options are ignored because no screenshot "
@@ -850,7 +850,7 @@ async def _maybe_attach_screenshot(
     except ToolError as e:
         if raise_on_failure:
             raise
-        return _attach_screenshot_tool_error(result, e)
+        return attach_screenshot_tool_error(result, e)
     except Exception as e:
         # On the set path a screenshot failure must never break a write that
         # already committed, so catch everything non-ToolError (lazy import
@@ -868,7 +868,7 @@ async def _maybe_attach_screenshot(
         return result
 
 
-def _attach_screenshot_tool_error(
+def attach_screenshot_tool_error(
     result: dict[str, Any], error: ToolError
 ) -> dict[str, Any]:
     """Preserve a structured capture failure on an already-committed write."""
@@ -928,7 +928,7 @@ class LegacyDashboards:
     ) -> Any:
         if describe:
             return await describe_card_response(self._client, card_type)
-        screenshot_options = _DashboardScreenshotOptions(view_path=view_path)
+        screenshot_options = DashboardScreenshotOptions(view_path=view_path)
         criteria = _SearchCriteria(
             entity_id=entity_id, card_type=card_type, heading=heading, query=query
         )
@@ -1022,7 +1022,7 @@ class LegacyDashboards:
         self,
         *,
         include_screenshot: bool,
-        screenshot_options: _DashboardScreenshotOptions,
+        screenshot_options: DashboardScreenshotOptions,
     ) -> dict[str, Any]:
         """``list_only=True`` mode: list every dashboard's metadata row.
 
@@ -1037,7 +1037,7 @@ class LegacyDashboards:
             "dashboards": dashboards,
             "count": len(dashboards),
         }
-        _note_screenshot_ignored(
+        note_screenshot_ignored(
             list_result,
             include_screenshot=include_screenshot,
             options=screenshot_options,
@@ -1143,7 +1143,7 @@ class LegacyDashboards:
         include_config: bool,
         list_only: bool,
         include_screenshot: bool,
-        screenshot_options: _DashboardScreenshotOptions,
+        screenshot_options: DashboardScreenshotOptions,
     ) -> dict[str, Any]:
         """Search cards, badges and header cards in one dashboard or all of them.
 
@@ -1222,7 +1222,7 @@ class LegacyDashboards:
             notes.append("list_only was ignored because search parameters were given.")
         if notes:
             search_result.setdefault("warnings", []).extend(notes)
-        _note_screenshot_ignored(
+        note_screenshot_ignored(
             search_result,
             include_screenshot=include_screenshot,
             options=screenshot_options,
@@ -1315,7 +1315,7 @@ class LegacyDashboards:
         force_reload: bool,
         view_path: str | None,
         include_screenshot: bool,
-        screenshot_options: _DashboardScreenshotOptions,
+        screenshot_options: DashboardScreenshotOptions,
     ) -> dict[str, Any] | ToolResult:
         """Get mode: return the full Lovelace config for a single dashboard.
 
@@ -1417,7 +1417,7 @@ class LegacyDashboards:
         original_url_path: str | None,
         view_path: str | None,
         include_screenshot: bool,
-        screenshot_options: _DashboardScreenshotOptions,
+        screenshot_options: DashboardScreenshotOptions,
         stored_config: bool = True,
     ) -> dict[str, Any] | ToolResult:
         """Shape + return the get-mode response for an already-fetched config.
@@ -1444,7 +1444,7 @@ class LegacyDashboards:
             view_path=view_path,
             stored_config=stored_config,
         )
-        return await _maybe_attach_screenshot(
+        return await maybe_attach_screenshot(
             get_result,
             url_path,
             include_screenshot,
@@ -1484,7 +1484,7 @@ class LegacyDashboards:
             if patch is not None
             else ("python_transform" if python_transform is not None else "set")
         )
-        screenshot_options = _DashboardScreenshotOptions(view_path=view_path)
+        screenshot_options = DashboardScreenshotOptions(view_path=view_path)
         try:
             # Reject an invalid view_path BEFORE committing the write. On the
             # return_screenshot path a screenshot failure is demoted to a
@@ -1727,7 +1727,7 @@ class LegacyDashboards:
         MandatoryBPS: bool,
         *,
         return_screenshot: bool,
-        screenshot_options: _DashboardScreenshotOptions,
+        screenshot_options: DashboardScreenshotOptions,
     ) -> dict[str, Any] | ToolResult:
         """Execute python_transform mode and return the tool response."""
         if config_hash is None:
@@ -1810,7 +1810,7 @@ class LegacyDashboards:
         MandatoryBPS: bool,
         *,
         return_screenshot: bool,
-        screenshot_options: _DashboardScreenshotOptions,
+        screenshot_options: DashboardScreenshotOptions,
     ) -> dict[str, Any] | ToolResult:
         """Apply structured edits in Core, or use the existing legacy save path."""
         if config_hash is None:
@@ -1894,7 +1894,7 @@ class LegacyDashboards:
         MandatoryBPS: bool,
         *,
         return_screenshot: bool,
-        screenshot_options: _DashboardScreenshotOptions,
+        screenshot_options: DashboardScreenshotOptions,
         python_transform: str | None = None,
     ) -> dict[str, Any] | ToolResult:
         """Preserve public edit fields, authoritative paths, BPS and screenshots."""
@@ -1902,7 +1902,7 @@ class LegacyDashboards:
             url_path, edit, action, pre_resolved_from, python_transform=python_transform
         )
         await _attach_dashboard_skill(result, MandatoryBPS, self._client)
-        return await _maybe_attach_screenshot(
+        return await maybe_attach_screenshot(
             result,
             url_path,
             return_screenshot,
@@ -2341,7 +2341,7 @@ class LegacyDashboards:
     ) -> dict[str, Any] | None:
         """Reuse native verification without another dashboard fetch."""
         if native_result is None:
-            return await _attach_dashboard_render_paths_after_write(
+            return await attach_dashboard_render_paths_after_write(
                 self._client, result, url_path, render_config
             )
         for key in ("config_hash", "write_committed", "post_write_verified"):
@@ -2365,7 +2365,7 @@ class LegacyDashboards:
         pre_resolved_from: str | None,
         pre_fetched_dashboards: list[dict[str, Any]] | None,
         return_screenshot: bool,
-        screenshot_options: _DashboardScreenshotOptions,
+        screenshot_options: DashboardScreenshotOptions,
         MandatoryBPS: bool,
     ) -> dict[str, Any] | ToolResult:
         """Execute config-replacement mode (create-or-update) and return the tool response."""
@@ -2449,7 +2449,7 @@ class LegacyDashboards:
             result_dict, url_path, render_config, native_result
         )
         await _attach_dashboard_skill(result_dict, MandatoryBPS, self._client)
-        return await _maybe_attach_screenshot(
+        return await maybe_attach_screenshot(
             result_dict,
             url_path,
             return_screenshot,

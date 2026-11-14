@@ -10,7 +10,7 @@ SIMPLE_HELPER_TYPES = _shared.SIMPLE_HELPER_TYPES
 StorageHelperType = _shared.StorageHelperType
 _CORE_HELPER_SCHEMAS = _shared._CORE_HELPER_SCHEMAS
 _HELPER_SKILL_FILES = _shared._HELPER_SKILL_FILES
-_SIMPLE_CONFIG_KEYS_DESCRIPTION = _shared._SIMPLE_CONFIG_KEYS_DESCRIPTION
+SIMPLE_CONFIG_KEYS_DESCRIPTION = _shared.SIMPLE_CONFIG_KEYS_DESCRIPTION
 HelperResponse = _shared.HelperResponse
 _simple_helper_error_context = _shared._simple_helper_error_context
 
@@ -20,7 +20,7 @@ __all__ = [
     "StorageHelperType",
     "_CORE_HELPER_SCHEMAS",
     "_HELPER_SKILL_FILES",
-    "_SIMPLE_CONFIG_KEYS_DESCRIPTION",
+    "SIMPLE_CONFIG_KEYS_DESCRIPTION",
     "_attach_helper_skill",
     "_simple_helper_error_context",
 ]

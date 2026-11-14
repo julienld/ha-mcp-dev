@@ -271,6 +271,7 @@ async def _flow_records(
 
 
 async def _write_storage(client: Any, arguments: dict[str, Any]) -> dict[str, Any]:
+    from ha_mcp.runtime.helper_schema import _simple_helper_error_context
     from ha_mcp.tools.component_helper_collections import write_helper_item
 
     payload = dict(arguments)
@@ -283,6 +284,7 @@ async def _write_storage(client: Any, arguments: dict[str, Any]) -> dict[str, An
         payload["helper_type"],
         payload["action"],
         payload["data"],
+        error_context=_simple_helper_error_context(payload["helper_type"]),
         **{
             key: value
             for key, value in payload.items()

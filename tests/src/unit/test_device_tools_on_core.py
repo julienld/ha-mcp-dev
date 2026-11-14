@@ -32,7 +32,7 @@ from ha_mcp.tools.tools_registry import RegistryTools
 
 from ._client_spies import sent_messages
 from ._core_devices import device as _device
-from ._core_devices import removable_device as _removable_device
+from ._removable_device import removable_device
 from ._tool_errors import rejected_call_body
 
 
@@ -288,7 +288,7 @@ async def test_remove_removes_the_device_with_cores_remove(
 ) -> None:
     """On Core with ``config/device_registry/remove``, that command removes the
     device and the deprecated ``remove_config_entry`` is never sent."""
-    dev = await _removable_device(hass)
+    dev = await removable_device(hass)
 
     with sent_messages(core_client) as spy:
         result = await tools.ha_remove_device(device_id=dev.id)
@@ -307,7 +307,7 @@ async def test_core_without_remove_detaches_the_devices_entry(
     detaches the device's config entry with ``remove_config_entry`` instead,
     which removes the device. This Core is given no ``remove`` command, and
     the expected unknown-command answer logs no error."""
-    dev = await _removable_device(hass)
+    dev = await removable_device(hass)
     hass.data[websocket_api.DOMAIN].pop("config/device_registry/remove")
 
     result = await tools.ha_remove_device(device_id=dev.id)
