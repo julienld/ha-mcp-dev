@@ -65,7 +65,7 @@ async def test_removed_renamed_label_is_recreated_with_its_core_id_disclosed(
     assert any(label.label_id in warning for warning in result["warnings"])
     repeated = await service.restore_snapshot(label.label_id, snapshot, None)
     assert repeated["label_id"] == restored.label_id
-    assert len(registry.async_list_labels()) == 1
+    assert len(list(registry.async_list_labels())) == 1
 
 
 async def test_deleted_category_restores_once_without_reusing_its_old_identity(
@@ -101,4 +101,4 @@ async def test_deleted_category_restores_once_without_reusing_its_old_identity(
         backend, actor, "category", identifier, snapshot, None
     )
     assert repeated["category_id"] == restored.category_id
-    assert len(registry.async_list_categories(scope="automation")) == 1
+    assert len(list(registry.async_list_categories(scope="automation"))) == 1

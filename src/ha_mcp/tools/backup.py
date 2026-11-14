@@ -129,7 +129,7 @@ class BackupTools(BackupFacade):
 
 
 def register_backup_tools(
-    mcp: "FastMCP", client: HomeAssistantClient, **kwargs: Any
+    mcp: FastMCP, client: HomeAssistantClient, **kwargs: Any
 ) -> None:
     registered = mcp.add_tool(BackupTools(client).ha_manage_backup)
     registered.description = backup_description(_get_backup_hint_text())
