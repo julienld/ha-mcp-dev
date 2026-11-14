@@ -1,0 +1,117 @@
+{
+  "revision": "8b022630215c7a516d9e0b92aa39c4d3cc94dc5d",
+  "scope": "AST-derived public parameters at upstream; independent of Native implementation",
+  "source_blobs": {
+    "src/ha_mcp/tools/tools_config_automations.py": "dbbcbe888becce8dcfe19a2c24fbcff481ff9c846bfdb1079549ee20cbab217e",
+    "src/ha_mcp/tools/tools_integrations.py": "acdfdfb5ea70e6fd40325d57eaf029ce7b44071341e5b5e3fde51266a5554fb0",
+    "src/ha_mcp/tools/tools_hacs.py": "5e99a0ead111b25f0e81ddca1385db7f9e47b29dc26218f71a24947f84257667"
+  },
+  "tools": {
+    "ha_config_get_automation": {
+      "parameters": [
+        "entity_id"
+      ],
+      "required": [
+        "entity_id"
+      ]
+    },
+    "ha_config_set_automation": {
+      "parameters": [
+        "config",
+        "entity_id",
+        "python_transform",
+        "config_hash",
+        "take_control_of_blueprint",
+        "category",
+        "wait",
+        "enabled",
+        "run_actions",
+        "MandatoryBPS",
+        "BestPracticeKey"
+      ],
+      "required": []
+    },
+    "ha_config_remove_automation": {
+      "parameters": [
+        "entity_id",
+        "wait"
+      ],
+      "required": [
+        "entity_id"
+      ]
+    },
+    "ha_get_integration": {
+      "parameters": [
+        "entry_id",
+        "query",
+        "domain",
+        "integration_type",
+        "include_options",
+        "include_schema",
+        "include_subentries",
+        "include_subentry_schema",
+        "subentry_type",
+        "subentry_id",
+        "show_advanced_options",
+        "exact_match",
+        "limit",
+        "offset",
+        "include_diagnostics",
+        "include_ws_commands",
+        "device_id",
+        "diagnostics_fields",
+        "diagnostics_truncate_at_bytes",
+        "diagnostics_data_path",
+        "diagnostics_data_offset",
+        "diagnostics_data_limit"
+      ],
+      "required": []
+    },
+    "ha_set_integration": {
+      "parameters": [
+        "entry_id",
+        "enabled",
+        "domain",
+        "config",
+        "reconfigure",
+        "expected_device_id",
+        "expected_unique_id",
+        "expected_mac",
+        "expected_entity_ids",
+        "log_level",
+        "log_persistence",
+        "menu_choice",
+        "subentry_type",
+        "subentry_id",
+        "flow_id",
+        "abort",
+        "ws_command",
+        "ws_data"
+      ],
+      "required": []
+    },
+    "ha_manage_hacs": {
+      "parameters": [
+        "action",
+        "repository_id",
+        "version",
+        "repository",
+        "category",
+        "confirm_replace_built_in",
+        "confirm"
+      ],
+      "required": [
+        "action"
+      ],
+      "enums": {
+        "action": [
+          "download",
+          "add_repository",
+          "remove",
+          "update_information",
+          "accept_warning"
+        ]
+      }
+    }
+  }
+}

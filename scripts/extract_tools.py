@@ -18,6 +18,7 @@ import ast
 import importlib.util
 import json
 import re
+import runpy
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -722,8 +723,17 @@ def _extract_tool_from_node(
     }
 
 
+def shared_tool_extractor() -> Any:
+    """Construct the shared-method resolver with this extractor's confined imports."""
+    namespace = runpy.run_path(str(Path(__file__).with_name("extract_tools_shared.py")))
+    return namespace["SharedToolExtractor"](
+        _import_source, _module_scope, _extract_tool_from_node
+    )
+
+
 def extract_tools() -> list[dict]:
     """Extract all tool metadata from source files via AST parsing."""
+    shared = shared_tool_extractor()
     tools = []
 
     for f in TOOL_FILES:
@@ -733,9 +743,12 @@ def extract_tools() -> list[dict]:
         scope = _module_scope(f)
 
         for node in ast.walk(tree):
-            if not isinstance(node, ast.AsyncFunctionDef):
+            if isinstance(node, ast.AsyncFunctionDef):
+                tool = _extract_tool_from_node(node, f.name, scope)
+            elif isinstance(node, ast.Assign | ast.Expr):
+                tool = shared.extract(node, f)
+            else:
                 continue
-            tool = _extract_tool_from_node(node, f.name, scope)
             if tool is not None:
                 tools.append(tool)
 

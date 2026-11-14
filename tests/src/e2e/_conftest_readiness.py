@@ -210,6 +210,7 @@ def _snapshot_config_entries(
     headers: dict[str, str],
     *,
     timeout: float = 5.0,
+    verify_ssl: bool = True,
 ) -> tuple[int, int, bool, str]:
     """Return ``(loaded_count, total_count, snapshot_ok, unloaded)`` from
     ``/api/config/config_entries/entry``.
@@ -238,6 +239,7 @@ def _snapshot_config_entries(
             f"{base_url}/api/config/config_entries/entry",
             timeout=timeout,
             headers=headers,
+            **({"verify": False} if not verify_ssl else {}),
         )
         if resp.status_code != 200:
             logger.debug(f"snapshot_config_entries: HTTP {resp.status_code}")
@@ -329,6 +331,8 @@ def _wait_for_core_state_running(
     base_url: str,
     headers: dict[str, str],
     timeout: int,
+    *,
+    verify_ssl: bool = True,
 ) -> tuple[bool, float, str, int, int, bool, str]:
     """Poll ``/api/core/state`` until ``state == "RUNNING"``.
 
@@ -371,7 +375,10 @@ def _wait_for_core_state_running(
     while time.monotonic() - start_time < timeout:
         try:
             response = requests.get(
-                f"{base_url}/api/core/state", timeout=2, headers=headers
+                f"{base_url}/api/core/state",
+                timeout=2,
+                headers=headers,
+                **({"verify": False} if not verify_ssl else {}),
             )
             if response.status_code == 200:
                 # Parse before stamping last_state — a JSONDecodeError on
@@ -384,7 +391,11 @@ def _wait_for_core_state_running(
                 if state_value == "RUNNING":
                     elapsed = time.monotonic() - start_time
                     entries_loaded, entries_total, snapshot_ok, entries_unloaded = (
-                        _snapshot_config_entries(base_url, headers)
+                        _snapshot_config_entries(
+                            base_url,
+                            headers,
+                            **({"verify_ssl": False} if not verify_ssl else {}),
+                        )
                     )
                     logger.info(
                         f"🏃 CoreState.RUNNING after {elapsed:.1f}s "
@@ -416,7 +427,12 @@ def _wait_for_core_state_running(
     # by this point, so use a tight 2s timeout rather than the default 5s
     # to keep teardown responsive.
     entries_loaded, entries_total, snapshot_ok, entries_unloaded = (
-        _snapshot_config_entries(base_url, headers, timeout=2.0)
+        _snapshot_config_entries(
+            base_url,
+            headers,
+            timeout=2.0,
+            **({"verify_ssl": False} if not verify_ssl else {}),
+        )
     )
     return (
         False,

@@ -161,7 +161,7 @@
       }
     },
     {
-      "description": "Regenerate the private FastMCP / MCP SDK trees with their pins; grouped because mcp pins mcp-types exactly.",
+      "description": "Regenerate the private Rich / FastMCP / MCP SDK trees with their pins; grouped because they share one generator and mcp pins mcp-types exactly.",
       "matchManagers": [
         "custom.regex"
       ],
@@ -169,6 +169,7 @@
         "pypi"
       ],
       "matchPackageNames": [
+        "rich",
         "fastmcp-slim",
         "mcp",
         "mcp-types"
@@ -185,6 +186,7 @@
           "python3 -I scripts/vendor_fastmcp.py"
         ],
         "fileFilters": [
+          "src/ha_mcp/_vendor/rich/**",
           "src/ha_mcp/_vendor/fastmcp/**",
           "src/ha_mcp/_vendor/mcp/**",
           "src/ha_mcp/_vendor/mcp_types/**"

@@ -74,11 +74,11 @@ from ._conftest_readiness import (
     pytest_testnodedown,  # noqa: F401  (pytest hook)
 )
 from ._conftest_testcontainer import (
-    _build_ha_testcontainer,
     _detect_docker_host,
-    _prepare_testcontainer_config,
     _reset_ha_in_process_caches,
     _wait_for_testcontainer_ready,
+    build_ha_testcontainer,
+    prepare_testcontainer_config,
 )
 
 # Import test utilities
@@ -246,18 +246,18 @@ def ha_container_with_fresh_config(request, in_process_data_dir):  # noqa: PLR09
     # wheel name is captured here and consumed by the entrypoint preinstall below.
     embedded = _is_embedded_backend_selected()
     # The staged config can hold an injected GITHUB_TOKEN (see
-    # ``_prepare_testcontainer_config``), and staging itself can fail partway.
+    # ``prepare_testcontainer_config``), and staging itself can fail partway.
     # Create the directory here and register its removal first, so pytest
     # removes it however this fixture ends, setup failures included. The
     # finalizer also runs after the ``with container:`` block has stopped Home
     # Assistant, so the bind mount is released before the directory goes away.
     temp_dir = Path(tempfile.mkdtemp(prefix="ha_e2e_test_"))
     request.addfinalizer(partial(shutil.rmtree, temp_dir, ignore_errors=True))
-    config_path, local_blueprint, embedded_wheel_name = _prepare_testcontainer_config(
+    config_path, local_blueprint, embedded_wheel_name = prepare_testcontainer_config(
         embedded, temp_dir
     )
 
-    container = _build_ha_testcontainer(config_path, embedded, embedded_wheel_name)
+    container = build_ha_testcontainer(config_path, embedded, embedded_wheel_name)
 
     with container:
         # Readiness-gate budgets for the testcontainer path. Defined at
@@ -332,6 +332,8 @@ def ha_container_with_fresh_config(request, in_process_data_dir):  # noqa: PLR09
             embedded,
             CORE_STATE_TIMEOUT,
             SUN_WAIT,
+            package_preinstalled=embedded_wheel_name is not None,
+            config_path=config_path,
         )
 
         # Store connection info for other fixtures

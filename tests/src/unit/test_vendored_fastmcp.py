@@ -8,10 +8,10 @@ from __future__ import annotations
 
 import ast
 import json
-import logging
 import subprocess
 import sys
 import tomllib
+from logging import Logger, getLogger
 from pathlib import Path
 
 import pytest
@@ -25,12 +25,22 @@ sys.path.insert(0, str(_REPO_ROOT / "scripts"))
 
 import vendor_fastmcp  # noqa: E402
 
-_VENDORED_DISTRIBUTIONS = {"fastmcp", "fastmcp-slim", "mcp", "mcp-types"}
+_VENDORED_DISTRIBUTIONS = {"fastmcp", "fastmcp-slim", "mcp", "mcp-types", "rich"}
 # Declared by fastmcp-slim's server extra but never imported by the vendored
 # code; ha-mcp must not pin the shared copy (#2135/#2146).
 _NOT_DECLARED = {"websockets"}
-# These drive the component's LLM-API client, which uses HA's shared SDK.
+_SHARED_RICH_USERS = {
+    "src/ha_mcp/rich_compat.py",
+    "tests/src/unit/test_rich_compat.py",
+    "tests/src/unit/test_vendored_fastmcp.py",
+    "tests/addon/test_addon_startup.py",
+}
+# These test surfaces explicitly exercise Core's unchanged shared SDK.
+# The component itself uses the private SDK; the peer runs outside the HA process.
 _SHARED_SDK_USERS = {
+    # The external compatibility probe deliberately exercises Core's unchanged
+    # SDK 1.x/2.x selected by Core, against the private server in a separate process.
+    "tests/native/legacy_client_probe.py",
     "tests/src/unit/test_llm_api.py",
     "tests/src/unit/test_llm_tool_metadata.py",
     "tests/src/e2e/workflows/embedded/test_embedded_server.py",
@@ -91,7 +101,49 @@ def test_loggers_keep_upstream_names():
 
     assert server.logger.name == "fastmcp.server.server"
     assert streamable_http.logger.name == "mcp.server.streamable_http"
-    assert isinstance(logging.getLogger("fastmcp.server.server"), logging.Logger)
+    assert isinstance(getLogger("fastmcp.server.server"), Logger)
+
+
+def test_private_mcp_logging_does_not_replace_home_assistant_rich():
+    import rich
+    from rich.logging import RichHandler as SharedHandler
+
+    from ha_mcp._vendor.fastmcp.utilities.logging import RichHandler
+    from ha_mcp._vendor.rich.logging import RichHandler as PrivateHandler
+
+    shared_origin = rich.__file__
+    assert RichHandler is PrivateHandler
+    assert PrivateHandler is not SharedHandler
+    assert sys.modules["rich"].__file__ == shared_origin
+
+
+def test_private_rich_unicode_render_never_loads_shared_rich():
+    probe = """
+import importlib.abc
+import io
+import sys
+
+class BlockSharedRich(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname == "rich" or fullname.startswith("rich."):
+            raise ImportError("shared Rich is owned by Home Assistant")
+sys.meta_path.insert(0, BlockSharedRich())
+from ha_mcp._vendor.rich.console import Console
+stream = io.StringIO()
+console = Console(file=stream, force_terminal=True)
+console.print("Préparation · 測試 🏠")
+assert "測試" in stream.getvalue()
+assert any(name.startswith("ha_mcp._vendor.rich._unicode_data.unicode") for name in sys.modules)
+assert not any(name == "rich" or name.startswith("rich.") for name in sys.modules)
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", probe],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=45,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def _first_party_files() -> list[Path]:
@@ -113,9 +165,28 @@ def test_no_first_party_module_imports_the_shared_packages():
     offenders = [
         f"{path.relative_to(_REPO_ROOT)}: {names}"
         for path in _first_party_files()
-        if (names := vendor_fastmcp.remaining_vendored_imports(path.read_text("utf-8")))
+        if (
+            names := [
+                name
+                for name in vendor_fastmcp.remaining_vendored_imports(
+                    path.read_text("utf-8")
+                )
+                if name.split(".")[0] != "rich"
+                or path.relative_to(_REPO_ROOT).as_posix() not in _SHARED_RICH_USERS
+            ]
+        )
     ]
     assert not offenders, f"import ha_mcp._vendor.<pkg> instead: {offenders}"
+
+
+def test_shared_rich_import_in_native_source_is_rejected(tmp_path, monkeypatch):
+    path = tmp_path / "src/ha_mcp/native_reachable.py"
+    path.parent.mkdir(parents=True)
+    path.write_text("import rich\n", encoding="utf-8")
+    monkeypatch.setitem(globals(), "_REPO_ROOT", tmp_path)
+    monkeypatch.setitem(globals(), "_first_party_files", lambda: [path])
+    with pytest.raises(AssertionError, match="rich"):
+        test_no_first_party_module_imports_the_shared_packages()
 
 
 _ISOLATION_PROBE = """
@@ -152,7 +223,7 @@ def test_building_the_server_loads_no_shared_fastmcp_or_mcp():
     assert shared == [], f"shared SDK modules loaded: {shared}"
 
 
-def test_component_never_imports_the_vendored_copies():
+def test_component_adapters_do_not_import_cores_shared_protocol_stack():
     component = _REPO_ROOT / "custom_components" / "ha_mcp_tools"
     offenders = [
         str(path.relative_to(_REPO_ROOT))
@@ -160,21 +231,25 @@ def test_component_never_imports_the_vendored_copies():
         if any(
             (
                 isinstance(node, ast.ImportFrom)
-                and (node.module or "").startswith("ha_mcp._vendor")
+                and (node.module or "").split(".")[0] in {"mcp", "fastmcp"}
             )
             or (
                 isinstance(node, ast.Import)
-                and any(a.name.startswith("ha_mcp._vendor") for a in node.names)
+                and any(a.name.split(".")[0] in {"mcp", "fastmcp"} for a in node.names)
             )
             for node in ast.walk(ast.parse(path.read_text("utf-8")))
         )
     ]
-    assert not offenders, f"the HA main process must not import ha_mcp: {offenders}"
+    assert not offenders, (
+        f"component SDK adapters must use the private copy: {offenders}"
+    )
 
 
 def test_pyproject_declares_no_shared_fastmcp_or_mcp():
     declared = {canonicalize_name(r.name) for r in _declared()}
-    assert not declared & _VENDORED_DISTRIBUTIONS
+    # The normal standalone distribution still installs shared Rich for its
+    # optional third-party CLI dependencies. The native wheel strips that edge.
+    assert not declared & (_VENDORED_DISTRIBUTIONS - {"rich"})
 
 
 def _floor(requirement: Requirement) -> Version | None:
