@@ -114,11 +114,43 @@ async def exercise_entities(checks: Any, base: str) -> None:
     fixture = await checks.control("entity")
     assert fixture["entity_id"] is None and fixture["registry_entry"] is None, fixture
     checks.passed("native_disabled_SensorEntity_removal_uses_real_Core_registration")
+    await _exercise_deleted_registry_advice(checks, entity_id, snapshot)
+
+
+async def _exercise_deleted_registry_advice(
+    checks: Any, entity_id: str, snapshot: str
+) -> None:
+    import json
+
+    reply = await checks.rpc(
+        "tools/call",
+        {
+            "name": "ha_manage_backup",
+            "arguments": {
+                "scope": "edits",
+                "action": "restore",
+                "backup_name": snapshot,
+            },
+        },
+    )
+    result = reply["result"]
+    assert result.get("isError"), result
+    text = json.dumps(result)
+    assert "entry_deleted" in text, result
+    assert f"keeps the registry settings of {entity_id} " in text, result
+    fixture = await checks.control("entity")
+    assert fixture["entity_id"] is None and fixture["registry_entry"] is None, fixture
+    checks.passed(
+        "native_deleted_registry_restore_explains_Core_retention_without_recreation"
+    )
 
 
 async def _exercise_registry_contract(
     checks: Any, entity_id: str, identity: str
 ) -> None:
+    empty = await checks.call("ha_get_entity", {"entity_id": []})
+    assert empty == {"success": True, "entity_entries": [], "count": 0}, empty
+    checks.passed("native_empty_entity_list_keeps_Main_shape_without_message")
     before = await checks.call("ha_get_entity", {"entity_id": entity_id})
     row = before["entity_entry"]
     assert row["id"] == identity and "capabilities" in row and "full_name" in row, (

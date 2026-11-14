@@ -31,7 +31,12 @@ def entity_payload(
             **error.data,
             "error": {**details, "code": "VALIDATION_INVALID_PARAMETER"},
         }
-        raise_failure(payload, status="not_started")
+        raise ToolFailure(
+            "VALIDATION_INVALID_PARAMETER",
+            str(error),
+            data=payload,
+            status="not_started",
+        ) from error
 
 
 def exposure_default(hass: HomeAssistant, assistant: str) -> bool:

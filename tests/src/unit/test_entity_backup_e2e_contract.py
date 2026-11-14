@@ -1,156 +1,129 @@
-"""The current entity-restore E2E story must verify effects, not an ACK."""
+"""Entity history captures, restores and refusals use actual Core registry rows."""
 
-import copy
+import asyncio
+import json
+from pathlib import Path
 
 import pytest
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers import entity_registry as er
+from homeassistant.setup import async_setup_component
 
-from ..e2e.workflows.auto_backup import test_capture_and_restore as backup_helpers
-from ..e2e.workflows.auto_backup import test_entity_capture_restore as scenarios
-
-
-class RegistryBackupClient:
-    def __init__(self, *, capture=True, apply_restore=True):
-        self.entry = None
-        self.exposed = True
-        self.capture = capture
-        self.apply_restore = apply_restore
-        self.registry_id = "owned-registry-identity"
-        self.restores = []
-        self.backups = {
-            "prior.yaml": {"domain": "entity", "entity_id": "light.unowned"}
-        }
-        self.baseline = copy.deepcopy(self.backups)
-        self.images = {}
-        self.sequence = 0
-
-    def snapshot(self):
-        self.sequence += 1
-        name = f"capture-{self.sequence}.yaml"
-        self.backups[name] = {"domain": "entity", "entity_id": self.entry["entity_id"]}
-        self.images[name] = (copy.deepcopy(self.entry), self.exposed)
-        return name
-
-    async def send_websocket_message(self, message):
-        assert message["type"] == "config/entity_registry/get"
-        assert message["entity_id"] == self.entry["entity_id"]
-        return {"success": True, "result": {"id": self.registry_id}}
-
-    async def call_tool(self, tool, arguments):
-        if tool == "ha_config_set_helper":
-            self.entry = {
-                "entity_id": f"input_boolean.{arguments['name']}",
-                "hidden": False,
-                "hidden_by": None,
-            }
-            return {"success": True}
-        if tool == "ha_get_entity":
-            if self.entry is None or arguments["entity_id"] != self.entry["entity_id"]:
-                return {
-                    "success": False,
-                    "error": {
-                        "code": "ENTITY_NOT_FOUND",
-                        "message": "Entity not found",
-                    },
-                }
-            return {"success": True, "entity_entry": copy.deepcopy(self.entry)}
-        if tool == "ha_get_entity_exposure":
-            assert arguments["entity_id"] == self.entry["entity_id"]
-            return {"success": True, "exposed_to": {"conversation": self.exposed}}
-        if tool == "ha_set_entity":
-            assert arguments["entity_id"] == self.entry["entity_id"]
-            if self.capture:
-                self.snapshot()
-            self.entry.update(
-                entity_id=arguments["new_entity_id"],
-                hidden=arguments["hidden"],
-                hidden_by="user",
-            )
-            self.exposed = arguments["expose_to"]["conversation"]
-            return {"success": True}
-        if tool == "ha_remove_helpers_integrations":
-            if (
-                self.entry is not None
-                and arguments["target"] == self.entry["entity_id"]
-            ):
-                self.entry = None
-            return {"success": True}
-        assert tool == "ha_manage_backup"
-        return self._backup_tool(arguments)
-
-    def _backup_tool(self, arguments):
-        action = arguments["action"]
-        if action == "list":
-            return {
-                "success": True,
-                "data": {
-                    "backups": [
-                        {"name": name, **record}
-                        for name, record in self.backups.items()
-                        if record["domain"] == arguments["domain"]
-                        and record["entity_id"] == arguments["entity_id"]
-                    ]
-                },
-            }
-        name = arguments["backup_name"]
-        if action == "restore":
-            self.restores.append(name)
-            safety = self.snapshot()
-            if self.apply_restore:
-                entry, exposed = self.images[name]
-                self.entry, self.exposed = copy.deepcopy(entry), exposed
-            return {"success": True, "data": {"safety_backup": safety, "result": {}}}
-        assert action == "delete"
-        del self.backups[name]
-        return {"success": True}
+from ha_mcp.backup_manager import BackupManager, get_backup_manager
+from ha_mcp.client.rest_client import HomeAssistantClient
+from ha_mcp.config_settings import Settings
+from ha_mcp.runtime.snapshot_payloads import BackupRestoreError
 
 
-@pytest.fixture(autouse=True)
-def bound_poll_window(monkeypatch):
-    original = scenarios.wait_for_tool_result
-
-    async def wait(*args, **kwargs):
-        return await original(
-            *args, **{**kwargs, "timeout": 0.01, "poll_interval": 0.001}
-        )
-
-    monkeypatch.setattr(scenarios, "wait_for_tool_result", wait)
-    monkeypatch.setattr(backup_helpers, "wait_for_tool_result", wait)
-
-
-async def scenario(client, monkeypatch):
-    try:
-        await (
-            scenarios.TestEntityCaptureRestore().test_restore_renames_back_and_unhides(
-                client, client, monkeypatch
-            )
-        )
-    except pytest.skip.Exception as error:
-        pytest.fail(f"A registry capture defect was hidden as a skip: {error}")
+def history(
+    client: HomeAssistantClient, directory: Path, *, enabled: bool = True
+) -> BackupManager:
+    return get_backup_manager(
+        client,
+        Settings(
+            ENABLE_AUTO_BACKUP=enabled,
+            HAMCP_BACKUP_DIR=str(directory),
+            AUTO_BACKUP_THROTTLE_MINUTES=0,
+        ),
+    )
 
 
-async def test_registry_backup_scenario_restores_then_cleans_only_its_objects(
-    monkeypatch,
-):
-    client = RegistryBackupClient()
-    await scenario(client, monkeypatch)
-    assert client.entry is None
-    assert len(client.restores) == 1
-    assert client.backups["prior.yaml"] == client.baseline["prior.yaml"]
+async def test_registry_backup_restores_actual_core_fields_and_uuid(
+    hass: HomeAssistant, core_client: HomeAssistantClient, tmp_path: Path
+) -> None:
+    assert await async_setup_component(hass, "config", {})
+    registry = er.async_get(hass)
+    entry = registry.async_get_or_create(
+        "sensor",
+        "test",
+        "backup",
+        suggested_object_id="backup",
+        original_name="Original",
+    )
+    entry = registry.async_update_entity(entry.entity_id, name="Saved")
+    saved = json.loads(json.dumps(entry.extended_dict))
+    manager = history(core_client, tmp_path)
+    path = await manager.maybe_snapshot_known(
+        "entity_registry", entry.id, saved, tool_name="ha_set_entity"
+    )
+    assert path is not None
+    registry.async_update_entity(
+        entry.entity_id,
+        new_entity_id="sensor.renamed",
+        name="Changed",
+        hidden_by=er.RegistryEntryHider.USER,
+    )
+    result = await manager.restore_snapshot(path.name)
+    restored = registry.async_get(entry.entity_id)
+    assert restored is not None
+    assert (
+        restored.id == entry.id
+        and restored.name == "Saved"
+        and restored.hidden_by is None
+    )
+    assert registry.async_get("sensor.renamed") is None
+    assert result["safety_backup"]
 
 
-async def test_missing_registry_capture_fails_and_cleans_the_owned_entity(monkeypatch):
-    client = RegistryBackupClient(capture=False)
-    with pytest.raises(TimeoutError):
-        await scenario(client, monkeypatch)
-    assert client.entry is None
-    assert not client.restores
-    assert client.backups == client.baseline
+async def test_disabled_registry_capture_leaves_core_and_disk_unchanged(
+    hass: HomeAssistant, core_client: HomeAssistantClient, tmp_path: Path
+) -> None:
+    assert await async_setup_component(hass, "config", {})
+    registry = er.async_get(hass)
+    entry = registry.async_get_or_create("sensor", "test", "no_capture")
+    entry = registry.async_update_entity(entry.entity_id, name="Saved")
+    saved = json.loads(json.dumps(entry.extended_dict))
+    result = await history(core_client, tmp_path, enabled=False).maybe_snapshot_known(
+        "entity_registry", entry.id, saved, tool_name="ha_set_entity"
+    )
+    assert result is None
+    actual = registry.async_get(entry.entity_id)
+    assert actual is not None
+    assert json.loads(json.dumps(actual.extended_dict)) == saved
+    assert not await asyncio.to_thread(lambda: list(tmp_path.glob("*.yaml")))
 
 
-async def test_successful_restore_ack_without_registry_effect_is_rejected(monkeypatch):
-    client = RegistryBackupClient(apply_restore=False)
-    with pytest.raises(AssertionError, match="ha_get_entity"):
-        await scenario(client, monkeypatch)
-    assert client.entry is None
-    assert len(client.restores) == 1, "An unconfirmed restore was replayed"
-    assert client.backups["prior.yaml"] == client.baseline["prior.yaml"]
+async def test_deleted_registry_backup_without_component_explains_restart(
+    hass: HomeAssistant, core_client: HomeAssistantClient, tmp_path: Path
+) -> None:
+    assert await async_setup_component(hass, "config", {})
+    registry = er.async_get(hass)
+    entry = registry.async_get_or_create("sensor", "test", "deleted")
+    entry = registry.async_update_entity(entry.entity_id, name="Saved")
+    saved = json.loads(json.dumps(entry.extended_dict))
+    manager = history(core_client, tmp_path)
+    path = await manager.maybe_snapshot_known(
+        "entity_registry", entry.id, saved, tool_name="ha_set_entity"
+    )
+    assert path is not None
+    registry.async_remove(entry.entity_id)
+    with pytest.raises(BackupRestoreError) as caught:
+        await manager.restore_snapshot(path.name)
+    assert caught.value.outcome["reason"] == "entry_deleted"
+    assert "Restart Home Assistant: if what provides" in json.dumps(
+        caught.value.outcome
+    )
+    assert registry.async_get(entry.entity_id) is None
+
+
+async def test_deleted_registry_backup_with_component_discloses_core_retention(
+    hass: HomeAssistant, component_core_client: HomeAssistantClient, tmp_path: Path
+) -> None:
+    assert await async_setup_component(hass, "config", {})
+    registry = er.async_get(hass)
+    entry = registry.async_get_or_create("sensor", "test", "deleted_component")
+    entry = registry.async_update_entity(entry.entity_id, name="Saved")
+    saved = json.loads(json.dumps(entry.extended_dict))
+    manager = history(component_core_client, tmp_path)
+    path = await manager.maybe_snapshot_known(
+        "entity_registry", entry.id, saved, tool_name="ha_set_entity"
+    )
+    assert path is not None
+    registry.async_remove(entry.entity_id)
+    with pytest.raises(BackupRestoreError) as caught:
+        await manager.restore_snapshot(path.name)
+    assert caught.value.outcome["reason"] == "entry_deleted"
+    assert f"keeps the registry settings of {entry.entity_id} until " in json.dumps(
+        caught.value.outcome
+    )
+    assert registry.async_get(entry.entity_id) is None

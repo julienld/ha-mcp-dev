@@ -7,6 +7,7 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
+from ha_mcp.runtime.entity_recovery import deleted_entity_error
 from ha_mcp.runtime.helper_schema import SIMPLE_HELPER_TYPES
 from ha_mcp.runtime.snapshot_files import _flow_entry_id, _is_flow_helper_domain
 from ha_mcp.runtime.snapshot_payloads import (
@@ -193,10 +194,12 @@ class NativeSnapshotDomains:
         except ToolFailure as error:
             if error.code != "RESOURCE_NOT_FOUND":
                 raise
-            raise BackupRestoreError(
-                "The saved entity registration no longer exists. Its integration owns creation; this restore cannot recreate the original registry identity.",
-                reason="entry_deleted",
-            ) from error
+            from homeassistant.helpers import entity_registry as er
+
+            from .entity_restore import read_entry
+
+            found = read_entry(er.async_get(self.manager.hass), er, data["entity_id"])
+            raise deleted_entity_error(data["config"]["entity_id"], found) from error
 
     def integration_restore(self, data: dict[str, Any], actor: CallContext) -> Any:
         from .native_operations.integration_restore import NativeIntegrationRestore

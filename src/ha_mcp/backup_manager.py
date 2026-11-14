@@ -2408,10 +2408,11 @@ class _LegacyRestoreOperations:
                 self.manager._client, self.entity_id
             )
             if self.registry_before is None:
-                raise BackupRestoreError(
-                    "The saved entity registration no longer exists; restore cannot recreate it.",
-                    reason="entry_deleted",
-                )
+                from .backup_entities import _lookup
+                from .runtime.entity_recovery import deleted_entity_error
+
+                found = await _lookup(self.manager._client, self.entity_id)
+                raise deleted_entity_error(self.config["entity_id"], found)
             from .backends.legacy_entity_snapshots import validate_registry_restore
 
             await validate_registry_restore(

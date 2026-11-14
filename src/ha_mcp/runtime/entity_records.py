@@ -107,7 +107,6 @@ def _parse_get_entity_ids(
                 "success": True,
                 "entity_entries": [],
                 "count": 0,
-                "message": "No entities requested",
             },
         )
     if not all(isinstance(e, str) for e in entity_id):
