@@ -23,7 +23,7 @@ import asyncio
 import hashlib
 import json
 import logging
-from collections.abc import Callable, Sequence
+from collections.abc import Awaitable, Callable, Sequence
 from typing import TYPE_CHECKING, Annotated, Any, Literal, NoReturn
 
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
@@ -36,12 +36,12 @@ from ha_mcp._vendor.mcp.types import ToolAnnotations
 
 from ..errors import TOOL_ERROR_LOG_LEVEL, ErrorCode, create_error_response
 from ..renamed_tools import (
-    adapt_retired_arguments,
     add_stale_list_warning,
     current_tool_name,
 )
 from ..server_tool_text import SKILL_TOOL_NAME
 from ..tool_catalog import tool_search_active
+from ..tools.renamed_tool_middleware import adapt_retired_call
 from .compact_params import compact_params, summary
 from .proxy_arguments import _coerce_proxy_arguments as _coerce_proxy_arguments
 from .proxy_arguments import _raise_non_object_arguments as _raise_non_object_arguments
@@ -464,6 +464,8 @@ class CategorizedSearchTransform(BM25SearchTransform):
         read_action_resolver: Callable[[str], bool] | None = None,
         read_only_resolver: Callable[[], bool] | None = None,
         search_active_resolver: Callable[[], bool] = tool_search_active,
+        get_client: Callable[[], Any] | None = None,
+        validate_assistant: Callable[[str], Awaitable[Any]] | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(
@@ -494,6 +496,10 @@ class CategorizedSearchTransform(BM25SearchTransform):
         self._read_action_resolver = read_action_resolver
         self._read_only_resolver = read_only_resolver
         self._search_active = search_active_resolver
+        # Core judges a name a retired signature carried and the current one
+        # drops (``adapt_retired_call``).
+        self._get_client = get_client
+        self._validate_assistant = validate_assistant
 
         # Category caches rebuilt when the catalog hash changes,
         # matching BM25SearchTransform's staleness detection pattern.
@@ -828,9 +834,6 @@ class CategorizedSearchTransform(BM25SearchTransform):
             # sometimes serialize it before sending. Parse once up front so
             # downstream logic can assume a dict (or None).
             arguments = _coerce_proxy_arguments(arguments, proxy_name, name)
-            # A retired name folded into an action-dispatched tool (#2329)
-            # needs the action its old signature never carried.
-            arguments = adapt_retired_arguments(requested, arguments)
 
             # Detect and unwrap double-wrapped arguments where the LLM
             # accidentally nested name/arguments inside the arguments param
@@ -868,16 +871,28 @@ class CategorizedSearchTransform(BM25SearchTransform):
                     )
                     name = inner_name
                     # The nested payload gets the same treatment as the outer
-                    # one: a JSON string is parsed, a scalar or list is
+                    # one: a JSON string is parsed, and a scalar or list is
                     # refused with the same structured error rather than
                     # reaching the adapter, whose dict() would raise a bare
-                    # ValueError, and a retired inner name gets its action.
+                    # ValueError.
                     nested = _coerce_proxy_arguments(
                         arguments.get("arguments"), proxy_name, inner_name
                     )
                     if nested is not None and not isinstance(nested, dict):
                         _raise_non_object_arguments(nested, proxy_name, inner_name)
-                    arguments = adapt_retired_arguments(requested_inner, nested or {})
+                    requested, arguments = requested_inner, nested or {}
+
+            # A retired name folded into an action-dispatched tool (#2329)
+            # needs the action its old signature never carried, and Core
+            # judges a name the current tool drops. When the call was
+            # double-wrapped, the outer name is a proxy name, which is never
+            # retired, so only the unwrapped name needs adapting.
+            arguments = await adapt_retired_call(
+                requested,
+                arguments,
+                transform._get_client,
+                transform._validate_assistant,
+            )
 
             if not _admits(transform, category, name, arguments):
                 _raise_wrong_category_error(name, transform, proxy_name)

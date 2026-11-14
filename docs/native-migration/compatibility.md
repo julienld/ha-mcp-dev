@@ -10,6 +10,37 @@ changes. The 6 November compatibility pass below restores the installation
 floor and automatic entity-history contracts; historical audit entries remain
 evidence of their original candidate, rather than current behavior.
 
+## Entity Registry reference, 13 November 2026
+
+The candidate incorporates upstream `c8df42eb763ef803a8af837f06ef738dcee4fa76`,
+including the Entity Registry update at
+`a04c18b9060d1a47b7456b1d656c3afbb55607f8`. This section supersedes the earlier
+Main reference below; dated captures retain their original revisions and results.
+
+- Entity reads retain Core's extended registry row and composed-name enrichment.
+  The derived `enabled`, `hidden` and `uses_device_name` fields are no longer added;
+  callers read `disabled_by`, `hidden_by`, `name` and `original_name` instead.
+- `ha_get_entity()` without a target reads registry-wide settings and exposed
+  entities. Its `exposed_to` filter is judged by Core. Main's retired
+  `ha_get_entity_exposure` name remains callable through the renamed-tool adapter,
+  without being registered as another tool; cached `assistant` arguments are
+  validated before adaptation on both full and search catalogs.
+- `ha_set_entity()` without a target accepts `entity_id_parts` and
+  `expose_new_entities`, reporting the values they replace. Core owns the accepted
+  parts and assistant names. These writes cannot be mixed with entity parameters.
+- Entity ID `auto` uses Core's generated ID. Main-entity selection uses the dialog's
+  name/area fields under the entity lock. Re-enabling reports Core's restart or
+  reload requirement. Native retains actor admission, identity checks, before-images
+  and uncertain-outcome reporting around its actual owners.
+- Exposure-only updates accept an unregistered entity with a real state, or a
+  stateless ID Core already lists as exposed. Unknown IDs are refused before any
+  preference is written. Recovery tests must establish that real Core precondition;
+  earlier evidence of writing arbitrary absent IDs does not qualify this contract.
+
+These changes follow Main's public contract. They do not establish universal
+client compatibility or a successful independent Main-to-Native upgrade retaining
+the original connection/authentication/grants.
+
 ## Current Main reference, 13 November 2026
 
 The candidate incorporates upstream `381b515959e4a8897b1ae27a957bdaa5ee3219ce`.

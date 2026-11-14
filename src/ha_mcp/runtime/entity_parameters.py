@@ -7,7 +7,6 @@ from ha_mcp.errors import ErrorCode, create_error_response
 from ha_mcp.tools.coercion import parse_json_param, parse_string_list_param
 
 from .errors import raise_failure
-from .exposure import KNOWN_ASSISTANTS
 
 
 def _parse_string_list_field(
@@ -138,14 +137,12 @@ def _parse_options_param(
 
 
 def _parse_expose_to_param(
-    expose_to: dict[str, bool] | None,
-    *,
-    validate_assistants: bool = True,
+    value: dict[str, bool] | None, param: str = "expose_to"
 ) -> dict[str, bool] | None:
-    """Parse and validate the expose_to parameter."""
-    if expose_to is not None:
+    """Parse and validate an assistant -> bool parameter named ``param``."""
+    if value is not None:
         try:
-            parsed = parse_json_param(expose_to, "expose_to")
+            parsed = parse_json_param(value, param)
         except ValueError as e:
             raise_failure(
                 create_error_response(
@@ -157,18 +154,8 @@ def _parse_expose_to_param(
             raise_failure(
                 create_error_response(
                     ErrorCode.VALIDATION_INVALID_PARAMETER,
-                    "expose_to must be a dict mapping assistant IDs to booleans, "
+                    f"{param} must be a dict mapping assistant IDs to booleans, "
                     'e.g. {"conversation": true, "cloud.alexa": false}',
-                )
-            )
-        # Validate assistant names
-        invalid_assistants = [a for a in parsed if a not in KNOWN_ASSISTANTS]
-        if validate_assistants and invalid_assistants:
-            raise_failure(
-                create_error_response(
-                    ErrorCode.VALIDATION_INVALID_PARAMETER,
-                    f"Invalid assistant(s) in expose_to: {invalid_assistants}. "
-                    f"Valid: {KNOWN_ASSISTANTS}",
                 )
             )
         # Values are already bool (enforced by the dict[str, bool] annotation)

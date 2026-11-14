@@ -1,6 +1,5 @@
 """Pure target, bulk and merge policy for complete entity writes."""
 
-import re
 from typing import Any
 
 from ha_mcp.errors import ErrorCode, create_error_response
@@ -110,40 +109,15 @@ def _validate_enabled_constraint(
 
 
 def apply_entity_rename(
-    entity_id: str,
-    new_entity_id: str,
-    message: dict[str, Any],
-    updates_made: list[str],
+    entity_id: str, new_entity_id: str, message: dict[str, Any], updates_made: list[str]
 ) -> None:
-    """Validate and apply a rename to the update message. Raises on invalid input."""
-    entity_pattern = r"^[a-z_]+\.[a-z0-9_]+$"
-    if not re.match(entity_pattern, new_entity_id):
-        raise_failure(
-            create_error_response(
-                ErrorCode.VALIDATION_INVALID_PARAMETER,
-                f"Invalid new_entity_id format: {new_entity_id}",
-                suggestions=[
-                    "Use format: domain.object_id (lowercase letters, numbers, underscores only)"
-                ],
-                context={"new_entity_id": new_entity_id},
-            )
-        )
-    current_domain = entity_id.split(".", maxsplit=1)[0]
-    new_domain = new_entity_id.split(".", maxsplit=1)[0]
-    if current_domain != new_domain:
-        raise_failure(
-            create_error_response(
-                ErrorCode.VALIDATION_INVALID_PARAMETER,
-                f"Domain mismatch: cannot change from '{current_domain}' to '{new_domain}'",
-                suggestions=[f"New entity_id must start with '{current_domain}.'"],
-                context={
-                    "entity_id": entity_id,
-                    "new_entity_id": new_entity_id,
-                },
-            )
-        )
+    """Leave rename validation to Core and preserve normalized no-op reporting."""
     message["new_entity_id"] = new_entity_id
-    updates_made.append(f"entity_id -> {new_entity_id}")
+    updates_made.append(
+        f"entity_id -> {new_entity_id}"
+        if new_entity_id.lower() != entity_id.lower()
+        else "entity_id unchanged"
+    )
 
 
 def parse_entity_write(
@@ -188,9 +162,7 @@ def parse_entity_write(
             "categories": _parse_categories_param(changes.get("categories")),
             "labels": _parse_string_list_field(changes.get("labels"), "labels"),
             "options": _parse_options_param(changes.get("options")),
-            "expose_to": _parse_expose_to_param(
-                changes.get("expose_to"), validate_assistants=False
-            ),
+            "expose_to": _parse_expose_to_param(changes.get("expose_to")),
             "label_operation": changes.get("label_operation", "set"),
         },
     )
@@ -272,7 +244,10 @@ def entity_write_result(
     }
 
     # Include old_entity_id and rename warning when a rename was performed
-    if new_entity_id is not None:
+    if (
+        new_entity_id is not None
+        and new_entity_id.lower() != original_entity_id.lower()
+    ):
         response_data["old_entity_id"] = original_entity_id
         response_data.setdefault("warnings", []).append(
             "Remember to update any automations, scripts, or dashboards "

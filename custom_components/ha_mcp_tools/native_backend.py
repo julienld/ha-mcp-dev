@@ -30,6 +30,8 @@ from .native_operations.area_floor_mutations import (
 from .native_operations.config_finalize import (
     DIRECT_OPERATIONS as CONFIG_FINALIZE_OPERATIONS,
 )
+from .native_operations.entity_discovery import discover_entities
+from .native_operations.entity_settings import read_exposure_default
 from .native_operations.flow_records import DIRECT_OPERATIONS as FLOW_DIRECT_OPERATIONS
 from .native_operations.helper_listing import (
     DIRECT_OPERATIONS as LISTING_DIRECT_OPERATIONS,
@@ -71,6 +73,8 @@ _CORE_READERS: dict[str, Callable[..., dict[str, Any]]] = {
     "helpers.entities.for_entry": registry_lookup,
 }
 DOMAIN_DIRECT_OPERATIONS = {
+    "entities.discover": (discover_entities, False),
+    "entities.exposure.default": (read_exposure_default, False),
     **HELPER_DIRECT_OPERATIONS,
     **ZONE_DIRECT_OPERATIONS,
     **FLOW_DIRECT_OPERATIONS,

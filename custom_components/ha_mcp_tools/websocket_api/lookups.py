@@ -12,7 +12,6 @@ from ..core_device_reads import (
     device_list,
 )
 from ..core_entity_reads import (
-    _legacy_exposed_entity_ids,
     enrich_entities,
     entity_exposure,
     registry_lookup,
@@ -180,6 +179,5 @@ def _do_device_list(hass: HomeAssistant, params: dict[str, Any]) -> dict[str, An
 
 
 __all__ = [
-    "_legacy_exposed_entity_ids",
     "_read_blueprint_file",
 ]

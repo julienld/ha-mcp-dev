@@ -41,6 +41,8 @@ REGISTRY_OPERATIONS = frozenset(
         "entities.registry.read",
         "entities.registry.list",
         "entities.enrich",
+        "entities.discover",
+        "entities.exposure.default",
         *_RADIO_COMMANDS,
         *CONFIG_READ_OPERATIONS,
         *CONFIG_MUTATION_OPERATIONS,
@@ -115,17 +117,35 @@ async def _device_read(client: Any, operation: str, arguments: dict[str, Any]) -
 
 
 async def _entity_read(client: Any, operation: str, arguments: dict[str, Any]) -> Any:
+    if operation == "entities.discover":
+        from ha_mcp.tools.tools_entities import EntityTools
+
+        return await EntityTools(client).ha_get_entity(**arguments)
+    if operation == "entities.exposure.default":
+        from ha_mcp.tools.entity_expose_batch import read_expose_new
+
+        return await read_expose_new(client, arguments["assistant"])
     from ha_mcp.tools import tools_entities as entities
 
-    reader = entities.EntityTools(client)
     if operation == "entities.registry.list":
-        return await reader._list_entity_registry(arguments["unique_id"])
+        from ha_mcp.tools.helpers import raise_core_refusal
+
+        reply = await client.send_websocket_message(
+            {"type": "config/entity_registry/list"}
+        )
+        if not reply.get("success"):
+            raise_core_refusal("Failed to read entity registry", reply)
+        return reply.get("result") or []
     if operation == "entities.enrich":
-        enrichment = await reader._fetch_enrichment(arguments["entity_ids"])
+        enrichment = await entities.fetch_entity_enrichment_via_component(
+            client, arguments["entity_ids"]
+        )
         return {"entities": enrichment} if enrichment is not None else None
     ids = arguments["entity_ids"]
     if not arguments.get("single"):
-        entries, errors = await reader._get_entries_raw(ids)
+        from ha_mcp.tools.entity_registry_reads import get_entries_raw
+
+        entries, errors = await get_entries_raw(client, ids)
         return {"entries": entries, "errors": errors}
     eid = ids[0]
     result = await client.send_websocket_message(
@@ -182,9 +202,12 @@ async def execute_registry_operation(
             categories = await CategoryTools(client)._list_categories(scopes[0], None)
             return {"categories": {scopes[0]: categories}}
     if operation == "assist.exposure":
-        from ha_mcp.tools.tools_voice_assistant import VoiceAssistantTools
+        from ha_mcp.tools.entity_exposure import read_exposure
 
-        return await VoiceAssistantTools(client)._fetch_exposure_payload(
-            arguments.get("entity_id")
-        )
+        exposed, info, warning = await read_exposure(client)
+        return {
+            "exposed_entities": exposed,
+            "entity_info": info,
+            **({"warnings": [warning]} if warning else {}),
+        }
     raise UnsupportedOperation(operation)

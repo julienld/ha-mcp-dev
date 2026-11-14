@@ -32,7 +32,6 @@ from .config_removals import (
 )
 from .devices import DeviceDiscoveryTools
 from .entities import EntityDiscoveryTools
-from .exposure import ExposureTools
 from .helper_listing import HelperListingTools, description_starts_flow
 from .helper_schema import SIMPLE_HELPER_TYPES
 from .helper_tools import HelperConfigTools
@@ -441,14 +440,6 @@ def build_initial_catalog(backend: Backend) -> list[ToolDefinition]:
             source_module="tools_areas",
             annotations=read_only_hints("List Floors and Areas", open_world=False),
             tags=frozenset({"Areas & Floors"}),
-        ),
-        define_tool(
-            backend,
-            ExposureTools,
-            "ha_get_entity_exposure",
-            source_module="tools_voice_assistant",
-            annotations=read_only_hints("Get Entity Exposure", open_world=False),
-            tags=frozenset({"Entity Registry"}),
         ),
         define_tool(
             backend,

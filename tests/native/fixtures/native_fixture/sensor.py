@@ -115,12 +115,16 @@ async def seed_entity_state_history(
     )
     assert invalid is not None
     hass.states.async_set(LEGACY_STATE_ID, "changed", {"fixture": "after"})
-    # Core may materialize exposure defaults whenever a state is published. Its
-    # public exposure setter also supports IDs without state/registration, so
-    # use a fresh one to qualify store absence independently of state consumers.
+    # Main admits a stateless target only while Core lists it as exposed.
+    # Seed that real store through its public owner, without a registry/state.
     exposure_id = f"sensor.native_exposure_{uuid4().hex}"
     assert hass.states.get(exposure_id) is None
     assert er.async_get(hass).async_get(exposure_id) is None
+    from homeassistant.components.homeassistant.exposed_entities import (
+        async_expose_entity,
+    )
+
+    async_expose_entity(hass, "conversation", exposure_id, True)
     hass.data[DOMAIN]["legacy_exposure_id"] = exposure_id
     return {
         "entity_id": LEGACY_STATE_ID,

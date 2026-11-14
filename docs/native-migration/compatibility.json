@@ -81,7 +81,8 @@
     "ha_get_addon": "ha_get_app",
     "ha_manage_addon": "ha_manage_app",
     "ha_get_blueprint": "ha_manage_blueprints",
-    "ha_import_blueprint": "ha_manage_blueprints"
+    "ha_import_blueprint": "ha_manage_blueprints",
+    "ha_get_entity_exposure": "ha_get_entity"
   },
   "entity_edit_history": {
     "legacy_state_domain": "entity",
@@ -381,6 +382,18 @@
           "deduplicate"
         ],
         "replacement": "Core trace selectors and extended dictionaries replace deduplicated, inferred trace projections in Main; no Native alias for the retired parameters."
+      },
+      "ha_get_entity": {
+        "revision": "c8df42eb763ef803a8af837f06ef738dcee4fa76",
+        "extension": "No target reads registry-wide settings and exposed entities; exposed_to filters by a Core-validated assistant. Registered rows retain Core extended fields and composed-name enrichment; derived enabled/hidden/uses_device_name fields are not added."
+      },
+      "ha_set_entity": {
+        "revision": "c8df42eb763ef803a8af837f06ef738dcee4fa76",
+        "extension": "Registry-wide entity_id_parts and expose_new_entities report previous values; auto entity IDs and main-entity fields use Core owners. Unknown exposure-only targets are refused before writing. Native retains admission, before-images and uncertainty without replay."
+      },
+      "ha_get_entity_exposure": {
+        "revision": "c8df42eb763ef803a8af837f06ef738dcee4fa76",
+        "replacement": "Main's renamed-tool adapter serves cached calls through ha_get_entity; assistant names that adaptation drops are validated by Core first. The retired name is absent from tools/list."
       }
     }
   }

@@ -50,6 +50,7 @@ async def exercise_entities(checks: Any, base: str) -> None:
     before = fixture["registry_entry"]
     entity_id, identity = fixture["entity_id"], fixture["registry_id"]
     assert before["platform"] == "native_fixture" and before["device_id"], fixture
+    await _exercise_registry_contract(checks, entity_id, identity)
     await _exercise_edit_backup(checks, entity_id)
     renamed = entity_id + "_renamed"
     result = await checks.call(
@@ -115,12 +116,101 @@ async def exercise_entities(checks: Any, base: str) -> None:
     checks.passed("native_disabled_SensorEntity_removal_uses_real_Core_registration")
 
 
+async def _exercise_registry_contract(
+    checks: Any, entity_id: str, identity: str
+) -> None:
+    before = await checks.call("ha_get_entity", {"entity_id": entity_id})
+    row = before["entity_entry"]
+    assert row["id"] == identity and "capabilities" in row and "full_name" in row, (
+        before
+    )
+    assert not {"enabled", "hidden", "uses_device_name"}.intersection(row), before
+    checks.passed("native_entity_reads_keep_the_full_Core_row_and_composed_name")
+
+    global_before = await checks.call("ha_get_entity", {"exposed_to": "conversation"})
+    changed = await checks.call(
+        "ha_set_entity",
+        {
+            "expose_new_entities": {
+                "conversation": not global_before["expose_new_entities"]
+            },
+            "entity_id_parts": ["device", "entity"],
+        },
+    )
+    assert changed["previous_settings"] == global_before["settings"], changed
+    after = await checks.call("ha_get_entity", {"exposed_to": "conversation"})
+    assert after["expose_new_entities"] is not global_before["expose_new_entities"], (
+        after
+    )
+    assert after["settings"]["entity_id_parts"] == ["device", "entity"], after
+    await checks.call(
+        "ha_set_entity",
+        {
+            "expose_new_entities": changed["previous_expose_new_entities"],
+            "entity_id_parts": changed["previous_settings"]["entity_id_parts"] or [],
+        },
+    )
+    assert (await checks.call("ha_get_entity", {"exposed_to": "conversation"}))[
+        "settings"
+    ] == global_before["settings"]
+    checks.passed(
+        "native_registry_global_settings_roundtrip_preserves_actual_previous_values"
+    )
+
+    alias = await checks.call(
+        "ha_get_entity_exposure", {"entity_id": entity_id, "assistant": "conversation"}
+    )
+    assert alias["entity_entry"] == before["entity_entry"], alias
+    denied = await checks.rpc(
+        "tools/call",
+        {
+            "name": "ha_get_entity_exposure",
+            "arguments": {"entity_id": entity_id, "assistant": "unknown-assistant"},
+        },
+    )
+    assert denied["result"].get("isError"), denied
+    checks.passed(
+        "native_retired_exposure_call_validates_Core_assistant_before_adaptation"
+    )
+
+    unknown = entity_id + "_not_registered_or_stated"
+    refused = await checks.rpc(
+        "tools/call",
+        {
+            "name": "ha_set_entity",
+            "arguments": {"entity_id": unknown, "expose_to": {"conversation": True}},
+        },
+    )
+    assert refused["result"].get("isError"), refused
+    exposed = await checks.call("ha_get_entity")
+    assert unknown not in exposed["exposed_entities"], exposed
+    checks.passed("native_unknown_exposure_target_refused_before_preference_write")
+
+    renamed = await checks.call(
+        "ha_set_entity", {"entity_id": entity_id, "new_entity_id": "auto"}
+    )
+    actual = renamed["entity_id"]
+    assert renamed["entity_entry"]["id"] == identity, renamed
+    unchanged = await checks.call(
+        "ha_set_entity", {"entity_id": actual, "new_entity_id": "auto"}
+    )
+    assert "old_entity_id" not in unchanged, unchanged
+    if actual != entity_id:
+        await checks.call(
+            "ha_set_entity", {"entity_id": actual, "new_entity_id": entity_id}
+        )
+    checks.passed("native_automatic_entity_id_uses_Core_and_preserves_identity_on_noop")
+
+
 async def _exercise_state_history(checks: Any, panel: str) -> None:
     seeded = await checks.control("seed_entity_history", {})
     state_id = seeded["entity_id"]
     exposure_id = seeded["exposure_entity_id"]
     fixture = await checks.control("entity")
-    assert fixture["legacy_preferences"] is None, fixture
+    prior_preferences = fixture["legacy_preferences"]
+    assert prior_preferences["assistants"]["conversation"]["should_expose"] is True, (
+        fixture
+    )
     assert fixture["legacy_exposure_entity_id"] == exposure_id, fixture
     assert fixture["legacy_state"]["entity_id"] == state_id, fixture
     assert (
@@ -146,13 +236,13 @@ async def _exercise_state_history(checks: Any, panel: str) -> None:
     ]
     await _restore(checks, panel, snapshot)
     fixture = await checks.control("entity")
-    assert fixture["legacy_preferences"] is None, fixture
+    assert fixture["legacy_preferences"] == prior_preferences, fixture
     assert (
         not fixture["legacy_exposure_has_state"]
         and not fixture["legacy_exposure_has_registration"]
     ), fixture
     checks.passed(
-        "native_legacy_exposure_store_restores_absence_versus_false_without_registration"
+        "native_legacy_exposure_store_restores_actual_preferences_without_registration"
     )
 
     diff = await checks.client.get(panel + "/" + seeded["snapshot"] + "/diff")

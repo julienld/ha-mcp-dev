@@ -7,9 +7,14 @@ from typing import Any
 
 from homeassistant.core import HomeAssistant
 
-from .core_assist import _async_get_entity_settings, _is_unknown_entity_error
+from .core_assist import (
+    _async_get_assistant_settings,
+    _async_get_entity_settings,
+    _is_unknown_entity_error,
+)
 from .core_registry import (
     _all_entity_entries,
+    _composed_entity_name,
     _entity_partial_dict,
     _reg_entity,
     _registry_enrichment,
@@ -41,6 +46,7 @@ def enrich_entities(hass: HomeAssistant, entity_ids: list[str]) -> dict[str, Any
             "floor": join["floor"],
             "labels": join["labels"],
             "aliases": join["aliases"],
+            "full_name": _composed_entity_name(view, _reg_entity(view, entity_id)),
         }
     return {"entities": entities}
 
@@ -89,7 +95,12 @@ def entity_exposure(
 
     exposed_entities: dict[str, Any] = {}
     entity_info: dict[str, Any] = {}
-    for eid in _all_exposable_entity_ids(hass, view):
+    candidates = dict.fromkeys(
+        eid
+        for settings in _async_get_assistant_settings(hass).values()
+        for eid in settings
+    )
+    for eid in candidates:
         exposed_to = _entity_exposed_to(hass, eid)
         if not exposed_to:
             continue
@@ -153,50 +164,6 @@ def _exposure_enrichment(
         info["friendly_name"] = str(friendly)
         info["state"] = getattr(state, "state", "unknown")
     return info
-
-
-def _all_exposable_entity_ids(hass: HomeAssistant, view: _RegistryView) -> list[str]:
-    """Every id ``ws_list_exposed_entities`` walks: store ids plus registry ids.
-
-    Core iterates ``chain(exposed_entities.entities, entity_registry.entities)`` —
-    the legacy store (entities WITHOUT a unique_id, exposed manually) plus every
-    registry entity. This reproduces that union, de-duplicated with store-first
-    order, so an exposed YAML entity that lives only in the store is not missed.
-    """
-    ordered: list[str] = []
-    seen: set[str] = set()
-    for eid in _legacy_exposed_entity_ids(hass):
-        if eid and eid not in seen:
-            seen.add(eid)
-            ordered.append(eid)
-    for entry in _all_entity_entries(view):
-        entry_eid = getattr(entry, "entity_id", None)
-        if entry_eid and entry_eid not in seen:
-            seen.add(entry_eid)
-            ordered.append(entry_eid)
-    return ordered
-
-
-def _legacy_exposed_entity_ids(hass: HomeAssistant) -> list[str]:
-    """Entity ids in the exposed-entities store (entities without a unique_id).
-
-    The ``exposed_entities.entities`` half of core's ``ws_list_exposed_entities``
-    iteration. Imported lazily (test seam); a missing store / core drift yields
-    ``[]`` so list mode still enumerates the registry half.
-    """
-    try:
-        from homeassistant.components.homeassistant.const import (
-            DATA_EXPOSED_ENTITIES,
-        )
-
-        data = getattr(hass, "data", None)
-        store = data.get(DATA_EXPOSED_ENTITIES) if isinstance(data, Mapping) else None
-    except Exception:  # pragma: no cover - defensive; core drift  # noqa: BLE001
-        return []
-    entities = getattr(store, "entities", None)
-    if isinstance(entities, Mapping):
-        return [str(eid) for eid in entities]
-    return []
 
 
 def registry_lookup(

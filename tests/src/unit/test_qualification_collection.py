@@ -24,6 +24,8 @@ def test_public_contracts_collect_from_both_upstream_runner_working_directories(
             str(root / "tests/src/e2e/continuity"),
             "--collect-only",
             "-q",
+            "-p",
+            "no:pytest_homeassistant",
             "-o",
             "addopts=",
         ],

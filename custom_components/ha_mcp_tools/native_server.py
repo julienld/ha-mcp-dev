@@ -17,6 +17,8 @@ from homeassistant.const import __version__ as HA_VERSION
 from homeassistant.core import HassJob
 from homeassistant.util.aiohttp import MockRequest
 
+from ha_mcp.tool_api import ToolFailure
+
 from .const import (
     DATA_ADMIN_TOKEN,
     DATA_NATIVE_OWNER_ID,
@@ -365,7 +367,11 @@ class NativeServerManager:
             self.mcp.add_tool(_project_tool(self, definition))
         register_import_tools(self)
         await register_resources(self)
-        self.mcp.add_middleware(RenamedToolAliasMiddleware())
+        self.mcp.add_middleware(
+            RenamedToolAliasMiddleware(
+                validate_assistant=self._validate_retired_assistant
+            )
+        )
         self.mcp.add_middleware(catalogue_instructions_middleware(self))
         self.mcp.add_middleware(catalogue_middleware(self))
         self.mcp.add_middleware(approval_context_middleware())
@@ -413,8 +419,19 @@ class NativeServerManager:
                 search_active_resolver=lambda: (
                     connection_catalog_mode(self.policy) == "search"
                 ),
+                validate_assistant=self._validate_retired_assistant,
             )
         )
+
+    async def _validate_retired_assistant(self, assistant: str) -> None:
+        from ha_mcp._vendor.fastmcp.exceptions import ToolError
+
+        try:
+            await self.backend.execute(
+                "entities.exposure.default", {"assistant": assistant}, current_context()
+            )
+        except ToolFailure as error:
+            raise ToolError(json.dumps(error.data)) from error
 
     def _search_call_effect(self, name: str, arguments: dict[str, Any]) -> bool | None:
         from ha_mcp.renamed_tools import adapt_retired_arguments, current_tool_name

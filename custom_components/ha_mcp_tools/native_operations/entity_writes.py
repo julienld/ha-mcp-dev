@@ -9,7 +9,6 @@ from ha_mcp.errors import ErrorCode, create_error_response
 from ha_mcp.runtime.entity_fields import (
     build_name_visibility_fields,
     build_state_tag_fields,
-    ensure_use_device_name_supported,
     reject_name_with_use_device_name,
     reject_use_device_name_without_device,
 )
@@ -63,12 +62,34 @@ class _EntityPlan:
 
 
 class NativeEntityWrites(NativeEntityRegistry):
-    async def set(self, entity_id: str | list[str], **changes: Any) -> dict[str, Any]:
+    async def set(
+        self, entity_id: str | list[str] | None = None, **changes: Any
+    ) -> dict[str, Any]:
         try:
             await admit_registry_write(self.actor, self.authorize)
+            from ha_mcp.runtime.entity_registry_settings import is_registry_wide_call
+
+            from .entity_settings import write_registry_settings
+
+            defaults = changes.pop("expose_new_entities", None)
+            parts = changes.pop("entity_id_parts", None)
+            if is_registry_wide_call(
+                entity_id,
+                {"expose_new_entities": defaults, "entity_id_parts": parts},
+                {
+                    key: value
+                    for key, value in changes.items()
+                    if key != "label_operation"
+                },
+            ):
+                return await write_registry_settings(
+                    self.hass, self.actor, self.authorize, defaults, parts
+                )
+            assert entity_id is not None
             targets, bulk, fields = parse_entity_write(entity_id, changes)
             if not bulk:
                 return await self._single(targets[0], fields)
+            self._validate_exposure_chunks(targets, fields)
             self._references(
                 {
                     "labels": fields["labels"]
@@ -80,6 +101,24 @@ class NativeEntityWrites(NativeEntityRegistry):
             return await self._many(targets, fields)
         except Exception as error:
             raise registry_failure(error, {"entity_id": entity_id}) from error
+
+    def _validate_exposure_chunks(
+        self, targets: list[str], fields: dict[str, Any]
+    ) -> None:
+        from .entity_settings import entity_payload
+
+        if (
+            fields["expose_to"] is None
+            or fields["categories"] is not None
+            or fields["labels"] is not None
+        ):
+            return
+        for start in range(0, len(targets), 500):
+            entity_payload(
+                self.hass,
+                "config/entity_registry/get_entries",
+                {"entity_ids": targets[start : start + 500]},
+            )
 
     async def _many(self, targets: list[str], fields: dict[str, Any]) -> dict[str, Any]:
         succeeded, failed, not_attempted = [], [], []
@@ -169,8 +208,6 @@ class NativeEntityWrites(NativeEntityRegistry):
                 "categories": fields["categories"] or {},
             }
         )
-        if fields.get("new_entity_id") is not None:
-            apply_entity_rename(target, fields["new_entity_id"], {}, [])
         self._exposure_payloads(target, fields["expose_to"])
         registry = self._owner()
         initial = registry.async_get(target)
@@ -220,6 +257,9 @@ class NativeEntityWrites(NativeEntityRegistry):
                     "The entity was renamed while waiting for its owner lock",
                     status="not_started",
                 )
+            fields = dict(fields)
+            if fields.get("new_entity_id") == "auto":
+                fields["new_entity_id"] = registry.async_regenerate_entity_id(entry)
             plan = self._plan(registry, before, fields)
             await self._prepare_device(plan, owners)
             await self._capture_plan(plan)
@@ -239,9 +279,6 @@ class NativeEntityWrites(NativeEntityRegistry):
             fields.get("name"), fields.get("use_device_name")
         )
         if fields.get("use_device_name"):
-            from homeassistant.const import __version__ as HA_VERSION
-
-            ensure_use_device_name_supported(HA_VERSION)
             reject_use_device_name_without_device(before["entity_id"], before)
         message: dict[str, Any] = {"entity_id": before["entity_id"]}
         updates: list[str] = []
@@ -253,6 +290,7 @@ class NativeEntityWrites(NativeEntityRegistry):
             fields.get("icon"),
             fields.get("device_class"),
             fields.get("use_device_name"),
+            before,
         )
         aliases, note = merge_entity_aliases(
             before.get("aliases", []),
@@ -531,11 +569,31 @@ class NativeEntityWrites(NativeEntityRegistry):
             plan.device_result,
             preserve_core_fields=True,
         )
+        result.update(self._enable_result(plan.before, row))
         if plan.warnings:
             result.setdefault("warnings", []).extend(plan.warnings)
         if plan.options_succeeded:
             result["options_succeeded"] = plan.options_succeeded
         return result
+
+    def _enable_result(
+        self, before: dict[str, Any], row: dict[str, Any]
+    ) -> dict[str, Any]:
+        response: dict[str, Any] = {}
+        if before.get("disabled_by") is not None and row.get("disabled_by") is None:
+            from homeassistant import config_entries
+
+            entry_id = row.get("config_entry_id")
+            config_entry = (
+                self.hass.config_entries.async_get_entry(entry_id) if entry_id else None
+            )
+            if not entry_id or (
+                config_entry is not None and not config_entry.supports_unload
+            ):
+                response["require_restart"] = True
+            else:
+                response["reload_delay"] = config_entries.RELOAD_AFTER_UPDATE_DELAY
+        return response
 
     def _commit_device(self, plan: _EntityPlan) -> None:
         from homeassistant.helpers import device_registry as dr

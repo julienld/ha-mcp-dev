@@ -42,7 +42,7 @@ class NativeLegacyExposure:
     def _owner(self) -> tuple[Any, Any]:
         from homeassistant.components.homeassistant import exposed_entities as module
 
-        owner = self.hass.data.get(getattr(module, "DATA_EXPOSED_ENTITIES", None))
+        owner = self.hass.data.get(module.DATA_EXPOSED_ENTITIES)
         if type(owner) is not getattr(
             module, "ExposedEntities", None
         ) or not isinstance(getattr(owner, "entities", None), dict):
@@ -92,10 +92,27 @@ class NativeLegacyExposure:
                 status="not_started",
             )
 
+    def _known_target(self, entity_id: str) -> str:
+        from ..core_entity_reads import entity_exposure
+        from .entity_discovery import unregistered_entity
+
+        known = unregistered_entity(
+            self.hass, entity_id, entity_exposure(self.hass)["exposed_entities"]
+        )
+        if known is None:
+            raise ToolFailure(
+                "ENTITY_NOT_FOUND",
+                f"Entity '{entity_id}' not found",
+                status="not_started",
+            )
+        state = self.hass.states.get(entity_id)
+        return state.entity_id if state is not None else entity_id
+
     async def set(self, entity_id: str, exposure: dict[str, bool]) -> dict[str, Any]:
         try:
             await admit_registry_write(self.actor, self.authorize)
             validate_identifier_not_empty(entity_id, "entity_id")
+            entity_id = self._known_target(entity_id)
             async with registry_update_lock("entity_exposure", entity_id):
                 self._require_legacy(entity_id)
                 owner, module = self._owner()
@@ -125,6 +142,7 @@ class NativeLegacyExposure:
                 )
                 await admit_registry_write(self.actor, self.authorize)
                 self._check_current(owner, entity_id, before)
+                self._known_target(entity_id)
                 return self._apply_exposure(module, owner, entity_id, groups, warnings)
         except Exception as error:
             raise registry_failure(error, {"entity_id": entity_id}) from error
