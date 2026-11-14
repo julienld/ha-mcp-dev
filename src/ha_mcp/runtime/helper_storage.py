@@ -5,7 +5,7 @@ from __future__ import annotations
 import copy
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Any, NoReturn, cast
+from typing import Any, NoReturn
 
 from ha_mcp.errors import ErrorCode, HomeAssistantError, create_error_response
 from ha_mcp.tool_api import BackendTools, ToolFailure
@@ -281,7 +281,7 @@ class HelperStorageTools(BackendTools):
                 )
             except ToolFailure as error:
                 if error.code == "ENTITY_NOT_FOUND" and name:
-                    data = cast(dict[str, Any], copy.deepcopy(error.data))
+                    data = copy.deepcopy(error.data)
                     data["name"] = name
                     data["error"].setdefault("suggestions", []).append(
                         f"If you meant to create a new helper named {name!r}, "

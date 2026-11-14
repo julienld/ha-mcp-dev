@@ -2,10 +2,11 @@
 
 import copy
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from functools import partial
 from itertools import chain
-from typing import Any
+from typing import Any, cast
 
 from homeassistant.helpers.json import json_bytes
 
@@ -78,7 +79,7 @@ class NativeBulkControl(DeviceActionValues, BulkOperationValues):
         device_entries = (
             chain(devices.devices, devices.child_devices)
             if hasattr(devices, "child_devices")
-            else devices.devices.values()  # Core 2026.8's mapping container.
+            else cast(Mapping[str, Any], devices.devices).values()  # Core 2026.8.
         )
         detached = json.loads(
             json_bytes(

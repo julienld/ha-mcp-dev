@@ -226,6 +226,8 @@ class NativeTraces:
             raise UnsupportedOperation("Core trace storage is not loaded")
         key = f"{domain}.{item_id}" if item_id is not None else None
         if run_id:
+            # Public request validation requires an item when selecting a run.
+            assert key is not None
             try:
                 result = await async_get_trace(self.hass, key, run_id)
             except KeyError as error:

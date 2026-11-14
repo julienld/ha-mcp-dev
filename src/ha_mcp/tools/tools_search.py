@@ -111,7 +111,7 @@ class SearchTools(LegacyBackendTools, ComponentSearchMixin, OverviewMixin, State
             return _omit_empty_warnings(await self._legacy_ha_search(req, ctx))
 
         caps = await get_component_caps(self._client)
-        naming = "absent"
+        naming: Literal["absent", "outdated", "current"] = "absent"
         if caps is not None:
             naming = (
                 "current"

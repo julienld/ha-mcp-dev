@@ -57,7 +57,8 @@ class NativeStateSnapshots:
     ) -> dict[str, Any]:
         await admit_registry_write(self.actor, self.authorize)
         context = Context(user_id=self.actor.user_id)
-        if isinstance(config, dict) and config.get("state") is None:
+        state_value = config.get("state") if isinstance(config, dict) else str(config)
+        if state_value is None:
             raise ToolFailure(
                 "VALIDATION_INVALID_PARAMETER",
                 "Legacy entity snapshot does not specify a state",
@@ -66,7 +67,7 @@ class NativeStateSnapshots:
         try:
             proposed = State(
                 entity_id,
-                config.get("state") if isinstance(config, dict) else str(config),
+                state_value,
                 config.get("attributes", {}) if isinstance(config, dict) else {},
                 context=context,
             )

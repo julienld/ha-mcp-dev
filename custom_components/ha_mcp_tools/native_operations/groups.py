@@ -44,17 +44,18 @@ class NativeGroups:
     async def list(self, limit: int, offset: int) -> dict[str, Any]:
         try:
             await authorize_actor(self.actor, self.authorize)
-            states = [state.as_dict() for state in self.hass.states.async_all("group")]
+            core_states = self.hass.states.async_all("group")
+            states = [state.as_dict() for state in core_states]
             try:
                 component = records.component(self.hass)
             except UnsupportedOperation:
                 component = None
             modes = {}
             if component is not None:
-                for state in states:
-                    owner = records.target(component, state["entity_id"])
+                for state in core_states:
+                    owner = records.target(component, state.entity_id)
                     if owner is not None:
-                        modes[state["entity_id"]] = owner.mode is all
+                        modes[state.entity_id] = owner.mode is all
             # Core values are detached on their owning loop; the worker receives
             # serialized bytes rather than State objects or live attribute maps.
             detached = json_bytes(states)

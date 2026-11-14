@@ -23,6 +23,11 @@ from ..helper_collections import _INVALID_ERRORS
 from .core_views import config_view
 from .owner import CoreOperationOwner
 
+_CONFIG_INVALID_ERRORS: tuple[type[BaseException], ...] = (
+    *_INVALID_ERRORS,
+    HomeAssistantError,
+)
+
 CONFIG_MUTATION_OPERATIONS = {
     f"config.{domain}.{action}": (domain, action)
     for domain in ("automation", "script", "scene")
@@ -134,7 +139,7 @@ class NativeConfigMutations(CoreOperationOwner):
                 owner.data_schema(value)
             else:
                 raise UnsupportedOperation("config.write.validator")
-        except (*_INVALID_ERRORS, HomeAssistantError) as error:
+        except _CONFIG_INVALID_ERRORS as error:
             _invalid_config(error, "Message")
 
 

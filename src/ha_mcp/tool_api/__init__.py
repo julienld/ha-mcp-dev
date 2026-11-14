@@ -79,12 +79,17 @@ class ToolFailure(Exception):
     """A classified failure whose payload can cross either tool facade."""
 
     def __init__(
-        self, code: str, message: str, *, data: Any = None, status: str | None = None
+        self,
+        code: str,
+        message: str,
+        *,
+        data: dict[str, Any] | None = None,
+        status: str | None = None,
     ) -> None:
         super().__init__(message)
         self.code = code
         self.status = status
-        self.data = (
+        self.data: dict[str, Any] = (
             data
             if data is not None
             else {"success": False, "error": {"code": code, "message": message}}

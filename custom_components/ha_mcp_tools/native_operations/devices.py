@@ -233,13 +233,14 @@ class NativeDevices:
         self, registry: Any, entry: Any, device: Any, before: dict[str, Any]
     ) -> Any:
         device = self._check_current(registry, device.id, before)
-        if self.hass.config_entries.async_get_entry(entry.entry_id) is not entry:
+        current_entry = self.hass.config_entries.async_get_entry(entry.entry_id)
+        if current_entry is None or current_entry is not entry:
             raise ToolFailure(
                 "CONFIG_CONFLICT",
                 "The owning config entry changed before dispatch.",
                 status="not_started",
             )
-        if not entry.supports_remove_device:
+        if not current_entry.supports_remove_device:
             raise ToolFailure(
                 "SERVICE_CALL_FAILED",
                 "Config entry no longer supports device removal",

@@ -62,7 +62,7 @@ async def write_tag(
             # ID manager detects the duplicate. Refuse before that side effect.
             raise TagIDExistsError(tag_id)
     else:
-        current = collection.data.get(item_id)
+        current = collection.data.get(item_id) if item_id is not None else None
         if current is None:
             raise ToolFailure(
                 "RESOURCE_NOT_FOUND", "Tag no longer exists", status="not_started"

@@ -32,7 +32,7 @@ from .llm_projection import (
     build_search_tools,
     convert_parameters,
 )
-from .llm_tool_metadata import declare_metadata, tool_hints, tool_result, tool_title
+from .llm_tool_metadata import declare_metadata, tool_hints, tool_title
 
 if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
@@ -105,7 +105,7 @@ async def call_exposed(
     tools, _ = await exposed_catalog(manager)
     names = frozenset(tool.name for tool in tools)
     if name not in names:
-        return tool_result({"error": f"Unknown tool '{name}'."}, error=True)
+        return llm.ToolResult(data={"error": f"Unknown tool '{name}'."}, error=True)
 
     def check_exposure(tool_name: str) -> None:
         definition = manager.engine.tools.get(tool_name)
@@ -155,7 +155,7 @@ async def call_exposed(
             "Home Assistant Assist cannot receive tool images. The structured result and operation outcome are preserved; use an MCP client to receive the screenshot images.",
         ]
         result = replace(result, data=data, images=())
-    return tool_result(result_envelope(result), error=result.is_error)
+    return llm.ToolResult(data=result_envelope(result), error=result.is_error)
 
 
 class NativeTool(llm.Tool):

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, cast
 
 from ha_mcp.runtime.mutation_guard import check_mutation_admission
 from ha_mcp.tool_api import CallContext, ToolFailure, UnsupportedOperation
@@ -66,7 +66,8 @@ class BlueprintOwner:
             from homeassistant.util import yaml
 
             blueprint = Blueprint(
-                yaml.parse_yaml(text),
+                # Core's constructor immediately validates raw YAML with schema.
+                cast(dict[str, Any], yaml.parse_yaml(text)),
                 expected_domain=self.domain,
                 schema=BLUEPRINT_SCHEMA,
             )

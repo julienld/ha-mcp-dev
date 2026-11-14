@@ -47,7 +47,7 @@ async def write_person(
     if action == "create":
         validated = await collection._process_create_data(copy.deepcopy(fields))
     else:
-        if item_id not in collection.data:
+        if item_id is None or item_id not in collection.data:
             raise ToolFailure(
                 "RESOURCE_NOT_FOUND",
                 "Stored helper no longer exists",
@@ -83,6 +83,7 @@ async def write_person(
         item = collection._create_item(item_id, validated)
         change = CHANGE_ADDED
     else:
+        assert item_id is not None
         item = validated
         change = CHANGE_UPDATED
     collection.data[item_id] = item
