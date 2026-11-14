@@ -31,6 +31,7 @@ from ha_mcp.client.rest_client import HomeAssistantClient
 from ha_mcp.tools.tools_registry import RegistryTools
 
 from ._client_spies import sent_messages
+from ._core_devices import device as _device
 from ._removable_device import removable_device
 from ._tool_errors import rejected_call_body
 
@@ -40,15 +41,6 @@ async def tools(hass: HomeAssistant, core_client: HomeAssistantClient) -> Regist
     """The registry tools on Core with its ``config`` commands set up."""
     assert await async_setup_component(hass, "config", {})
     return RegistryTools(core_client)
-
-
-def _device(hass: HomeAssistant, domain: str, **kwargs: Any) -> dr.DeviceEntry:
-    """A device in Core's registry, owned by a new config entry of ``domain``."""
-    entry = MockConfigEntry(domain=domain)
-    entry.add_to_hass(hass)
-    return dr.async_get(hass).async_get_or_create(
-        config_entry_id=entry.entry_id, **kwargs
-    )
 
 
 async def test_summary_list_is_compact_and_full_keeps_cores_row(

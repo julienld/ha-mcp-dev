@@ -12,6 +12,8 @@ import logging
 from collections import Counter
 from typing import Any
 
+from ha_mcp.runtime.error_text import core_error_message
+
 from ..client.rest_client import (
     _NO_ANSWER_ERRORS,
     HomeAssistantCommandError,
@@ -30,7 +32,6 @@ from .component_api import (
 )
 from .entity_registry_reads import _NOT_IN_REGISTRY, _extract_ws_error, get_entries_raw
 from .helpers import (
-    core_error_message,
     get_entity_state_or_none,
     raise_core_refusal,
 )

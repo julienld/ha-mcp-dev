@@ -13,7 +13,20 @@ from pydantic import Field
 
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp._vendor.fastmcp.tools import tool
+from ha_mcp.backends.legacy import legacy_errors_sync
+from ha_mcp.runtime.entity_records import _parse_get_entity_ids as _shared_get_ids
+from ha_mcp.runtime.entity_write_values import (
+    _parse_set_entity_ids as _shared_set_ids,
+)
+from ha_mcp.runtime.entity_write_values import (
+    _validate_enabled_constraint as _shared_enabled_constraint,
+)
+from ha_mcp.runtime.validation import WHITESPACE_CLEARS_NOTE
 
+from ..backends.legacy_entity_snapshots import (
+    capture_entity_device,
+    capture_entity_registry,
+)
 from ..client.rest_client import (
     _NO_ANSWER_ERRORS,
     HomeAssistantCommandError,
@@ -81,7 +94,6 @@ from .entity_update_fields import (
     reject_name_with_use_device_name,
 )
 from .helpers import (
-    WHITESPACE_CLEARS_NOTE,
     clearable_value,
     exception_to_structured_error,
     extract_tool_error_message,
@@ -200,120 +212,9 @@ def _expose_update(parsed_expose_to: dict[str, bool], unchanged: bool) -> str:
     return f"expose_to={parsed_expose_to}"
 
 
-def _parse_set_entity_ids(
-    entity_id: str | list[str] | None,
-) -> tuple[list[str], bool]:
-    """Parse entity_id into (entity_ids, is_bulk). Raises on invalid input."""
-    if isinstance(entity_id, str):
-        return [entity_id], False
-    if not isinstance(entity_id, list):
-        raise_tool_error(
-            create_error_response(
-                ErrorCode.VALIDATION_INVALID_PARAMETER,
-                f"entity_id must be string or list of strings, got {type(entity_id).__name__}",
-            )
-        )
-    if not entity_id:
-        raise_tool_error(
-            create_error_response(
-                ErrorCode.VALIDATION_INVALID_PARAMETER,
-                "entity_id list cannot be empty",
-            )
-        )
-    if not all(isinstance(e, str) for e in entity_id):
-        raise_tool_error(
-            create_error_response(
-                ErrorCode.VALIDATION_INVALID_PARAMETER,
-                "All entity_id values must be strings",
-            )
-        )
-    return entity_id, len(entity_id) > 1
-
-
-def _parse_get_entity_ids(
-    entity_id: str | list[str],
-) -> tuple[list[str], bool, dict[str, Any] | None]:
-    """Parse entity_id into (entity_ids, is_bulk, early_response). early_response is non-None for empty list."""
-    if isinstance(entity_id, str):
-        return [entity_id], False, None
-    if not isinstance(entity_id, list):
-        raise_tool_error(
-            create_error_response(
-                ErrorCode.VALIDATION_INVALID_PARAMETER,
-                f"entity_id must be string or list of strings, got {type(entity_id).__name__}",
-            )
-        )
-    if not entity_id:
-        return (
-            [],
-            False,
-            {
-                "success": True,
-                "entity_entries": [],
-                "count": 0,
-            },
-        )
-    if not all(isinstance(e, str) for e in entity_id):
-        raise_tool_error(
-            create_error_response(
-                ErrorCode.VALIDATION_INVALID_PARAMETER,
-                "All entity_id values must be strings",
-            )
-        )
-    return entity_id, True, None
-
-
-def _validate_enabled_constraint(
-    enabled: bool | None,
-    entity_ids: list[str],
-) -> None:
-    """Block registry-disable on automation and script entities.
-
-    For automations, use ha_config_set_automation(entity_id=..., enabled=...)
-    to control their runtime enabled state.  For scripts,
-    ha_config_set_script(script_id=..., run="stop") only stops a currently
-    running execution; it does not disable the script, and Home Assistant
-    has no script runtime enable/disable service.
-    """
-    if enabled is False:
-        blocked = [
-            eid for eid in entity_ids if eid.split(".")[0] in ("automation", "script")
-        ]
-        if blocked:
-            _domain = blocked[0].split(".")[0]
-            if _domain == "script":
-                message = (
-                    "Cannot registry-disable script entities with "
-                    "ha_set_entity(enabled=False). Use ha_config_set_script("
-                    f"script_id='{blocked[0]}', run='stop') only to stop a "
-                    "currently running execution; it does not disable the script. "
-                    "Home Assistant has no script runtime enable/disable service."
-                )
-                suggestions = [
-                    "Use ha_config_set_script(script_id=..., run='stop') only to "
-                    + "stop a currently running execution; it does not disable the script",
-                    "Home Assistant has no script runtime enable/disable service",
-                ]
-            else:
-                message = (
-                    f"Cannot registry-disable {_domain} entities with "
-                    "ha_set_entity(enabled=False). Use "
-                    f"ha_config_set_automation(entity_id='{blocked[0]}', "
-                    "enabled=False) instead."
-                )
-                suggestions = [
-                    "Use ha_config_set_automation(entity_id=..., enabled=...) to "
-                    + "disable the automation",
-                    "Use ha_config_set_automation(entity_id=..., enabled=True) to "
-                    + "re-enable it later",
-                ]
-            raise_tool_error(
-                create_error_response(
-                    ErrorCode.VALIDATION_INVALID_PARAMETER,
-                    message,
-                    suggestions=suggestions,
-                )
-            )
+_parse_set_entity_ids = legacy_errors_sync(_shared_set_ids)
+_parse_get_entity_ids = legacy_errors_sync(_shared_get_ids)
+_validate_enabled_constraint = legacy_errors_sync(_shared_enabled_constraint)
 
 
 class EntityTools:
@@ -559,6 +460,7 @@ class EntityTools:
             "device_id": device_id,
             "name_by_user": new_device_name,
         }
+        await capture_entity_device(self._client, device_id)
         device_result = await self._client.send_websocket_message(device_msg)
         if device_result.get("success"):
             device_rename_result = {"success": True, "device_id": device_id}
@@ -901,6 +803,8 @@ class EntityTools:
                 fail_closed=True,
             )
 
+            await capture_entity_registry(self._client, entity_id, "ha_set_entity")
+
             # Phase 3: Send entity registry update (covers all fields except expose_to)
             (
                 entity_id,
@@ -1044,6 +948,8 @@ class EntityTools:
         eligible_ids = [eid for eid in eligible_ids if eid in targets]
         if not eligible_ids:
             return [], failed, []
+        for target in eligible_ids:
+            await capture_entity_registry(self._client, target, "ha_set_entity")
         expose_error, changed = await apply_bulk_expose(
             self._client,
             [targets[eid] for eid in eligible_ids],
@@ -1490,6 +1396,7 @@ class EntityTools:
                 return await set_registry_wide(
                     self._client, expose_new_entities, entity_id_parts
                 )
+            assert entity_id is not None
             entity_ids, is_bulk = _parse_set_entity_ids(entity_id)
 
             # Per-element empty/whitespace check — the list-empty check above
@@ -1910,6 +1817,8 @@ class EntityTools:
             )
 
         logger.info(f"Bulk removing {len(entity_ids)} entities")
+        for target in entity_ids:
+            await capture_entity_registry(self._client, target, "ha_remove_entity")
         return await remove_registry_entries(
             self._client, entity_ids, _extract_ws_error
         )

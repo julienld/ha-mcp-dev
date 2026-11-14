@@ -32,7 +32,8 @@ from ha_mcp.client.rest_client import (
     HomeAssistantConnectionError,
 )
 from ha_mcp.config import get_global_settings, reset_global_settings
-from ha_mcp.tools import core_contract, integration_ws_commands
+from ha_mcp.runtime import integration_ws_commands
+from ha_mcp.tools import core_contract
 from ha_mcp.tools.tools_integrations import IntegrationTools
 
 from ._knx_core import set_up_knx
@@ -63,7 +64,7 @@ async def _add_entry(
 def _bridge_spy() -> Any:
     """Spy on the bridge where the listing calls it; it still answers."""
     return patch.object(
-        integration_ws_commands,
+        core_contract,
         "integration_commands",
         wraps=core_contract.integration_commands,
     )

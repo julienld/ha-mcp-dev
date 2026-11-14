@@ -23,6 +23,8 @@ from ha_mcp.client.rest_client import (
 )
 from ha_mcp.tools.tools_integrations import IntegrationTools
 
+from ._helper_removal_reads import stored_removal_images  # noqa: F401 - shared fixture
+
 
 class TestRemovalCheckAfterSuccessfulDelete:
     @pytest.fixture(autouse=True)
