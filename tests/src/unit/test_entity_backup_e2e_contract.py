@@ -20,10 +20,12 @@ def history(
 ) -> BackupManager:
     return get_backup_manager(
         client,
-        Settings(
-            ENABLE_AUTO_BACKUP=enabled,
-            HAMCP_BACKUP_DIR=str(directory),
-            AUTO_BACKUP_THROTTLE_MINUTES=0,
+        Settings.model_validate(
+            {
+                "ENABLE_AUTO_BACKUP": enabled,
+                "HAMCP_BACKUP_DIR": str(directory),
+                "AUTO_BACKUP_THROTTLE_MINUTES": 0,
+            }
         ),
     )
 
