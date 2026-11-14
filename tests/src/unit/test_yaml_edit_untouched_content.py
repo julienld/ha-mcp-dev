@@ -150,7 +150,9 @@ class TestRoundTripGuard:
             narrow.preserve_quotes = True
             return real_yaml_dumps(narrow, data)
 
-        monkeypatch.setattr("custom_components.ha_mcp_tools.yaml_dumps", _narrow_dumps)
+        monkeypatch.setattr(
+            "custom_components.ha_mcp_tools.yaml_editing.yaml_dumps", _narrow_dumps
+        )
 
         result = await edit_yaml(ADD_UTILITY_METER)
 

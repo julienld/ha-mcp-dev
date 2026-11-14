@@ -8,6 +8,7 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
+from homeassistant.auth.models import User
 from homeassistant.core import HomeAssistant
 from homeassistant.setup import async_setup_component
 
@@ -69,3 +70,40 @@ async def test_restore_of_a_deleted_untyped_resource_is_refused_with_a_fix(
     assert "lovelace/resources/create" not in sent
     listed = await core_client.send_websocket_message({"type": "lovelace/resources"})
     assert listed["result"] == []
+
+
+async def test_native_deleted_untyped_resource_explains_refusal_without_writing(
+    hass: HomeAssistant,
+    hass_admin_user: User,
+    hass_storage: dict[str, Any],
+    core_client: HomeAssistantClient,
+) -> None:
+    from custom_components.ha_mcp_tools.native_backend import NativeBackend
+    from custom_components.ha_mcp_tools.native_operations.lovelace_resources import (
+        NativeResources,
+    )
+    from ha_mcp.tool_api import CallContext, ToolFailure
+
+    hass_storage["lovelace_resources"] = {
+        "version": 1,
+        "key": "lovelace_resources",
+        "data": {"items": [{"id": "imported", "url": URL}]},
+    }
+    assert await async_setup_component(hass, "lovelace", {})
+    await core_client.send_websocket_message({"type": "lovelace/resources"})
+    backend = NativeBackend(hass)
+    owner = NativeResources(
+        hass, CallContext(hass_admin_user.id), authorize=backend.authorize
+    )
+    saved = {"id": "imported", "url": URL}
+    assert await owner.read_snapshot("imported", saved) == saved
+    await core_client.send_websocket_message(
+        {"type": "lovelace/resources/delete", "resource_id": "imported"}
+    )
+    with pytest.raises(ToolFailure, match="without a type") as caught:
+        await owner.restore_snapshot("imported", saved, None)
+    assert caught.value.status == "not_started"
+    assert "Home Assistant needs one to create it" in str(caught.value)
+    assert (await core_client.send_websocket_message({"type": "lovelace/resources"}))[
+        "result"
+    ] == []

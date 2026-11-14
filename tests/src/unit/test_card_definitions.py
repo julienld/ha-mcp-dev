@@ -575,7 +575,9 @@ async def test_a_slow_describe_of_a_loaded_index_is_a_timeout_not_unavailable(
         await asyncio.Event().wait()
         return {}
 
-    monkeypatch.setattr(dcw, "_describe", slow)
+    monkeypatch.setattr(
+        "custom_components.ha_mcp_tools.card_descriptions._describe", slow
+    )
     prep = dcw.command_specs(vol)[0][2]
     result = await asyncio.wait_for(prep(MagicMock(), {"card_type": "tile"}), 2)
     assert result["result"] == {"success": False, "error": "describe_timeout"}

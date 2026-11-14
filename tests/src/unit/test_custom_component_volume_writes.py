@@ -23,10 +23,11 @@ from typing import Any
 import pytest
 from homeassistant.core import HomeAssistant
 
-import custom_components.ha_mcp_tools as comp
 from custom_components.ha_mcp_tools import (
     SERVICE_DELETE_FILE,
     SERVICE_WRITE_FILE,
+    file_access,
+    file_paths,
     volume_mounts,
 )
 
@@ -37,7 +38,7 @@ from ._file_services import FileService, make_file_service
 def volume_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """A volume root under tmp_path, standing in for /media; not created."""
     root = tmp_path / "media"
-    monkeypatch.setattr(comp, "ALLOWED_VOLUME_ROOTS", (str(root),))
+    monkeypatch.setattr(file_paths, "ALLOWED_VOLUME_ROOTS", (str(root),))
     return root
 
 
@@ -153,7 +154,7 @@ async def test_core_install_writes_to_an_existing_plain_volume(
 
 
 def _raise(err: OSError) -> Callable[..., dict[str, Any]]:
-    def _sync(*_args: object) -> dict[str, Any]:
+    def _sync(*_args: object, **_kwargs: object) -> dict[str, Any]:
         raise err
 
     return _sync
@@ -163,20 +164,32 @@ def _raise(err: OSError) -> Callable[..., dict[str, Any]]:
 async def test_read_only_mount_is_named_not_a_raw_errno(
     build: str, hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # On HAOS and Supervised, Supervisor mounts /ssl read-only into Core.
-    erofs = OSError(errno.EROFS, "Read-only file system", "/ssl/t")
-    monkeypatch.setattr(comp, f"_{build}_file_sync", _raise(erofs))
-    call = await make_file_service(hass, "/ssl/t")
-    data: dict[str, Any] = {"path": "/ssl/t/a.txt"}
+    # A config-directory bind mount can be read-only too. Keep a real before-image.
+    target = Path(hass.config.path("www/t/a.txt"))
+    await hass.async_add_executor_job(
+        lambda: target.parent.mkdir(parents=True, exist_ok=True)
+    )
+    await hass.async_add_executor_job(
+        lambda: target.write_text("unchanged", encoding="utf-8")
+    )
+    erofs = OSError(errno.EROFS, "Read-only file system", str(target))
+    monkeypatch.setattr(file_access, f"_{build}_file_sync", _raise(erofs))
+    call = await make_file_service(hass, "www/t")
+    data: dict[str, Any] = {"path": "www/t/a.txt"}
     if build == "write":
         data["content"] = "x"
+        data["overwrite"] = True
     service = SERVICE_WRITE_FILE if build == "write" else SERVICE_DELETE_FILE
 
     result = await call(service, data)
 
+    assert (
+        await hass.async_add_executor_job(lambda: target.read_text(encoding="utf-8"))
+        == "unchanged"
+    )
     assert result == {
         "success": False,
-        "error": "/ssl/t/a.txt is on a read-only mount in Home Assistant Core"
+        "error": "www/t/a.txt is on a read-only mount in Home Assistant Core"
         " on this install",
     }
 
