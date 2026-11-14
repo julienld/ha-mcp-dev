@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import AsyncIterator
 from typing import Any
 
 import pytest
@@ -26,6 +27,7 @@ from homeassistant.core import (
 )
 from homeassistant.util.json import JsonValueType
 
+from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp.client.rest_client import HomeAssistantClient
 from ha_mcp.tools.tools_service import ServiceTools
 
@@ -159,11 +161,13 @@ async def test_return_response_false_has_no_service_response_key(
 
 
 @pytest.fixture
-async def hanging_service(hass: HomeAssistant) -> Any:
+async def hanging_service(hass: HomeAssistant) -> AsyncIterator[list[ServiceCall]]:
     """``test.hang``: answers only once the test releases it."""
     release = asyncio.Event()
+    calls: list[ServiceCall] = []
 
     async def hang(call: ServiceCall) -> ServiceResponse:
+        calls.append(call)
         await release.wait()
         return dict(SHELL_RESPONSE)
 
@@ -171,7 +175,7 @@ async def hanging_service(hass: HomeAssistant) -> Any:
         "test", "hang", hang, supports_response=SupportsResponse.OPTIONAL
     )
     try:
-        yield release
+        yield calls
     finally:
         release.set()
         await hass.async_block_till_done()
@@ -180,7 +184,7 @@ async def hanging_service(hass: HomeAssistant) -> Any:
 async def test_timed_out_call_still_emits_the_requested_key(
     hass: HomeAssistant,
     core_client: HomeAssistantClient,
-    hanging_service: asyncio.Event,
+    hanging_service: list[ServiceCall],
 ) -> None:
     """A timed-out call must not be the one shape missing service_response.
 
@@ -196,13 +200,20 @@ async def test_timed_out_call_still_emits_the_requested_key(
         verify_ssl=False,
     )
     try:
-        response = await ServiceTools(impatient, None).ha_call_service(
-            domain="test", service="hang", return_response=True
-        )
+        with (
+            pytest.raises(ToolError) as failure,
+        ):
+            await ServiceTools(impatient, None).ha_call_service(
+                domain="test", service="hang", return_response=True
+            )
+        response = json.loads(str(failure.value))
+        assert len(hanging_service) == 1
     finally:
         await impatient.close()
 
     assert response["partial"] is True
+    assert response["success"] is False
+    assert response["write_outcome_unknown"] is True
     assert "service_response" in response
     assert response["service_response"] is None
     assert any("does NOT prove" in w for w in response["warnings"]), response

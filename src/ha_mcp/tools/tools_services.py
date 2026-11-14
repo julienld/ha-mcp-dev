@@ -6,15 +6,12 @@ allowing AI to explore available Home Assistant services/actions.
 """
 
 import logging
-import re
 from collections.abc import Mapping
-from typing import Annotated, Any, Literal
+from typing import Any
 
-from pydantic import Field
-
-from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp._vendor.fastmcp.tools import tool
 
+from ..backends.legacy import LegacyBackendTools, legacy_errors
 from ..client.rest_client import (
     HomeAssistantAPIError,
     HomeAssistantAuthError,
@@ -23,8 +20,7 @@ from ..client.rest_client import (
     HomeAssistantConnectionError,
 )
 from ..client.websocket_client import get_websocket_client
-from ..errors import ErrorCode, create_error_response, create_validation_error
-from .coercion import JSON_STRING_COERCION, parse_string_list_param
+from ..runtime.services import ServiceDiscoveryTools as SharedServiceDiscoveryTools
 from .component_api import (
     component_supports,
     get_component_caps,
@@ -33,207 +29,49 @@ from .component_api import (
 )
 from .flow_translations import configured_language
 from .helpers import (
-    exception_to_structured_error,
     log_tool_usage,
-    raise_tool_error,
     register_tool_methods,
-)
-from .response_helpers import (
-    build_pagination_metadata,
-    project_fields,
-    result_fields_warning,
 )
 from .tool_hints import read_only_hints
 
 logger = logging.getLogger(__name__)
 
-# WS command name for the component's service catalog read (domain-scoped; see
-# ``component_api`` module docstring for the capability-negotiation pattern this
-# consumer follows).
+# WS command name for the component's domain-scoped Core service catalog read.
 WS_SERVICES_LIST = "ha_mcp_tools/services_list"
 
 
-class ServiceDiscoveryTools:
-    """Service discovery tools for Home Assistant."""
+class ServiceDiscoveryTools(LegacyBackendTools, SharedServiceDiscoveryTools):
+    """Remote compatibility wrapper around the shared implementation."""
 
     def __init__(self, client: Any) -> None:
-        self._client = client
+        super().__init__(client)
 
-    @tool(
+    async def _fetch_catalog(
+        self, domain: str | None, warnings: list[str]
+    ) -> tuple[Any, dict[str, Any]]:
+        return await _fetch_catalog_and_translations(self._client, domain, warnings)
+
+    ha_list_services = tool(
         name="ha_list_services",
         tags={"Service & Device Control"},
         annotations=read_only_hints("List Available Services", open_world=False),
-    )
-    @log_tool_usage
-    async def ha_list_services(
-        self,
-        domain: Annotated[
-            str | None,
-            Field(description="Filter by domain (e.g., 'light', 'switch', 'climate')."),
-        ] = None,
-        query: Annotated[
-            str | None,
-            Field(description="Search in service names and descriptions."),
-        ] = None,
-        limit: Annotated[
-            int,
-            Field(
-                default=50,
-                ge=1,
-                le=200,
-                description="Max services to return per page",
-            ),
-        ] = 50,
-        offset: Annotated[
-            int,
-            Field(
-                default=0,
-                ge=0,
-                description="Number of services to skip for pagination",
-            ),
-        ] = 0,
-        detail_level: Annotated[
-            Literal["summary", "full"],
-            Field(
-                default="summary",
-                description=(
-                    "'summary': name, description, domain, service, target and response "
-                    "when the service returns data. 'full': additionally include "
-                    "parameter field schemas."
-                ),
-            ),
-        ] = "summary",
-        service_fields: Annotated[
-            str | list[str] | None,
-            JSON_STRING_COERCION,
-            Field(
-                default=None,
-                description=(
-                    'Project each service record to only the specified keys. E.g. ["name", '
-                    '"description"] returns slim service records. None = full records. '
-                    "Unknown keys yield empty records. Available keys: name, description, "
-                    "domain, service, target (when present), response (when present), "
-                    "fields (full mode only)."
-                ),
-            ),
-        ] = None,
-        fields: Annotated[
-            str | list[str] | None,
-            JSON_STRING_COERCION,
-            Field(
-                default=None,
-                description=(
-                    "Return only the specified top-level response keys to reduce response "
-                    'size (e.g. ["services"]). None = full response. Available keys: '
-                    "success, domains, services, total_count, count, offset, limit, "
-                    "has_more, next_offset, detail_level, filters_applied."
-                ),
-            ),
-        ] = None,
-    ) -> dict[str, Any]:
-        """List available Home Assistant services with optional pagination and detail control.
-
-        Discovers services/actions that can be called via ha_call_service.
-
-        EXAMPLES:
-        - Light services with full parameter details: ha_list_services(domain="light", detail_level="full")
-        - Search: ha_list_services(query="temperature")
-        - Next page: ha_list_services(offset=50)
-        """
-        parsed_fields: list[str] | None = None
-        if fields is not None:
-            try:
-                parsed_fields = parse_string_list_param(
-                    fields, "fields", allow_csv=True
-                )
-            except ValueError as exc:
-                raise_tool_error(create_validation_error(str(exc), parameter="fields"))
-        parsed_service_fields: list[str] | None = None
-        if service_fields is not None:
-            try:
-                parsed_service_fields = parse_string_list_param(
-                    service_fields, "service_fields", allow_csv=True
-                )
-                if (
-                    parsed_service_fields is not None
-                    and len(parsed_service_fields) == 0
-                ):
-                    raise ValueError("service_fields must contain at least one key")
-            except ValueError as exc:
-                raise_tool_error(
-                    create_validation_error(str(exc), parameter="service_fields")
-                )
-        try:
-            limit_int = limit
-            offset_int = offset
-
-            catalog_warnings: list[str] = []
-            rest_services, translations = await _fetch_catalog_and_translations(
-                self._client, domain, catalog_warnings
-            )
-
-            # Process and filter services
-            result = _process_services(
-                rest_services=rest_services,
-                translations=translations,
-                domain_filter=domain,
-                query_filter=query,
-                limit=limit_int,
-                offset=offset_int,
-                detail_level=detail_level,
-                warnings=catalog_warnings,
-            )
-
-            if parsed_service_fields is not None and "services" in result:
-                _orig_svc_vals = list(result["services"].values())
-                result["services"] = {
-                    k: {fk: fv for fk, fv in v.items() if fk in parsed_service_fields}
-                    for k, v in result["services"].items()
-                }
-                _warn = result_fields_warning(
-                    _orig_svc_vals,
-                    list(result["services"].values()),
-                    parsed_service_fields,
-                    param_name="service_fields",
-                )
-                if _warn:
-                    result.setdefault("warnings", []).append(_warn)
-
-            _attach_warnings(result, catalog_warnings)
-
-            return project_fields(result, parsed_fields)
-
-        except ToolError:
-            raise
-        except Exception as e:  # noqa: BLE001
-            logger.error(f"Failed to list services: {e}")
-            exception_to_structured_error(
-                e,
+    )(
+        log_tool_usage(
+            legacy_errors(
+                SharedServiceDiscoveryTools.ha_list_services,
                 suggestions=[
                     "Check Home Assistant connection",
                     "Verify WebSocket API is available",
                     "Try with a specific domain filter",
                 ],
             )
-            return (
-                None  # exception_to_structured_error always raises; explicit for CodeQL
-            )
+        )
+    )
 
 
 def register_services_tools(mcp: Any, client: Any, **kwargs: Any) -> None:
     """Register service discovery tools with the MCP server."""
     register_tool_methods(mcp, ServiceDiscoveryTools(client))
-
-
-def _attach_warnings(result: dict[str, Any], warnings: list[str]) -> None:
-    """Merge degradation warnings into a response's top-level ``warnings``.
-
-    The catalog is REST-backed and still answers when the WebSocket is down,
-    so without this the service descriptions just go missing and the response
-    looks complete (#1947). Empty in, key omitted.
-    """
-    if warnings:
-        result.setdefault("warnings", []).extend(warnings)
 
 
 async def _fetch_catalog_and_translations(
@@ -382,294 +220,28 @@ async def _get_service_translations(
         return {}
 
 
-def _process_services(
-    rest_services: Any,
-    translations: dict[str, Any],
-    domain_filter: str | None = None,
-    query_filter: str | None = None,
-    limit: int = 50,
-    offset: int = 0,
-    detail_level: Literal["summary", "full"] = "summary",
-    warnings: list[str] | None = None,
-) -> dict[str, Any]:
+__all__ = [
+    "register_services_tools",
+]
+
+
+async def _configured_language(client: Any) -> tuple[str, str | None]:
+    """Core's configured language, plus a warning when it could not be read.
+
+    ``frontend/get_translations`` requires a language. Core serves the configured
+    one in ``/api/config``; falling back to English keeps the catalog usable when
+    that read is unavailable, but the caller is told the text may be untranslated.
     """
-    Process raw service data into structured output.
-
-    Args:
-        rest_services: Raw services from REST API
-        translations: Service translations from WebSocket
-        domain_filter: Optional domain to filter by
-        query_filter: Optional search query
-        limit: Maximum number of services per page
-        offset: Number of services to skip
-        detail_level: 'summary' or 'full'
-        warnings: Degradation warnings to extend when Core's field payload is
-            not the mapping shape this shaping expects (the discarded metadata
-            is labelled incomplete rather than silently dropped)
-
-    Returns:
-        Processed service dictionary with pagination metadata
-    """
-    services: dict[str, dict[str, Any]] = {}
-    domains_seen: set[str] = set()
-    incomplete_fields: list[str] = []
-
-    # Handle both list and dict formats from REST API
-    if isinstance(rest_services, list):
-        # Format: [{"domain": "light", "services": {...}}, ...]
-        service_data = rest_services
-    elif isinstance(rest_services, dict):
-        # Format: {"light": {"services": {...}}, ...}
-        service_data = [
-            {"domain": domain, "services": data.get("services", data)}
-            for domain, data in rest_services.items()
-        ]
-    else:
-        raise_tool_error(
-            create_error_response(
-                ErrorCode.INTERNAL_UNEXPECTED,
-                "Unexpected service data format",
-                suggestions=[
-                    "Retry the request — this may be a transient issue",
-                    "Check Home Assistant is running and responding correctly",
-                ],
-            )
+    try:
+        config = await client.get_config()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not read the configured language: %r", exc)
+        return (
+            "en",
+            f"service descriptions may be untranslated: language unavailable: {exc}",
         )
-
-    query_lower = query_filter.lower() if query_filter else None
-
-    for domain_entry in service_data:
-        domain = domain_entry.get("domain", "")
-        if not domain:
-            continue
-
-        # Apply domain filter
-        if domain_filter and domain != domain_filter:
-            continue
-
-        domains_seen.add(domain)
-        domain_services = domain_entry.get("services", {})
-
-        for service_name, service_def in domain_services.items():
-            service_key = f"{domain}.{service_name}"
-            entry = _build_service_entry(
-                domain,
-                service_name,
-                service_def,
-                translations,
-                query_lower,
-                detail_level,
-                incomplete=incomplete_fields if detail_level == "full" else None,
-            )
-            if entry is not None:
-                services[service_key] = entry
-
-    if incomplete_fields and warnings is not None:
-        shown = ", ".join(incomplete_fields[:5])
-        more = (
-            f" (+{len(incomplete_fields) - 5} more)"
-            if len(incomplete_fields) > 5
-            else ""
-        )
-        warnings.append(
-            "service field metadata incomplete: expected a mapping, got another "
-            f"type at {shown}{more}"
-        )
-
-    # Sort domains alphabetically
-    sorted_domains = sorted(domains_seen)
-
-    # Apply pagination to the collected services
-    all_keys = list(services.keys())
-    total_count = len(all_keys)
-    paginated_keys = all_keys[offset : offset + limit]
-    paginated_services = {k: services[k] for k in paginated_keys}
-
-    return {
-        "success": True,
-        "domains": sorted_domains,
-        "services": paginated_services,
-        **build_pagination_metadata(
-            total_count, offset, limit, len(paginated_services)
-        ),
-        "detail_level": detail_level,
-        "filters_applied": {
-            "domain": domain_filter,
-            "query": query_filter,
-        },
-    }
-
-
-def _build_service_entry(
-    domain: str,
-    service_name: str,
-    service_def: dict[str, Any],
-    translations: dict[str, Any],
-    query_lower: str | None,
-    detail_level: Literal["summary", "full"],
-    incomplete: list[str] | None = None,
-) -> dict[str, Any] | None:
-    """Build a single service entry, returning None if it doesn't match the query.
-
-    ``translations`` is Core's flat resources map (``component.<domain>.services.
-    <service>.name``), and ``name``/``description`` fall back to the text Core's
-    own description carries for dynamic services (``script.*``, ``notify.*``).
-    """
-    prefix = f"component.{domain}.services.{service_name}"
-    placeholders = service_def.get("description_placeholders")
-    name = _apply_placeholders(
-        _translation(translations, f"{prefix}.name")
-        or service_def.get("name")
-        or service_name.replace("_", " ").title(),
-        placeholders,
-    )
-    description = _apply_placeholders(
-        _translation(translations, f"{prefix}.description")
-        or service_def.get("description")
-        or "",
-        placeholders,
-    )
-
-    # Apply query filter
-    if query_lower:
-        searchable = f"{domain}.{service_name} {name} {description}".lower()
-        if query_lower not in searchable:
-            return None
-
-    entry: dict[str, Any] = {
-        "name": name,
-        "description": description,
-        "domain": domain,
-        "service": service_name,
-    }
-
-    # Include full field schemas only in 'full' detail mode
-    if detail_level == "full":
-        entry["fields"] = _process_service_fields(
-            service_def.get("fields", {}),
-            translations,
-            prefix,
-            placeholders,
-            service_key=f"{domain}.{service_name}",
-            incomplete=incomplete,
-        )
-
-    # Add target only if present
-    target = service_def.get("target")
-    if target is not None:
-        entry["target"] = target
-
-    # Core reports whether a service can return data; agents need this before
-    # calling ha_call_service with return_response.
-    response = service_def.get("response")
-    if response is not None:
-        entry["response"] = response
-
-    return entry
-
-
-def _translation(translations: Mapping[str, Any], key: str) -> str | None:
-    """Return a flat translation string, or None when Core has no entry."""
-    value = translations.get(key)
-    return value if isinstance(value, str) and value else None
-
-
-_PLACEHOLDER_RE = re.compile(r"\{([A-Za-z0-9_]+)\}")
-
-
-def _apply_placeholders(text: str, placeholders: Any) -> str:
-    """Substitute Core's ``description_placeholders`` without touching literals.
-
-    Only keys Core supplied are replaced, so a description containing JSON or an
-    unknown placeholder survives unchanged instead of raising like ``str.format``.
-    """
-    if not text or not isinstance(placeholders, Mapping):
-        return text
-
-    def _replace(match: re.Match[str]) -> str:
-        value = placeholders.get(match.group(1))
-        return str(value) if value is not None else match.group(0)
-
-    return _PLACEHOLDER_RE.sub(_replace, text)
-
-
-def _process_service_fields(
-    fields_def: Any,
-    translations: Mapping[str, Any],
-    prefix: str,
-    placeholders: Any,
-    *,
-    service_key: str = "",
-    incomplete: list[str] | None = None,
-) -> dict[str, dict[str, Any]]:
-    """Shape Core's field descriptions, recursing into section entries.
-
-    Every key Core sends is copied through (``filter``, ``advanced``,
-    ``collapsed``, ``default``, ``example``, ``required``, ``selector``), so no
-    accepted-value rule is re-implemented here. Translations are added on top,
-    and a section keeps its nested ``fields`` processed the same way. Core puts
-    section field translations under the service's flat ``fields.<name>``
-    namespace and the section's own name under ``sections.<name>``.
-
-    ``example`` has its own translated key (``fields.<field>.example``), which
-    the frontend prefers over the services.yaml value, so it is read the same
-    way as the name and description; the key is omitted when neither exists.
-
-    A payload shape that is not a mapping is discarded, never fatal. Its dotted
-    path is appended to ``incomplete`` so the catalog can label the description
-    incomplete instead of silently serving a shorter field list.
-    """
-    if not isinstance(fields_def, Mapping):
-        if incomplete is not None:
-            incomplete.append(f"{service_key}.fields" if service_key else "fields")
-        return {}
-
-    processed: dict[str, dict[str, Any]] = {}
-    for field_name, field_info in fields_def.items():
-        if not isinstance(field_info, Mapping):
-            if incomplete is not None:
-                incomplete.append(f"{service_key}.fields.{field_name}")
-            continue
-
-        is_section = isinstance(field_info.get("fields"), Mapping)
-        translation_prefix = (
-            f"{prefix}.sections.{field_name}"
-            if is_section
-            else f"{prefix}.fields.{field_name}"
-        )
-        entry = {
-            key: value
-            for key, value in field_info.items()
-            if not (is_section and key == "fields")
-        }
-        entry["name"] = _apply_placeholders(
-            _translation(translations, f"{translation_prefix}.name")
-            or field_info.get("name")
-            or field_name.replace("_", " ").title(),
-            placeholders,
-        )
-        entry["description"] = _apply_placeholders(
-            _translation(translations, f"{translation_prefix}.description")
-            or field_info.get("description")
-            or "",
-            placeholders,
-        )
-        translated_example = _translation(translations, f"{translation_prefix}.example")
-        if translated_example is not None:
-            entry["example"] = _apply_placeholders(translated_example, placeholders)
-        elif entry.get("example") is None:
-            # Neither a translated nor a Core-supplied example: omit the key
-            # rather than advertising an empty one.
-            entry.pop("example", None)
-        if is_section:
-            entry["fields"] = _process_service_fields(
-                field_info["fields"],
-                translations,
-                prefix,
-                placeholders,
-                service_key=service_key,
-                incomplete=incomplete,
-            )
-        processed[field_name] = entry
-
-    return processed
+    language = config.get("language") if isinstance(config, Mapping) else None
+    if isinstance(language, str) and language:
+        return language, None
+    logger.warning("Home Assistant config carries no usable language: %r", config)
+    return "en", "service descriptions may be untranslated: language unavailable"

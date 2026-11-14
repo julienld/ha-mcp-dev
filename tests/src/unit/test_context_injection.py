@@ -27,6 +27,22 @@ from ha_mcp.tools.tools_history import HistoryTools
 from ha_mcp.tools.tools_traces import TraceTools
 
 
+@pytest.fixture(autouse=True)
+def isolated_component_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Progress tests own discovery too; never probe a real .local host."""
+    websocket = MagicMock()
+    websocket.send_command = AsyncMock(
+        return_value={
+            "success": True,
+            "result": {"schema_version": 1, "capabilities": [], "timezone": "UTC"},
+        }
+    )
+    monkeypatch.setattr(
+        "ha_mcp.tools.component_api.get_websocket_client",
+        AsyncMock(return_value=websocket),
+    )
+
+
 def _make_ctx() -> MagicMock:
     """Build a fake FastMCP Context.
 
@@ -303,7 +319,12 @@ async def test_ha_get_hacs_info_search_works_without_ctx() -> None:
     hacs_tool = HacsTools(client).ha_get_hacs_info
 
     ws = AsyncMock()
-    ws.send_command = AsyncMock(return_value={"success": True, "result": []})
+    ws.send_command = AsyncMock(
+        side_effect=lambda name, **_kwargs: {
+            "success": True,
+            "result": {} if name == "hacs/info" else [],
+        }
+    )
 
     with (
         patch(
@@ -332,7 +353,12 @@ async def test_ha_get_hacs_info_search_emits_progress_with_ctx() -> None:
     ctx = _make_ctx()
 
     ws = AsyncMock()
-    ws.send_command = AsyncMock(return_value={"success": True, "result": []})
+    ws.send_command = AsyncMock(
+        side_effect=lambda name, **_kwargs: {
+            "success": True,
+            "result": {} if name == "hacs/info" else [],
+        }
+    )
 
     with (
         patch(

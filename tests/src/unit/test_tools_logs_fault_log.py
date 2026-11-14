@@ -20,7 +20,7 @@ from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant.common import MockConfigEntry
 
-import custom_components.ha_mcp_tools as component
+from custom_components.ha_mcp_tools import file_paths
 from custom_components.ha_mcp_tools.config_flow import HaMcpToolsConfigFlow
 from custom_components.ha_mcp_tools.const import DOMAIN, TOOLS_ENTRY_TITLE
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
@@ -297,9 +297,9 @@ class TestFailures:
         # allowlist does not carry the fault log yet.
         await _write_fault_log(hass, _TWO_CRASHES)
         monkeypatch.setattr(
-            component,
+            file_paths,
             "ALLOWED_READ_FILES",
-            [f for f in component.ALLOWED_READ_FILES if f != FAULT_LOG_PATH],
+            [f for f in file_paths.ALLOWED_READ_FILES if f != FAULT_LOG_PATH],
         )
 
         with pytest.raises(ToolError) as exc_info:
