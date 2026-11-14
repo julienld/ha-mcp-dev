@@ -510,7 +510,15 @@ async def exercise(checks: Checks, *, published_tag: str | None = None) -> dict:
     final = await checks.ready()
     assert checks.path == original_path
     assert final["listeners"] == [8123], final
-    assert not final["server_threads"] and not final["remote_imports"], final
+    assert not final["server_threads"] and not final["remote_imports"], {
+        key: final[key]
+        for key in (
+            "server_threads",
+            "remote_imports",
+            "remote_import_sites",
+            "loopback_attempts",
+        )
+    }
     assert final["owned_tasks"] == 0 and final["loopback_attempts"] == 0, final
     assert final["ticks"] > 0, final
     checks.passed("reload_single_listener_no_server_thread_remote_import_or_loopback")

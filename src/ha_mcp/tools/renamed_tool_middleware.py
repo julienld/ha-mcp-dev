@@ -38,15 +38,12 @@ from ha_mcp._vendor.fastmcp.server.middleware.middleware import (
     MiddlewareContext,
 )
 
-from ..client.rest_client import HomeAssistantError
 from ..renamed_tools import (
     RENAMED_TOOLS,
     adapt_retired_arguments,
     add_stale_list_warning,
     retired_parameters_used,
 )
-from .entity_expose_batch import read_expose_new
-from .helpers import exception_to_structured_error
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +75,10 @@ async def adapt_retired_call(
         if validate_assistant is not None:
             await validate_assistant(assistant)
         else:
+            from ..client.rest_client import HomeAssistantError
+            from .entity_expose_batch import read_expose_new
+            from .helpers import exception_to_structured_error
+
             assert get_client is not None, "the server passes its client"
             try:
                 await read_expose_new(get_client(), assistant)
