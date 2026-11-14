@@ -9,6 +9,7 @@ from typing import Any, cast
 
 from ha_mcp.backends.legacy_flows import legacy_helper_flow
 from ha_mcp.client.rest_client import HomeAssistantError
+from ha_mcp.runtime.error_text import core_error_message
 from ha_mcp.runtime.errors import websocket_error_message
 from ha_mcp.runtime.health_results import (
     filter_active_repairs,
@@ -35,7 +36,6 @@ from ha_mcp.runtime.websocket_policy import (
 from ha_mcp.runtime.websocket_policy import (
     supervisor_path as supervisor_path,
 )
-from ha_mcp.tools.helpers import core_error_message
 
 from ..runtime.action_constants import (
     _SERVICE_TO_STATE,

@@ -18,9 +18,7 @@ from typing import Any
 
 from .backup_entity_ids import _manager
 from .client.rest_client import HomeAssistantCommandError
-from .runtime.registry_recovery_values import (
-    REGISTRY_ITEM_DOMAINS as REGISTRY_ITEM_DOMAINS,
-)
+from .runtime.error_text import core_error_message
 from .runtime.registry_recovery_values import registry_fields_match as _has_fields
 from .runtime.registry_recovery_values import (
     registry_identity_warning as _other_id_warning,
@@ -136,8 +134,6 @@ async def _restore_item(
                 client, {"type": f"config/{registry}/create", **extra_ids, **fields}
             )
         except HomeAssistantCommandError as err:
-            from .tools.helpers import core_error_message  # import cycle, as _rows
-
             noun = id_key.removesuffix("_id")
             core = core_error_message(err)
             holder = (

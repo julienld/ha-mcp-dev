@@ -10,7 +10,6 @@ import time
 from typing import Any, Literal, NoReturn, overload
 
 from ha_mcp._vendor.fastmcp import Context
-from ha_mcp.runtime.error_text import core_error_message as core_error_message
 from ha_mcp.runtime.error_text import (
     extract_structured_error_reason,
     extract_tool_error_message,

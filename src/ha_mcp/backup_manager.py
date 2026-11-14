@@ -92,7 +92,6 @@ from .backup_helper_target import (
 from .backup_helper_target import require_holds as _require_holds
 from .backup_helper_target import safety_target as _safety_target
 from .backup_integrations import fetch_integration, restore_integration
-from .backup_registry_items import REGISTRY_ITEM_DOMAINS as _REGISTRY_ITEM_DOMAINS
 from .backup_registry_items import fetch_area_or_floor as _fetch_area_or_floor
 from .backup_registry_items import fetch_category as _fetch_category
 from .backup_registry_items import fetch_label as _fetch_label
@@ -115,6 +114,9 @@ from .runtime import snapshot_flow_restore as _shared_flow_restore
 from .runtime.entity_snapshot_values import (
     entity_registry_identity,
     entity_snapshot_target,
+)
+from .runtime.registry_recovery_values import (
+    REGISTRY_ITEM_DOMAINS as _REGISTRY_ITEM_DOMAINS,
 )
 from .runtime.snapshot_compare import comparison_values, diff_snapshot_values
 from .runtime.snapshot_files import (

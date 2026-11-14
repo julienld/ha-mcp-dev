@@ -12,6 +12,7 @@ from ha_mcp.client.rest_client import (
     HomeAssistantConnectionError,
 )
 from ha_mcp.errors import ErrorCode, create_error_response
+from ha_mcp.runtime.error_text import core_error_message
 from ha_mcp.runtime.group_tools import GroupTools as _GroupContractTools
 from ha_mcp.runtime.group_values import (
     _build_group_service_data,
@@ -24,7 +25,6 @@ from ha_mcp.runtime.group_values import (
 
 from .auto_backup import with_auto_backup
 from .helpers import (
-    core_error_message,
     exception_to_structured_error,
     get_entity_state_or_none,
     log_tool_usage,
