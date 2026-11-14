@@ -31,7 +31,8 @@ from ha_mcp.client.rest_client import (
     HomeAssistantCommandTimeout,
     HomeAssistantConnectionError,
 )
-from ha_mcp.tools import component_api, config_entry_flow_introspect, tools_dev
+from ha_mcp.runtime.flows import introspect as config_entry_flow_introspect
+from ha_mcp.tools import component_api, tools_dev
 from ha_mcp.tools.tools_dev import find_server_config_entry
 
 from ._component_routing_helpers import (
