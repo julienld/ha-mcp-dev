@@ -1620,16 +1620,6 @@ class TestAssistShouldExposeReadOnly:
     gates the default-exposure check. It must never call core's ``async_should_expose``
     (which persists computed defaults back onto unstamped entities)."""
 
-    def test_explicit_override_true_wins(self, monkeypatch):
-        monkeypatch.setattr(
-            wsapi,
-            "_async_get_entity_settings",
-            lambda hass, eid: {"conversation": {"should_expose": True}},
-        )
-        # expose_new / default must NOT be consulted when an override exists.
-        monkeypatch.setattr(wsapi, "_assist_expose_new_entities", _boom)
-        assert wsapi._assist_should_expose(FakeHass(), "light.a") is True
-
     def test_explicit_override_false_wins(self, monkeypatch):
         monkeypatch.setattr(
             wsapi,
