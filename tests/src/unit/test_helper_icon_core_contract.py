@@ -215,7 +215,7 @@ class TestIconFollowsCoresSchema:
     ) -> None:
         write = AsyncMock(return_value=None)
         with (
-            patch("ha_mcp.tools.config_helpers.create.write_helper_item", write),
+            patch("ha_mcp.tools.component_helper_collections.write_helper_item", write),
             patch(_FETCH_SCHEMAS, AsyncMock(return_value=_PERSON_SCHEMAS)),
         ):
             await _execute_create_simple_helper(

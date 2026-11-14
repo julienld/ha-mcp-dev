@@ -78,6 +78,7 @@ jobs:
         run: |
           docker run --rm -v "$PWD:/source:ro" \
             -e RENOVATE_TEST_ROOT=/usr/local/renovate \
+            -e LOG_LEVEL=debug -e LOG_FORMAT=json \
             "ghcr.io/renovatebot/renovate:$ENGINE" node \
             /source/tests/renovate/vendoring.mjs
       - name: Verify promoted Supervisor and OS lookups produce updates

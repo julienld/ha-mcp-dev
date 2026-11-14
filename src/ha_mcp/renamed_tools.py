@@ -168,6 +168,16 @@ def retired_parameters_used(
     }
 
 
+def stale_list_warning(renames: Sequence[tuple[str, str]]) -> str:
+    listed = ", ".join(f"`{old}` is now `{new}`" for old, new in renames)
+    return (
+        f"This call used a name from before an ha-mcp update ({listed}). It "
+        "was served, but your tool list is a stale copy. Ask the user to "
+        f"refresh it ({CLIENT_TOOL_LIST_REFRESH_STEPS}), then start a new "
+        "conversation."
+    )
+
+
 def add_stale_list_warning(result: Any, renames: Sequence[tuple[str, str]]) -> None:
     """Tell the caller of a call served through an old name that its list is stale.
 
@@ -175,13 +185,7 @@ def add_stale_list_warning(result: Any, renames: Sequence[tuple[str, str]]) -> N
     result's top-level ``warnings`` in both representations: the structured
     content and the JSON text a client without it reads.
     """
-    listed = ", ".join(f"`{old}` is now `{new}`" for old, new in renames)
-    warning = (
-        f"This call used a name from before an ha-mcp update ({listed}). It "
-        "was served, but your tool list is a stale copy. Ask the user to "
-        f"refresh it ({CLIENT_TOOL_LIST_REFRESH_STEPS}), then start a new "
-        "conversation."
-    )
+    warning = stale_list_warning(renames)
     structured = getattr(result, "structured_content", None)
     if isinstance(structured, dict):
         result.structured_content = {
