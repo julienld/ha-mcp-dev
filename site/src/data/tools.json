@@ -209,7 +209,7 @@
   {
     "name": "ha_remove_area_or_floor",
     "title": "Remove Area or Floor",
-    "description": "Remove a Home Assistant area or floor.\n\nRemoving an area unassigns its entities and devices (the entities and\ndevices themselves are not removed). Removing a floor unassigns its\nareas. May break automations referencing the removed area/floor.",
+    "description": "Remove a Home Assistant area or floor.\n\nRemoving an area unassigns its entities and devices (the entities and\ndevices themselves are not removed). Removing a floor unassigns its\nareas. May break automations referencing the removed area/floor. The\nauto-backup of this call restores the area or floor itself, not the\nentities, devices or areas it carried.",
     "inputSchema": {
       "properties": {
         "kind": {
@@ -2968,7 +2968,7 @@
   {
     "name": "ha_config_get_label",
     "title": "Get Label",
-    "description": "Get label info - list all labels or get a specific one by ID.\n\nWithout a label_id: Lists all Home Assistant labels with their configurations.\nWith a label_id: Returns configuration for that specific label.\n\nEXAMPLES:\n- List all labels: ha_config_get_label()\n- Get specific label: ha_config_get_label(\"my_label_id\")\n\nUse ha_config_set_label() to create or update labels.\nUse ha_set_entity(labels=[\"label1\", \"label2\"]) to assign labels to entities,\nha_set_device(labels=[...]) for devices, or\nha_set_area_or_floor(kind=\"area\", labels=[...]) for areas.",
+    "description": "Get label info - list all labels or get a specific one by ID.\n\nWithout a label_id: Lists all Home Assistant labels with their configurations.\nWith a label_id: Returns that label and, as `related`, Home Assistant's\nRelated set for it: the areas, devices and entities that carry it (an\nautomation, script, scene, group or person that carries it is also listed\nunder its own key), the automations and scripts that target it, and the\nareas, floors, devices, config entries and integrations of the carrying\nitems. A template that uses the label (for example `label_entities('x')`)\nis not listed. `related` is None, with a warning, when Home Assistant\ncannot answer; that does not mean the label is unused.\n\nEXAMPLES:\n- List all labels: ha_config_get_label()\n- Get specific label: ha_config_get_label(\"my_label_id\")\n\nUse ha_config_set_label() to create or update labels.\nUse ha_set_entity(labels=[\"label1\", \"label2\"]) to assign labels to entities,\nha_set_device(labels=[...]) for devices, or\nha_set_area_or_floor(kind=\"area\", labels=[...]) for areas.",
     "inputSchema": {
       "properties": {
         "label_id": {
@@ -2992,7 +2992,7 @@
   {
     "name": "ha_config_remove_category",
     "title": "Remove Category",
-    "description": "Delete a Home Assistant category.\n\nRemoves the category from the category registry for the given scope.\nThis will also remove the category assignment from all entities in that scope.\n\nEXAMPLES:\n- Delete category: ha_config_remove_category(\"automation\", \"my_category_id\")\n\nUse ha_config_get_category() to find category IDs.\n\n**WARNING:** Deleting a category will remove it from all assigned entities.\nThis action cannot be undone.",
+    "description": "Delete a Home Assistant category.\n\nRemoves the category from the category registry for the given scope, and\nfrom every entity in that scope that had it. The auto-backup of this call\nrestores the category itself, under a new id, not the entities that had it.\n\nTo move one entity to another category or out of its category and keep the\ncategory, use ha_set_entity(categories=...) instead.\n\nEXAMPLES:\n- Delete category: ha_config_remove_category(\"automation\", \"my_category_id\")\n\nUse ha_config_get_category() to find category IDs.",
     "inputSchema": {
       "properties": {
         "scope": {
@@ -3023,7 +3023,7 @@
   {
     "name": "ha_config_remove_label",
     "title": "Remove Label",
-    "description": "Delete a Home Assistant label.\n\nRemoves the label from the label registry. This will also remove the label\nfrom all entities, devices, and areas that have it assigned.\n\nEXAMPLES:\n- Delete label: ha_config_remove_label(\"my_label_id\")\n\nUse ha_config_get_label() to find label IDs.\n\n**WARNING:** Deleting a label will remove it from all assigned entities.\nThis action cannot be undone.",
+    "description": "Delete a Home Assistant label.\n\nRemoves the label from the label registry. Home Assistant also takes it off\nevery entity, device and area that carries it. Automations and scripts that\ntarget the label keep the reference, which then matches nothing.\n\nTo take a label off one item and keep it, use ha_set_entity,\nha_set_device or ha_set_area_or_floor instead. Before deleting, call\nha_config_get_label(label_id): its `related` lists what carries or\ntargets the label, but not a template that uses it, so an empty `related`\ndoes not prove the label unused. The auto-backup of this call restores\nthe label itself, under the id its current name gives it (a new one if\nit was renamed since it was created), not what carried it.\n\nEXAMPLES:\n- Delete label: ha_config_remove_label(\"my_label_id\")\n\nUse ha_config_get_label() to find label IDs.",
     "inputSchema": {
       "properties": {
         "label_id": {
@@ -3049,16 +3049,17 @@
   {
     "name": "ha_config_set_category",
     "title": "Create or Update Category",
-    "description": "Create or update a Home Assistant category.\n\nCreates a new category if category_id is not provided, or updates an existing category if category_id is provided.\n\nCategories are domain-scoped organizational groups for automations, scripts,\nscenes, and helpers. Unlike labels (which are cross-domain), categories are\nspecific to a single domain scope.\n\nEXAMPLES:\n- Create automation category: ha_config_set_category(\"Lighting\", scope=\"automation\")\n- Create with icon: ha_config_set_category(\"Security\", scope=\"automation\", icon=\"mdi:shield\")\n- Update category: ha_config_set_category(\"Updated Name\", scope=\"automation\", category_id=\"my_category_id\")\n\nAfter creating a category, use ha_set_entity(categories={\"automation\": \"category_id\"}) to assign it.",
+    "description": "Create or update a Home Assistant category.\n\nCreates a new category if category_id is not provided, or updates an existing category if category_id is provided.\n\nCategories are domain-scoped organizational groups for automations, scripts,\nscenes, and helpers. Unlike labels (which are cross-domain), categories are\nspecific to a single domain scope.\n\nEXAMPLES:\n- Create automation category: ha_config_set_category(scope=\"automation\", name=\"Lighting\")\n- Create with icon: ha_config_set_category(scope=\"automation\", name=\"Security\", icon=\"mdi:shield\")\n- Update category: ha_config_set_category(scope=\"automation\", category_id=\"my_category_id\", name=\"Updated Name\")\n\nAfter creating a category, use ha_set_entity(categories={\"automation\": \"category_id\"}) to assign it.",
     "inputSchema": {
       "properties": {
-        "name": {
-          "type": "str",
-          "description": "Display name for the category"
-        },
         "scope": {
           "type": "str",
           "description": "Domain scope for the category (e.g., 'automation', 'script', 'scene', 'helpers')."
+        },
+        "name": {
+          "type": "str | None",
+          "description": "Display name. Required to create; omit on update to keep it.",
+          "default": null
         },
         "category_id": {
           "type": "str | None",
@@ -3067,12 +3068,11 @@
         },
         "icon": {
           "type": "str | None",
-          "description": "Material Design Icon (e.g., 'mdi:tag', 'mdi:label')",
+          "description": "Material Design Icon (e.g., 'mdi:tag', 'mdi:label'); '' or ' ' clears it",
           "default": null
         }
       },
       "required": [
-        "name",
         "scope"
       ]
     },
@@ -3090,12 +3090,13 @@
   {
     "name": "ha_config_set_label",
     "title": "Create or Update Label",
-    "description": "Create or update a Home Assistant label.\n\nCreates a new label if label_id is not provided, or updates an existing\nlabel if label_id is provided. Labels are a cross-domain tagging system\nfor entities, devices, and areas.\n\nEXAMPLES:\n- Create: ha_config_set_label(\"Security\", color=\"red\", icon=\"mdi:shield\", description=\"Security-related devices\")\n- Update: ha_config_set_label(\"Updated Name\", label_id=\"my_label_id\", color=\"blue\")\n- Create and apply to areas: ha_config_set_label(\"Site Home\", areas=[\"kitchen\", \"living_room\"])\n\nAfter creating a label, use ha_set_entity(labels=[\"label_id\"]) to assign it to entities,\nha_set_device(labels=[\"label_id\"]) for devices, or\nha_set_area_or_floor(kind=\"area\", labels=[\"label_id\"]) for areas (replaces the area's set).",
+    "description": "Create or update a Home Assistant label.\n\nCreates a new label if label_id is not provided, or updates an existing\nlabel if label_id is provided. Labels are a cross-domain tagging system\nfor entities, devices, and areas.\n\nEXAMPLES:\n- Create: ha_config_set_label(name=\"Security\", color=\"red\", icon=\"mdi:shield\", description=\"Security-related devices\")\n- Update: ha_config_set_label(label_id=\"my_label_id\", color=\"blue\")\n- Create and apply to areas: ha_config_set_label(name=\"Site Home\", areas=[\"kitchen\", \"living_room\"])\n\nAfter creating a label, use ha_set_entity(labels=[\"label_id\"]) to assign it to entities,\nha_set_device(labels=[\"label_id\"]) for devices, or\nha_set_area_or_floor(kind=\"area\", labels=[\"label_id\"]) for areas (replaces the area's set).",
     "inputSchema": {
       "properties": {
         "name": {
-          "type": "str",
-          "description": "Display name for the label"
+          "type": "str | None",
+          "description": "Display name. Required to create; omit on update to keep it.",
+          "default": null
         },
         "label_id": {
           "type": "str | None",
@@ -3104,17 +3105,17 @@
         },
         "color": {
           "type": "str | None",
-          "description": "Color for the label (e.g., 'red', 'blue', 'green', or hex like '#FF5733')",
+          "description": "Color for the label (e.g., 'red', 'blue', 'green', or hex like '#FF5733'); '' or ' ' clears it",
           "default": null
         },
         "icon": {
           "type": "str | None",
-          "description": "Material Design Icon (e.g., 'mdi:tag', 'mdi:label')",
+          "description": "Material Design Icon (e.g., 'mdi:tag', 'mdi:label'); '' or ' ' clears it",
           "default": null
         },
         "description": {
           "type": "str | None",
-          "description": "Description of the label's purpose",
+          "description": "Description of the label's purpose; '' or ' ' clears it",
           "default": null
         },
         "areas": {
@@ -3122,10 +3123,7 @@
           "description": "Area IDs to apply this label to (adds the label without removing existing ones). Omit to leave area assignments unchanged; an empty list is a no-op (assigns nothing and removes nothing). To clear an area's labels use ha_set_area_or_floor(kind='area', labels=[]).",
           "default": null
         }
-      },
-      "required": [
-        "name"
-      ]
+      }
     },
     "annotations": {
       "readOnlyHint": false,
