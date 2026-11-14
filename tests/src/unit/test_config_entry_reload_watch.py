@@ -12,7 +12,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from ha_mcp.tools import config_entry_reload_watch
+from ha_mcp.backends import remote_entry_watch
 from ha_mcp.tools.config_entry_reload_watch import (
     _TRANSIENT_RECONFIGURE_STATES,
     _entry_fragments,
@@ -261,9 +261,7 @@ async def test_no_modified_at_bump_within_the_commit_timeout_gives_up_early(
     The internal commit-visibility budget must cut the wait short instead of
     stalling for the whole (much larger) caller-supplied timeout.
     """
-    monkeypatch.setattr(
-        "ha_mcp.tools.config_entry_reload_watch._COMMIT_VISIBLE_TIMEOUT", 0.25
-    )
+    monkeypatch.setattr("ha_mcp.runtime.entry_reload._COMMIT_VISIBLE_TIMEOUT", 0.25)
     entry_id = "entry-1"
     queue = _queue_of(
         _frame({"entry_id": entry_id, "state": "loaded", "modified_at": _BEFORE})
@@ -423,16 +421,17 @@ async def test_watch_entry_reload_never_raises_and_always_unsubscribes(
     ws = MagicMock(release_subscription=AsyncMock())
     queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
     monkeypatch.setattr(
-        config_entry_reload_watch,
+        remote_entry_watch,
         "_subscribe_entry_changes",
         AsyncMock(return_value=(ws, (7, queue))),
     )
     observe = AsyncMock(side_effect=RuntimeError("bad frame"))
-    monkeypatch.setattr(config_entry_reload_watch, "_observe_reload_settled", observe)
+    monkeypatch.setattr(remote_entry_watch, "_observe_reload_settled", observe)
 
     async with watch_entry_reload(MagicMock(), "e1") as settled:
         assert await settled() is None
-    observe.assert_awaited_once_with(queue, "e1")
+    observe.assert_awaited_once()
+    assert observe.await_args.args[:2] == (queue, "e1")
     ws.release_subscription.assert_awaited_once_with(7)
 
     async def failed_submit() -> None:
@@ -449,7 +448,7 @@ async def test_watch_entry_reload_without_a_stream_reads_as_unobserved(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        config_entry_reload_watch,
+        remote_entry_watch,
         "_subscribe_entry_changes",
         AsyncMock(return_value=None),
     )

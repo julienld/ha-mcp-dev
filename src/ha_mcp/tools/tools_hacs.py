@@ -1,28 +1,30 @@
 """
-HACS (Home Assistant Community Store) tools for the Home Assistant MCP server.
+HACS (Home Assistant Community Store) integration tools for Home Assistant MCP server.
 
-Home Assistant 2026.11 builds HACS in as the Marketplace; these tools use its
-``marketplace/*`` WebSocket API there and the HACS integration's ``hacs/*``
-API on older versions (``hacs_backend``).
+This module provides tools to interact with HACS via the WebSocket API, enabling AI agents
+to discover custom integrations, Lovelace cards, themes, and more.
 """
 
+import functools
+import inspect
+import json
 import logging
-from typing import Annotated, Any, Literal
-
-from pydantic import Field
+from typing import Any
 
 from ha_mcp._vendor.fastmcp import Context
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp._vendor.fastmcp.tools import tool
+from ha_mcp.tool_api import ToolFailure
 
+from ..backends.legacy import legacy_errors
 from ..client.rest_client import (
     HomeAssistantCommandError,
     HomeAssistantCommandTimeout,
 )
 from ..client.websocket_client import HomeAssistantWebSocketClient
 from ..errors import ErrorCode, create_error_response
+from ..runtime.hacs_tools import HacsFacade
 from .hacs_backend import (
-    CATEGORY_HELP,
     StoreApi,
     accept_warning,
     detect_store_api,
@@ -55,30 +57,59 @@ from .tool_hints import read_only_hints, write_hints
 logger = logging.getLogger(__name__)
 
 
-def _reject_foreign_params(action: str, **per_action: dict[str, Any]) -> None:
-    """Raise when a parameter belonging to a different action was supplied.
+def _shared_hacs_action(function: Any) -> Any:
+    """Return classified failures to the shared facade before SDK formatting."""
 
-    ``per_action`` maps each action name to the {param_name: value} pairs
-    that are FOREIGN to it; a non-None value among them is a caller mixing
-    action vocabularies (e.g. ``version`` with ``action="remove"``), which
-    silently ignoring would let a call do something other than what its
-    arguments describe.
-    """
-    foreign = {
-        name: value
-        for name, value in per_action.get(action, {}).items()
-        if value is not None
-    }
-    if foreign:
-        raise_tool_error(
-            create_error_response(
-                ErrorCode.VALIDATION_INVALID_PARAMETER,
-                f"Parameter(s) {sorted(foreign)} do not apply to "
-                f"action='{action}' and would be ignored — remove them or "
-                "switch action.",
-                context={"action": action, "foreign_parameters": sorted(foreign)},
+    @functools.wraps(function)
+    async def invoke(*args: Any, **kwargs: Any) -> Any:
+        try:
+            return await function(*args, **kwargs)
+        except ToolError as error:
+            payload = json.loads(str(error))
+            raise ToolFailure(
+                payload["error"]["code"], payload["error"]["message"], data=payload
+            ) from error
+
+    return invoke
+
+
+def _hacs_legacy_errors(function: Any) -> Any:
+    """Retain historical action context at the legacy SDK boundary."""
+
+    @functools.wraps(function)
+    async def invoke(*args: Any, **kwargs: Any) -> Any:
+        try:
+            return await function(*args, **kwargs)
+        except ToolError, ToolFailure:
+            raise
+        except Exception as error:
+            bound = inspect.signature(function).bind_partial(*args, **kwargs)
+            suggestions = ["Verify HACS is installed: https://hacs.xyz/"]
+            if function.__name__ == "ha_get_hacs_info":
+                suggestions.extend(
+                    [
+                        "For action='search', try a simpler query or a valid category",
+                        "For action='info', pass a valid repository_id (numeric ID or 'owner/repo')",
+                    ]
+                )
+            else:
+                suggestions.extend(
+                    [
+                        "For action='download', 'remove', or 'update_information', pass a valid repository_id (use ha_get_hacs_info(action='search') to find it)",
+                        "For action='add_repository', use 'owner/repo' format and a matching category",
+                    ]
+                )
+            exception_to_structured_error(
+                error,
+                context={
+                    "tool": function.__name__,
+                    "action": bound.arguments.get("action"),
+                },
+                suggestions=suggestions,
             )
-        )
+            raise
+
+    return legacy_errors(invoke)
 
 
 class HacsTools:
@@ -93,6 +124,7 @@ class HacsTools:
 
     def __init__(self, client: Any) -> None:
         self._client = client
+        self.hacs = self
 
     async def _get_hacs_client(self) -> tuple[HomeAssistantWebSocketClient, StoreApi]:
         """Find the store API on the current request's connection, OAuth users included."""
@@ -105,309 +137,14 @@ class HacsTools:
         )
         return ws_client, await detect_store_api(ws_client)
 
-    @tool(
-        name="ha_get_hacs_info",
-        tags={"HACS"},
-        annotations=read_only_hints("Get HACS Info", open_world=True),
-    )
-    @log_tool_usage
-    async def ha_get_hacs_info(
-        self,
-        action: Annotated[
-            Literal["search", "info"],
-            Field(description="'search' the store, or 'info' for one repository"),
-        ],
-        query: Annotated[
-            str, Field(description="Search keyword (action='search')")
-        ] = "",
-        category: Annotated[
-            str | None,
-            Field(description=f"Filter by category (action='search'). {CATEGORY_HELP}"),
-        ] = None,
-        installed_only: Annotated[
-            bool,
-            Field(description="Only return installed repositories (action='search')"),
-        ] = False,
-        max_results: Annotated[
-            int,
-            Field(
-                ge=1,
-                le=100,
-                description="Maximum number of results (action='search')",
-            ),
-        ] = 10,
-        offset: Annotated[
-            int,
-            Field(
-                ge=0,
-                description="Results to skip for pagination (action='search')",
-            ),
-        ] = 0,
-        repository_id: Annotated[
-            str | None,
-            Field(description="Numeric HACS ID or 'owner/repo' path (action='info')"),
-        ] = None,
-        include_releases: Annotated[
-            bool,
-            Field(
-                description=(
-                    "Add the repository's GitHub releases and the release notes "
-                    "of versions newer than the installed one (action='info')"
-                )
-            ),
-        ] = False,
-        ctx: Context | None = None,
-    ) -> dict[str, Any]:
-        """Get HACS (Home Assistant Community Store) data — search the store or fetch repository details.
-
-        On Home Assistant 2026.11+ HACS is the built-in Marketplace; the tool
-        uses whichever the instance has. Use ``action="search"`` to
-        search/browse/list store repositories, or ``action="info"`` for one
-        repository's full details as the store reports them (the README is in
-        ``additional_info``). This tool is read-only; to install or add
-        repositories use ``ha_manage_hacs``, and for non-HACS entities/config use
-        the domain-specific tools.
-
-        **DASHBOARD TIP:** ``action="search", installed_only=True, category="lovelace"``
-        discovers installed custom cards to wire into ``ha_config_set_dashboard()``.
-
-        **Examples:**
-        - Search the store: ha_get_hacs_info(action="search", query="mushroom", category="lovelace")
-        - List installed: ha_get_hacs_info(action="search", installed_only=True)
-        - Repository details: ha_get_hacs_info(action="info", repository_id="441028036")
-        - Before an update: ha_get_hacs_info(action="info", repository_id="owner/repo", include_releases=True)
-
-        **Caveats:** ``info`` fetches full repository detail from GitHub, so it can hit GitHub
-        rate limits without a connected GitHub account; ``search`` reads the locally cached
-        repository index.
-        """
-        try:
-            if action == "search":
-                return await self._hacs_search(
-                    query, category, installed_only, max_results, offset, ctx
-                )
-
-            # action == "info"
-            repository_id = validate_identifier_not_empty(
-                repository_id,
-                "repository_id",
-                message="repository_id is required for action='info'",
-                suggestions=[
-                    "Pass repository_id (numeric HACS ID or 'owner/repo')",
-                    "Use action='search' to find the repository first",
-                ],
-            )
-            return await self._hacs_info(repository_id, include_releases)
-
-        except ToolError:
-            raise
-        except Exception as e:  # noqa: BLE001
-            exception_to_structured_error(
-                e,
-                context={"tool": "ha_get_hacs_info", "action": action},
-                suggestions=[
-                    "Verify HACS (the Marketplace on Home Assistant 2026.11+) is available",
-                    "For action='search', try a simpler query or a valid category",
-                    "For action='info', pass a valid repository_id (numeric ID or 'owner/repo')",
-                ],
-            )
-            return None  # unreachable: exception_to_structured_error raises
-
-    @tool(
-        name="ha_manage_hacs",
-        tags={"HACS"},
-        annotations=write_hints(
-            "Manage HACS", destructive=True, idempotent=False, open_world=True
-        ),
-    )
-    @log_tool_usage
-    async def ha_manage_hacs(
-        self,
-        action: Annotated[
-            Literal[
-                "download",
-                "add_repository",
-                "remove",
-                "update_information",
-                "accept_warning",
-            ],
-            Field(
-                description=(
-                    "'download' to install/update, 'add_repository' to register "
-                    "a custom repo, 'remove' to uninstall a downloaded repo, "
-                    "'update_information' to refresh a repository's release data "
-                    "from GitHub, or 'accept_warning' to accept the "
-                    "Marketplace's first-run warning for the user this server "
-                    "connects as"
-                )
-            ),
-        ],
-        repository_id: Annotated[
-            str | None,
-            Field(
-                description=(
-                    "Numeric HACS ID or 'owner/repo' path "
-                    "(action='download' / 'remove' / 'update_information')"
-                )
-            ),
-        ] = None,
-        version: Annotated[
-            str | None,
-            Field(description="Specific version to install (action='download')"),
-        ] = None,
-        repository: Annotated[
-            str | None,
-            Field(
-                description="GitHub repo 'owner/repo' to add (action='add_repository')"
-            ),
-        ] = None,
-        category: Annotated[
-            str | None,
-            Field(
-                description=f"Repository category (action='add_repository'). {CATEGORY_HELP}"
-            ),
-        ] = None,
-        confirm_replace_built_in: Annotated[
-            bool | None,
-            Field(
-                description=(
-                    "Marketplace only (action='download'): install a repository "
-                    "that replaces the built-in integration of the same domain. "
-                    "Set it only after the user agrees."
-                )
-            ),
-        ] = None,
-        confirm: Annotated[
-            bool | None,
-            Field(
-                description=(
-                    "action='accept_warning': True once the user has said they "
-                    "read the Marketplace's first-run warning and accept it"
-                )
-            ),
-        ] = None,
-    ) -> dict[str, Any]:
-        """Manage HACS (Home Assistant Community Store) — install/update, remove, add custom repositories, or refresh repository information.
-
-        On Home Assistant 2026.11+ HACS is the built-in Marketplace; the tool
-        uses whichever the instance has. This tool performs writes; to search the
-        store or read repository details use ``ha_get_hacs_info``. Use
-        ``action="update_information"`` to run the HACS UI's "Update information"
-        action ("Refresh information" in the Marketplace) — a forced re-fetch of
-        one repository's release data from GitHub, so a pending update becomes
-        visible to the store and its update entity immediately.
-
-        **Examples:**
-        - Install latest: ha_manage_hacs(action="download", repository_id="441028036")
-        - Install a version: ha_manage_hacs(action="download", repository_id="piitaya/lovelace-mushroom", version="v4.0.0")
-        - Remove: ha_manage_hacs(action="remove", repository_id="owner/repo")
-        - Add a custom repo: ha_manage_hacs(action="add_repository", repository="owner/repo", category="lovelace")
-        - Refresh release data: ha_manage_hacs(action="update_information", repository_id="owner/repo")
-        - Accept the Marketplace warning: ha_manage_hacs(action="accept_warning", confirm=True)
-
-        **Caveats:** Installing an integration usually needs a Home Assistant restart to
-        activate; new Lovelace cards need a browser cache clear. ``add_repository`` requires ``owner/repo``
-        format plus a matching ``category``. Removing an integration deletes its files but
-        the loaded module persists until the next Home Assistant restart — delete its config
-        entries first (``ha_remove_helpers_integrations``). HACS refreshes custom
-        repositories on its own only about every 48 hours (the Marketplace only with a
-        connected GitHub account), so ``update_information`` is the way to surface a
-        just-published release. The Marketplace refuses installs until the user this server
-        connects as has accepted its first-run warning; Home Assistant keeps that per user,
-        so the user's own acceptance in the UI does not cover this server. Ask the user
-        whether they have read it (Settings > Marketplace) and accept it before
-        ``accept_warning``. Adding a repository needs a GitHub account the user connects in
-        the Marketplace panel.
-        """
-        try:
-            # Reject parameters that don't belong to the chosen action rather
-            # than silently discarding them — ha_manage_hacs(action="remove",
-            # version="v4.0.0") plausibly means "uninstall this version",
-            # which remove cannot honor, and dropping it would remove the
-            # whole repository while reporting plain success.
-            _reject_foreign_params(
-                action,
-                download={
-                    "repository": repository,
-                    "category": category,
-                    "confirm": confirm,
-                },
-                remove={
-                    "version": version,
-                    "repository": repository,
-                    "category": category,
-                    "confirm_replace_built_in": confirm_replace_built_in,
-                    "confirm": confirm,
-                },
-                add_repository={
-                    "repository_id": repository_id,
-                    "version": version,
-                    "confirm_replace_built_in": confirm_replace_built_in,
-                    "confirm": confirm,
-                },
-                update_information={
-                    "version": version,
-                    "repository": repository,
-                    "category": category,
-                    "confirm_replace_built_in": confirm_replace_built_in,
-                    "confirm": confirm,
-                },
-                accept_warning={
-                    "repository_id": repository_id,
-                    "version": version,
-                    "repository": repository,
-                    "category": category,
-                    "confirm_replace_built_in": confirm_replace_built_in,
-                },
-            )
-
-            if action == "download":
-                return await self._hacs_download(
-                    repository_id, version, bool(confirm_replace_built_in)
-                )
-
-            if action == "remove":
-                return await self._hacs_remove(repository_id)
-
-            if action == "update_information":
-                return await self._hacs_update_information(repository_id)
-
-            if action == "accept_warning":
-                return await self._hacs_accept_warning(confirm)
-
-            # action == "add_repository"
-            repository = validate_identifier_not_empty(
-                repository,
-                "repository",
-                suggestions=["Pass repository in 'owner/repo' format"],
-            )
-            category = validate_identifier_not_empty(
-                category,
-                "category",
-                suggestions=[
-                    "Pass one of the categories in ha_get_hacs_info(action='search')'s store.categories"
-                ],
-            )
-            return await self._hacs_add_repository(repository, category)
-
-        except ToolError:
-            raise
-        except Exception as e:  # noqa: BLE001
-            exception_to_structured_error(
-                e,
-                context={"tool": "ha_manage_hacs", "action": action},
-                suggestions=[
-                    "Verify HACS (the Marketplace on Home Assistant 2026.11+) is available",
-                    "For action='download', 'remove', or 'update_information', pass a valid repository_id (use ha_get_hacs_info(action='search') to find it)",
-                    "For action='add_repository', use 'owner/repo' format and a matching category",
-                ],
-            )
-            return None  # unreachable: exception_to_structured_error raises
+    async def _store_result(self, data: dict[str, Any]) -> dict[str, Any]:
+        return {"success": True, **await add_timezone_metadata(self._client, data)}
 
     # --- Private action handlers ------------------------------------------
     # The public tools above are thin dispatchers; each handler raises a
     # structured ToolError on failure, caught by the dispatcher's wrapper.
 
+    @_shared_hacs_action
     async def _hacs_search(
         self,
         query: str,
@@ -481,6 +218,7 @@ class HacsTools:
         )
         return {"success": True, **wrapped}
 
+    @_shared_hacs_action
     async def _hacs_info(
         self, repository_id: str, include_releases: bool = False
     ) -> dict[str, Any]:
@@ -541,6 +279,7 @@ class HacsTools:
             answer["warnings"] = [*answer.get("warnings", []), *warnings]
         return answer
 
+    @_shared_hacs_action
     async def _hacs_download(
         self, repository_id: str | None, version: str | None, replace_built_in: bool
     ) -> dict[str, Any]:
@@ -651,6 +390,7 @@ class HacsTools:
         warnings = {"warnings": [reroute_note]} if reroute_note else {}
         return {"success": True, **wrapped, **warnings}
 
+    @_shared_hacs_action
     async def _hacs_remove(self, repository_id: str | None) -> dict[str, Any]:
         # Same up-front guard as ``_hacs_download``: an empty identifier
         # must fail before any destructive WS call.
@@ -776,6 +516,7 @@ class HacsTools:
         )
         return {"success": True, **wrapped}
 
+    @_shared_hacs_action
     async def _hacs_update_information(
         self, repository_id: str | None
     ) -> dict[str, Any]:
@@ -856,23 +597,7 @@ class HacsTools:
         )
         return {"success": True, **wrapped}
 
-    async def _hacs_accept_warning(self, confirm: bool | None) -> dict[str, Any]:
-        if confirm is not True:
-            raise_tool_error(
-                create_error_response(
-                    ErrorCode.VALIDATION_INVALID_PARAMETER,
-                    "action='accept_warning' needs confirm=True, given once the "
-                    "user has said they read the Marketplace's first-run warning "
-                    "and accept it.",
-                    suggestions=[
-                        "Ask the user to read the warning in Settings > "
-                        "Marketplace and say whether they accept it"
-                    ],
-                    context={"action": "accept_warning"},
-                )
-            )
-        return await accept_warning(*await self._get_hacs_client())
-
+    @_shared_hacs_action
     async def _hacs_add_repository(
         self, repository: str, category: str
     ) -> dict[str, Any]:
@@ -956,6 +681,37 @@ class HacsTools:
         )
         return {"success": True, **wrapped}
 
+    ha_get_hacs_info = tool(
+        name="ha_get_hacs_info",
+        tags={"HACS"},
+        annotations=read_only_hints("Get HACS Info", open_world=True),
+    )(log_tool_usage(_hacs_legacy_errors(HacsFacade.ha_get_hacs_info)))
+    ha_manage_hacs = tool(
+        name="ha_manage_hacs",
+        tags={"HACS"},
+        annotations=write_hints(
+            "Manage HACS", destructive=True, idempotent=False, open_world=True
+        ),
+    )(log_tool_usage(_hacs_legacy_errors(HacsFacade.ha_manage_hacs)))
+
+    @_shared_hacs_action
+    async def _hacs_accept_warning(self, confirm: bool | None) -> dict[str, Any]:
+        if confirm is not True:
+            raise_tool_error(
+                create_error_response(
+                    ErrorCode.VALIDATION_INVALID_PARAMETER,
+                    "action='accept_warning' needs confirm=True, given once the "
+                    "user has said they read the Marketplace's first-run warning "
+                    "and accept it.",
+                    suggestions=[
+                        "Ask the user to read the warning in Settings > "
+                        "Marketplace and say whether they accept it"
+                    ],
+                    context={"action": "accept_warning"},
+                )
+            )
+        return await accept_warning(*await self._get_hacs_client())
+
 
 def register_hacs_tools(mcp: Any, client: Any, **kwargs: Any) -> None:
     """Register HACS integration tools with the MCP server."""
@@ -997,3 +753,35 @@ async def _resolve_hacs_repo_id(
         )
     )
     return None  # unreachable: raise_tool_error always raises
+
+
+__all__ = [
+    "HacsTools",
+    "register_hacs_tools",
+]
+
+
+def _reject_foreign_params(action: str, **per_action: dict[str, Any]) -> None:
+    """Raise when a parameter belonging to a different action was supplied.
+
+    ``per_action`` maps each action name to the {param_name: value} pairs
+    that are FOREIGN to it; a non-None value among them is a caller mixing
+    action vocabularies (e.g. ``version`` with ``action="remove"``), which
+    silently ignoring would let a call do something other than what its
+    arguments describe.
+    """
+    foreign = {
+        name: value
+        for name, value in per_action.get(action, {}).items()
+        if value is not None
+    }
+    if foreign:
+        raise_tool_error(
+            create_error_response(
+                ErrorCode.VALIDATION_INVALID_PARAMETER,
+                f"Parameter(s) {sorted(foreign)} do not apply to "
+                f"action='{action}' and would be ignored — remove them or "
+                "switch action.",
+                context={"action": action, "foreign_parameters": sorted(foreign)},
+            )
+        )

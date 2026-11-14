@@ -175,7 +175,7 @@ async def _remove_tag(
             new=AsyncMock(return_value=None),
         ),
         patch(
-            "ha_mcp.tools.tools_integrations.verify_entity_removed",
+            "ha_mcp.runtime.removal_wait.verify_removed",
             new=waited or AsyncMock(return_value=None),
         ),
     ):
@@ -288,7 +288,7 @@ async def test_an_update_by_a_storage_id_that_starts_with_the_type_finds_it() ->
 
     client.send_websocket_message = AsyncMock(side_effect=ws)
     with patch(
-        "ha_mcp.tools.config_helpers.update.wait_for_entity_registered",
+        "ha_mcp.tools.ws_waiters.wait_for_entity_registered",
         new=AsyncMock(return_value=True),
     ):
         await _set_helper_tool(client)(

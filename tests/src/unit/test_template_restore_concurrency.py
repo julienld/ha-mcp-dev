@@ -21,7 +21,7 @@ from homeassistant.core import HomeAssistant
 
 from ha_mcp import backup_manager as bm
 from ha_mcp.client.rest_client import HomeAssistantClient
-from ha_mcp.tools import config_entry_flow
+from ha_mcp.runtime import snapshot_flow_restore as config_entry_flow
 
 from ._core_client import refused_url
 from ._template_helper_core import (

@@ -181,7 +181,7 @@ class TestReplaceFileAction:
         failure is raised here.
         """
         monkeypatch.setattr(
-            "custom_components.ha_mcp_tools.async_check_ha_config_file",
+            "custom_components.ha_mcp_tools.yaml_editing.async_check_ha_config_file",
             AsyncMock(side_effect=HomeAssistantError("check boom")),
         )
         cfg = tmp_path / "configuration.yaml"

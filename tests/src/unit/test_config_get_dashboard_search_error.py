@@ -31,7 +31,7 @@ from ha_mcp.client.rest_client import (
     HomeAssistantConnectionError,
 )
 from ha_mcp.client.websocket_client import HomeAssistantWebSocketClient
-from ha_mcp.tools import tools_config_dashboards
+from ha_mcp.runtime import dashboard_search, dashboard_values
 from ha_mcp.tools.tools_config_dashboards import DashboardConfigTools
 
 from ._dashboard_search_helpers import SEARCH_URL_PATH, store_dashboard
@@ -260,7 +260,7 @@ class TestResolvedUrlPathInErrorContext:
         assert resolved["url_path"] == "resolved-path"
         # An unexpected failure in our own code once the config is read.
         monkeypatch.setattr(
-            tools_config_dashboards,
+            dashboard_search if criteria else dashboard_values,
             "compute_config_hash",
             MagicMock(side_effect=RuntimeError("boom")),
         )

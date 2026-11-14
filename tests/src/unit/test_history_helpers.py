@@ -13,6 +13,7 @@ from homeassistant.setup import async_setup_component
 
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp.client.rest_client import HomeAssistantClient
+from ha_mcp.runtime import history_policy
 from ha_mcp.tools import tools_history
 from ha_mcp.tools.tools_history import RELATIVE_TIME_UNIT_SECONDS, parse_relative_time
 
@@ -32,6 +33,7 @@ def frozen_now(monkeypatch: pytest.MonkeyPatch) -> None:
         def now(cls, tz: tzinfo | None = None) -> Self:
             return cls.fromtimestamp(NOW.timestamp(), tz)
 
+    monkeypatch.setattr(history_policy, "datetime", FrozenDateTime)
     monkeypatch.setattr(tools_history, "datetime", FrozenDateTime)
 
 

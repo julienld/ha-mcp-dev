@@ -8,6 +8,7 @@ falls back to the legacy REST read; a WS-down ConnectionError falls back too
 
 from __future__ import annotations
 
+import json
 from typing import Any
 from unittest.mock import MagicMock
 
@@ -32,6 +33,20 @@ from ._component_routing_helpers import (
 )
 
 WS_CONFIG_ENTRIES = "ha_mcp_tools/config_entries"
+
+
+async def test_subentries_are_read_without_the_optional_component() -> None:
+    subentries = [{"subentry_id": "child", "subentry_type": "sensor", "title": "Child"}]
+    client = RoutingClient(single_entry=_row(), subentries=subentries)
+    ws = make_ws(WS_CONFIG_ENTRIES, info_exc=_CAPSLESS)
+
+    result = await _get(ws, client, entry_id="cfg1", include_subentries=True)
+
+    assert result["subentries"] == subentries
+    assert result["subentry_count"] == 1
+    assert client.list_config_subentries_calls == 1
+    assert client.start_options_flow_calls == 0
+
 
 _CAPSLESS = HomeAssistantCommandError("no info", "unknown_command")
 _CAPS_CONFIG_ENTRIES = {
@@ -140,6 +155,9 @@ class RoutingClient:
                 )
             )
         ]
+
+    async def list_config_entries(self) -> list[dict[str, Any]]:
+        return await self._request("GET", "/config/config_entries/entry")
 
     async def get_config_entry(self, entry_id: str) -> dict[str, Any]:
         # Legacy single-entry read (config_entries/get_single in real life).
@@ -316,6 +334,9 @@ async def test_single_entry_not_found_via_component_raises() -> None:
         await _get(ws, client, entry_id="ghost")
 
     assert "ghost" in str(excinfo.value)
+    error = json.loads(str(excinfo.value))["error"]
+    assert error["code"] == "RESOURCE_NOT_FOUND"
+    assert "ha_get_integration()" in error["suggestion"]
     assert client.get_config_entry_calls == 0
 
 

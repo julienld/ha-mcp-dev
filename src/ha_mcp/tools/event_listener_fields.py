@@ -10,13 +10,14 @@ allowed to hide the zero, because it may only store the event. The count is
 taken before dispatch, so the warning states registration, not delivery.
 """
 
+from collections.abc import Mapping
 from typing import Any
 
-from ..client.event_listeners import MATCH_ALL_EVENT_KEY
+from ..runtime.event_tools import MATCH_ALL_EVENT_KEY
 
 
 def event_listener_fields(
-    listener_counts: dict[str, int] | None,
+    listener_counts: Mapping[Any, int] | None,
     event_type: str,
 ) -> dict[str, Any]:
     """Build the listener-count fields for a fired event's response."""

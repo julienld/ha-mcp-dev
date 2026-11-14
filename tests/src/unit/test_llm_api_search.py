@@ -16,7 +16,6 @@ from custom_components.ha_mcp_tools import llm_api
 from custom_components.ha_mcp_tools.const import EXPOSURE_TOOL_SEARCH
 
 from ._llm_api_helpers import (
-    CoreToolResult,
     fake_session,
     llm_context,
     make_api,
@@ -73,7 +72,6 @@ async def _instance(monkeypatch: pytest.MonkeyPatch, tools: list[Any]) -> Any:
 async def _search(
     monkeypatch: pytest.MonkeyPatch, args: dict[str, Any], tools: list[Any]
 ) -> Any:
-    monkeypatch.setattr(llm_api.llm, "ToolResult", CoreToolResult, raising=False)
     instance = await _instance(monkeypatch, tools)
     search = next(t for t in instance.tools if t.name == "ha_search_tools")
     return await search.async_call(

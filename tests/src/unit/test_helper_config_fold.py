@@ -18,11 +18,11 @@ from homeassistant.setup import async_setup_component
 from ha_mcp._vendor.fastmcp import Client, FastMCP
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp.client.rest_client import HomeAssistantClient
+from ha_mcp.tools import ws_waiters
 from ha_mcp.tools.component_helper_collections import (
     collection_payload as client_payload,
 )
 from ha_mcp.tools.config_helpers import schemas as hc_schemas
-from ha_mcp.tools.config_helpers import update as hc_update
 from ha_mcp.tools.tools_config_helpers import (
     HelperConfigTools,
     register_config_helper_tools,
@@ -649,8 +649,8 @@ async def test_a_tag_update_is_not_waited_on(
     """A tag is not waited on after an update, as after its create."""
     await set_up(hass, "tag")
     await _create_tag(core_client, name="Front door")
-    waited = AsyncMock(wraps=hc_update.wait_for_entity_registered)
-    monkeypatch.setattr(hc_update, "wait_for_entity_registered", waited)
+    waited = AsyncMock(wraps=ws_waiters.wait_for_entity_registered)
+    monkeypatch.setattr(ws_waiters, "wait_for_entity_registered", waited)
     await HelperConfigTools(core_client).ha_config_set_helper(
         helper_type="tag", helper_id="abc-1", name="F", wait=True
     )

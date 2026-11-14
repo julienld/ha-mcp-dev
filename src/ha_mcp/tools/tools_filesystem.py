@@ -20,16 +20,18 @@ import json
 import logging
 import time
 import weakref
-from typing import Annotated, Any, NoReturn
+from typing import Any, NoReturn
 
-from pydantic import Field
+from packaging.version import InvalidVersion, Version
 
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp._vendor.fastmcp.tools import tool
 
+from ..backends.legacy import legacy_errors
+from ..component_contract import MIN_COMPONENT_VERSION as MIN_COMPONENT_VERSION
 from ..errors import ErrorCode, create_error_response
+from ..runtime.filesystem_tools import FilesystemTools as FilesystemContractTools
 from .auto_backup import with_auto_backup
-from .coercion import JSON_STRING_COERCION
 from .component_api import ComponentCaps, get_component_caps
 from .config_entry_flow import COMPONENT_DOMAIN as MCP_TOOLS_DOMAIN
 from .file_edit_refusal import raise_edit_file_refusal
@@ -39,7 +41,7 @@ from .helpers import (
     raise_tool_error,
     register_tool_methods,
 )
-from .resource_patch import MAX_EDITS, ResourceEdit
+from .resource_patch import ResourceEdit
 from .tool_hints import read_only_hints, write_hints
 from .util_helpers import unwrap_service_response
 
@@ -56,57 +58,6 @@ FEATURE_FLAG = "HAMCP_ENABLE_FILESYSTEM_TOOLS"
 CALLER_TOKEN_FIELD = "_ha_mcp_token"
 CALLER_TOKEN_BOOTSTRAP_SERVICE = "get_caller_token"
 EDIT_FILE_SERVICE = "edit_file"
-
-# Minimum version of the ha_mcp_tools custom component that this ha-mcp
-# release expects. Bumps in lockstep with ``manifest.json`` whenever a
-# server-side behavior change requires it. Older components (no
-# ``version`` in the get_caller_token response, or a version below this)
-# get an actionable "update via HACS" error.
-# 0.8.0: ``ha_config_set_yaml`` now depends on the component's
-# ``themes/*.yaml`` yaml_path scope; a <0.8.0 component reaches the old
-# handler and rejects ``themes/<name>.yaml`` with a misleading "not
-# allowed" message instead of this actionable update prompt.
-# 0.9.0: the file tools accept absolute HAOS sibling-volume paths (/share,
-# /media, /ssl, /backup — issue #1586). A <0.9.0 component's allowlist
-# normalizer rejects every absolute path, so adding a volume would silently
-# do nothing; the version gate surfaces an actionable "update" prompt instead.
-# 0.10.0: legacy-backup restore + whole-file YAML replace add new component
-# services (``replace_file``, ``list_legacy_backups``, ``read_legacy_backup``)
-# and a ``yaml_path`` arg on ``read_file``. A <0.10.0 component lacks these
-# services; the gate surfaces an actionable "update" instead of a raw
-# "service not found".
-# 0.11.0: the confirm-flow + diff work (#1720) adds ``require_confirm`` /
-# ``confirm_token`` args to ``edit_yaml_config`` and ``diff`` / ``written``
-# response fields. The server always sends ``require_confirm`` (from
-# ENABLE_YAML_EDIT_CONFIRM, default on); a <0.11.0 component's strict
-# (PREVENT_EXTRA) schema rejects the unknown arg with a raw voluptuous
-# error — the gate surfaces an actionable "update" prompt instead.
-# 1.2.0: the YAML fragment read (#1788, PR #1882) needs two component
-# behaviours that a component reports no differently from a missing key.
-# ``list_files`` honours the configured packages folder, so ha_config_get_yaml's
-# glob/discovery would otherwise come back "Path not allowed" instead of
-# enumerating packages; and ``include_parsed`` on ``read_file`` is a new arg
-# that an older strict (PREVENT_EXTRA) schema rejects with a raw voluptuous
-# error. The gate turns both into the actionable "update" prompt. The floor is
-# 1.2.0, not the 1.1.0 that was current when #1882 landed: #1882 added these
-# behaviours under an *un-bumped* 1.1.0 component, so 1.1.0 splits into builds
-# with and without them and cannot distinguish the two (#1946). 1.2.0 is the
-# first component version cut after #1882, hence the first that guarantees both.
-MIN_COMPONENT_VERSION = "1.2.0"
-
-
-def _version_tuple(version: str) -> tuple[int, ...]:
-    """Parse ``'0.5.1'`` → ``(0, 5, 1)`` for tuple-comparison.
-
-    Raises ``ValueError`` on any non-numeric segment. Coercing a bad
-    segment to ``0`` would not actually achieve the "fail closed"
-    intent: a malformed high-order segment like ``"1.x.0"`` would
-    still parse to ``(1, 0, 0)`` and pass a ``>= (0, 5, 1)`` gate.
-    The caller surfaces the ValueError as a distinct "malformed version"
-    error (reinstall / file-issue remediation), separate from the
-    "too old" update prompt.
-    """
-    return tuple(int(segment) for segment in version.split("."))
 
 
 # Weak-keyed by client object to support multi-client setups and self-evict
@@ -157,17 +108,6 @@ def _get_token_lock(client: Any) -> asyncio.Lock:
         lock = asyncio.Lock()
         _CALLER_TOKEN_LOCKS[client] = lock
     return lock
-
-
-async def _registered_tool_services(client: Any) -> dict[str, Any] | None:
-    """Return the ``ha_mcp_tools`` services in HA's registry, None for no domain."""
-    # HA /api/services returns a list of {"domain": str, "services": {...}}
-    # objects — stable across all supported HA versions.
-    services = await client.get_services()
-    for entry in services:
-        if isinstance(entry, dict) and entry.get("domain") == MCP_TOOLS_DOMAIN:
-            return entry.get("services") or {}
-    return None
 
 
 async def _bootstrap_service_state(client: Any) -> tuple[bool, bool]:
@@ -312,10 +252,9 @@ async def _fetch_caller_token(client: Any) -> str:
         )
     version: str = raw_version
     try:
-        parsed = _version_tuple(version)
-    except ValueError:
-        # A malformed version (non-numeric segment like "1.x.0", or a
-        # future suffixed/date scheme _version_tuple can't parse) is a
+        parsed = Version(version)
+    except InvalidVersion:
+        # A malformed PEP 440 version (for example "1.x.0") is a
         # different failure mode from "too old": a HACS update won't help
         # if the reported version itself is wrong. Point at reinstall /
         # issue-filing instead of the version-bump remediation.
@@ -333,7 +272,7 @@ async def _fetch_caller_token(client: Any) -> str:
                 ],
             )
         )
-    if parsed < _version_tuple(MIN_COMPONENT_VERSION):
+    if parsed < Version(MIN_COMPONENT_VERSION):
         _raise_component_too_old(f"reported version is {version}")
     _CALLER_TOKEN_CACHE[client] = token
     _COMPONENT_VERSION_CACHE[client] = version
@@ -447,37 +386,11 @@ def _assert_caps_version_ok(caps: ComponentCaps) -> None:
     left to that downstream token-fetch gate rather than rejected here.
     """
     try:
-        parsed = _version_tuple(caps.component_version)
-    except ValueError:
+        parsed = Version(caps.component_version)
+    except InvalidVersion:
         return
-    if parsed < _version_tuple(MIN_COMPONENT_VERSION):
+    if parsed < Version(MIN_COMPONENT_VERSION):
         _raise_component_too_old(f"reported version is {caps.component_version}")
-
-
-async def _assert_file_edits_supported(client: Any) -> None:
-    """Replace an opaque missing-service failure with an update prompt.
-
-    Asks the service registry instead of comparing versions, which cannot tell
-    either way: an unreleased build (master, E2E, the dev environment) reports
-    the previous release's number while already carrying the service, and a dev
-    pre-release carries the next release's number, also when it was cut before
-    the service existed. Scoped to edits, unlike MIN_COMPONENT_VERSION, so
-    whole-file writes need no component update.
-    """
-    if EDIT_FILE_SERVICE in (await _registered_tool_services(client) or {}):
-        return
-    raise_tool_error(
-        create_error_response(
-            ErrorCode.COMPONENT_NOT_INSTALLED,
-            "ha_write_file(edits=...) needs a newer ha_mcp_tools custom component: "
-            f"the installed one has no {EDIT_FILE_SERVICE} service.",
-            suggestions=[
-                "Settings → System → Updates → HA-MCP → Update (HACS, or the Marketplace on Home Assistant 2026.11+)",
-                "Restart Home Assistant after the update completes",
-                "Or send the whole file with content= instead of edits",
-            ],
-        )
-    )
 
 
 async def _probe_tools_services(client: Any) -> bool:
@@ -559,64 +472,14 @@ async def _assert_mcp_tools_available(client: Any) -> None:
         _raise_tools_entry_not_set_up()
 
 
-def _write_mode_is_invalid(kwargs: dict[str, Any]) -> bool:
-    """A call without exactly one of content and edits cannot write, so skip its snapshot."""
-    return (kwargs.get("content") is None) == (kwargs.get("edits") is None)
-
-
-class FilesystemTools:
+class LegacyFilesystem:
     """Filesystem access tools for Home Assistant."""
 
     def __init__(self, client: Any) -> None:
         self._client = client
 
-    @tool(
-        name="ha_list_files",
-        tags={"Files", "beta"},
-        annotations=read_only_hints("List Files", open_world=False),
-    )
-    @log_tool_usage
-    async def ha_list_files(
-        self,
-        path: Annotated[
-            str,
-            Field(
-                description=(
-                    "Directory path. Relative to the config dir for the built-in "
-                    "allowlist; absolute for a configured custom directory or "
-                    "HAOS sibling volume. "
-                    "Example: 'www/' or '/share/llm'"
-                ),
-            ),
-        ],
-        pattern: Annotated[
-            str | None,
-            Field(
-                default=None,
-                description=(
-                    "Optional glob pattern to filter files. "
-                    "Example: '*.css', '*.yaml', '*.js'"
-                ),
-            ),
-        ] = None,
-    ) -> dict[str, Any]:
-        """List files in a directory within the Home Assistant config directory.
-
-        Returns file names, sizes, and modification times for one of the allowed
-        directories:
-        - `www/` - Web assets (CSS, JS, images for dashboards)
-        - `themes/` - Theme files
-        - `custom_templates/` - Jinja2 template files
-        - `dashboards/` - YAML-mode dashboard files
-        - `blueprints/` - Automation/script blueprint sources (read-only)
-        - `packages/`, plus the folder bound by `homeassistant: packages:` when
-          it has another name
-        - Plus any custom directories OR HAOS sibling volumes (`/share`,
-          `/media`, `/ssl`) configured in the ha-mcp settings UI
-        Path traversal (../) is blocked.
-
-        EXAMPLE: ha_list_files(path="www/", pattern="*.css")
-        """
+    async def list_files(self, path: str, pattern: str | None = None) -> dict[str, Any]:
+        """Retain the existing component-service route for legacy callers."""
         try:
             # Check if custom component is available
             await _assert_mcp_tools_available(self._client)
@@ -638,7 +501,7 @@ class FilesystemTools:
             # carries an error payload.
             if isinstance(result, dict):
                 result = unwrap_service_response(result)
-                if result.get("success") is not True:
+                if not result.get("success", True):
                     raise_tool_error(result)
                 return result
 
@@ -660,79 +523,10 @@ class FilesystemTools:
             return None
         return None  # py/mixed-returns: explicit terminal; error handlers above always raise (NoReturn), unreachable
 
-    @tool(
-        name="ha_read_file",
-        tags={"Files", "beta"},
-        annotations=read_only_hints("Read File", open_world=False),
-    )
-    @log_tool_usage
-    async def ha_read_file(
-        self,
-        path: Annotated[
-            str,
-            Field(
-                description=(
-                    "File path. Relative to the config dir for the built-in "
-                    "allowlist; absolute for a configured HAOS sibling volume. "
-                    "Examples: "
-                    "'configuration.yaml', 'www/custom.css', '/share/llm/notes.md'"
-                ),
-            ),
-        ],
-        tail_lines: Annotated[
-            int | None,
-            Field(
-                default=None,
-                ge=1,
-                le=10000,
-                description=(
-                    "For log files, return only the last N lines. Default: None (return "
-                    "full file, or last 1000 lines for logs)"
-                ),
-            ),
-        ] = None,
-        yaml_path: Annotated[
-            str | None,
-            Field(
-                default=None,
-                description=(
-                    "Dotted YAML key path (e.g. 'alert2', 'mqtt.sensor'). When set, the "
-                    "response also carries 'subtree': the round-trip text of just that "
-                    "key's value (null when the key is absent); comments and HA tags "
-                    "('!secret', '!include') survive as written and a '!secret' is never "
-                    "resolved."
-                ),
-            ),
-        ] = None,
+    async def read_file(
+        self, path: str, tail_lines: int | None = None, yaml_path: str | None = None
     ) -> dict[str, Any]:
-        """Read a file from the Home Assistant config directory.
-
-        General-purpose escape hatch — prefer a dedicated tool when one exists:
-        ha_manage_blueprints(action="get") for a blueprint body,
-        ha_config_get_yaml for a config key, ha_config_get_automation/script/scene
-        for storage-mode items. Reach for ha_read_file only for raw on-disk text
-        those tools don't expose.
-
-        Some files have special handling:
-        - `secrets.yaml`: Values are masked for security
-        - `home-assistant.log` / `home-assistant.log.fault`: Prefer
-          ha_get_logs(source='error_log') and
-          ha_get_logs(source='fault_log') over reading these directly.
-
-        **Allowed Read Paths:**
-        - `configuration.yaml`, `automations.yaml`, `scripts.yaml`, `scenes.yaml`
-        - `secrets.yaml` (values masked)
-        - `*.yaml` at any depth under `packages/` and under the folder bound by
-          `homeassistant: packages:`
-        - `home-assistant.log`, `home-assistant.log.fault` (tail only)
-        - `www/**`, `themes/**`, `custom_templates/**`, `dashboards/**`, `blueprints/**`
-        - `custom_components/**/*.py` (read-only)
-        - Plus any custom directories OR HAOS sibling volumes (`/share`,
-          `/media`, `/ssl`) configured in the ha-mcp settings UI
-        Path traversal (../) is blocked.
-
-        EXAMPLE: ha_read_file(path="packages/alert2.yaml", yaml_path="alert2")
-        """
+        """Retain the existing component-service route for legacy callers."""
         try:
             from .config_file_visibility import refuse_reading_hidden_definitions
 
@@ -753,7 +547,7 @@ class FilesystemTools:
 
             if isinstance(result, dict):
                 result = unwrap_service_response(result)
-                if result.get("success") is not True:
+                if not result.get("success", True):
                     raise_tool_error(result)
                 return result
 
@@ -775,122 +569,14 @@ class FilesystemTools:
             return None
         return None  # py/mixed-returns: explicit terminal; error handlers above always raise (NoReturn), unreachable
 
-    @tool(
-        name="ha_write_file",
-        tags={"Files", "beta"},
-        annotations=write_hints(
-            # Not idempotent: retrying an edit whose 'new' contains its 'old'
-            # applies it twice.
-            "Write File",
-            destructive=True,
-            idempotent=False,
-            open_world=False,
-        ),
-    )
-    @with_auto_backup(
-        domain="file",
-        id_param="path",
-        mandatory=True,
-        skip_fn=_write_mode_is_invalid,
-    )
-    @log_tool_usage
-    async def ha_write_file(
+    async def write_file(
         self,
-        path: Annotated[
-            str,
-            Field(
-                description=(
-                    "File path in an allowed write directory; pass the "
-                    "absolute path for a HAOS sibling volume. "
-                    "Example: 'www/custom.css', '/share/llm/out.txt'"
-                ),
-            ),
-        ],
-        content: Annotated[
-            str | None,
-            Field(
-                default=None,
-                description=(
-                    "The whole content to write to the file. Exactly one of "
-                    "content and edits is required."
-                ),
-            ),
-        ] = None,
-        overwrite: Annotated[
-            bool,
-            Field(
-                default=False,
-                description=(
-                    "Whether content may overwrite an existing file. Not needed "
-                    "with edits."
-                ),
-            ),
-        ] = False,
-        create_dirs: Annotated[
-            bool,
-            Field(
-                default=True,
-                description=(
-                    "Whether to create parent directories if they don't exist."
-                ),
-            ),
-        ] = True,
-        edits: Annotated[
-            # Bounds on the list, not the union: there they render as
-            # minItems/maxItems instead of string-only minLength/maxLength.
-            Annotated[list[ResourceEdit], Field(min_length=1, max_length=MAX_EDITS)]
-            | None,
-            JSON_STRING_COERCION,
-            Field(
-                default=None,
-                description=(
-                    "Search/replace edits for an existing text file, applied in "
-                    "order; prefer them over content for a small change to a "
-                    "large file."
-                ),
-            ),
-        ] = None,
+        path: str,
+        content: str | None = None,
+        overwrite: bool = False,
+        create_dirs: bool = True,
+        edits: list[ResourceEdit] | None = None,
     ) -> dict[str, Any]:
-        """Write a file to allowed directories in the Home Assistant config.
-
-        Creates or updates files (custom CSS/JS for dashboards, Jinja2 macro
-        templates, theme YAML) in restricted directories only.
-
-        Not for configuration: use ha_config_set_yaml for configuration.yaml and
-        packages, and ha_config_set_automation, ha_config_set_script,
-        ha_config_set_scene or ha_config_set_dashboard for storage-mode items.
-
-        **Allowed Write Directories:**
-        - `www/` - Web assets for dashboards
-        - `themes/` - Theme YAML files
-        - `custom_templates/` - Jinja2 template files
-        - `dashboards/` - YAML-mode dashboard files
-        - Plus custom directories OR HAOS sibling volumes (`/share`, `/media`, `/ssl`)
-          from the ha-mcp settings UI; `/ssl` is read-only on HAOS and Supervised
-        Configuration files (configuration.yaml, etc.) cannot be written; path
-        traversal (../) is blocked.
-
-        Text content only. Overwriting a file that currently holds binary
-        content still succeeds, but its prior bytes cannot be captured by
-        auto-backup (only modifications/deletions of text files are
-        snapshotted); the skip is logged, the write is not blocked.
-
-        With edits, nothing is saved unless every edit applies, and the rest of
-        the file, line endings included, stays as it is. ha_read_file shows a
-        CRLF file with LF; edits to it match either way. In a file that mixes
-        CRLF and LF, a multi-line 'old' matches only lines stored with the line
-        ending it uses.
-
-        After a write, the response says what Home Assistant needs before it
-        uses the file: a theme or custom template is reloaded (post_action,
-        reload_service), a custom template Home Assistant cannot load (not
-        *.jinja, or over its size limit) gets a warning, and a dashboards/ file
-        lists the YAML dashboards that name it as their file (dashboards); they
-        reread it when next opened. A file a dashboard !includes is not checked.
-
-        EXAMPLE: ha_write_file(path="custom_templates/formatters.jinja", content="{% macro shout(text) %}{{ text | upper }}{% endmacro %}")
-        EXAMPLE: ha_write_file(path="www/card.js", edits=[{"old": "const REFRESH = 30000;", "new": "const REFRESH = 10000;"}])
-        """
         try:
             if (content is None) == (edits is None):
                 raise_tool_error(
@@ -958,47 +644,8 @@ class FilesystemTools:
             return None
         return None  # py/mixed-returns: explicit terminal; error handlers above always raise (NoReturn), unreachable
 
-    @tool(
-        name="ha_delete_file",
-        tags={"Files", "beta"},
-        annotations=write_hints(
-            "Delete File", destructive=True, idempotent=True, open_world=False
-        ),
-    )
-    @with_auto_backup(domain="file", id_param="path", mandatory=True)
-    @log_tool_usage
-    async def ha_delete_file(
-        self,
-        path: Annotated[
-            str,
-            Field(
-                description=(
-                    "File path in an allowed delete directory; pass the "
-                    "absolute path for a HAOS sibling volume. "
-                    "Example: 'www/old-file.css'"
-                ),
-            ),
-        ],
-        confirm: Annotated[
-            bool,
-            Field(
-                default=False,
-                description=("Must be True to confirm deletion."),
-            ),
-        ] = False,
-    ) -> dict[str, Any]:
-        """Delete a file from allowed directories in the Home Assistant config.
-
-        ha_manage_backup(scope="edits") can restore a text file from its most
-        recent auto-backup snapshot; a binary file has no snapshot and its
-        deletion is permanent. Allowed directories:
-        `www/`, `themes/`, `custom_templates/`, `dashboards/`, plus any custom
-        directories OR HAOS sibling volumes (`/share`, `/media`, `/ssl`) configured
-        in the ha-mcp settings UI; `/ssl` is read-only on HAOS and Supervised.
-        Configuration files cannot be deleted; path traversal (../) is blocked.
-
-        EXAMPLE: ha_delete_file(path="www/deprecated-style.css", confirm=True)
-        """
+    async def delete_file(self, path: str, confirm: bool = False) -> dict[str, Any]:
+        """Retain the existing component-service route for legacy callers."""
         try:
             if not confirm:
                 raise_tool_error(
@@ -1027,7 +674,7 @@ class FilesystemTools:
 
             if isinstance(result, dict):
                 result = unwrap_service_response(result)
-                if result.get("success") is not True:
+                if not result.get("success", True):
                     raise_tool_error(result)
                 return result
 
@@ -1050,6 +697,56 @@ class FilesystemTools:
         return None  # py/mixed-returns: explicit terminal; error handlers above always raise (NoReturn), unreachable
 
 
+def _write_mode_is_invalid(kwargs: dict[str, Any]) -> bool:
+    """A call without exactly one of content and edits cannot write, so skip its snapshot."""
+    return (kwargs.get("content") is None) == (kwargs.get("edits") is None)
+
+
+class FilesystemTools(FilesystemContractTools, LegacyFilesystem):
+    def __init__(self, client: Any) -> None:
+        LegacyFilesystem.__init__(self, client)
+        FilesystemContractTools.__init__(self, self)
+
+    ha_list_files = tool(
+        name="ha_list_files",
+        tags={"Files", "beta"},
+        annotations=read_only_hints("List Files", open_world=False),
+    )(log_tool_usage(legacy_errors(FilesystemContractTools.ha_list_files)))
+
+    ha_read_file = tool(
+        name="ha_read_file",
+        tags={"Files", "beta"},
+        annotations=read_only_hints("Read File", open_world=False),
+    )(log_tool_usage(legacy_errors(FilesystemContractTools.ha_read_file)))
+
+    ha_write_file = tool(
+        name="ha_write_file",
+        tags={"Files", "beta"},
+        annotations=write_hints(
+            "Write File", destructive=True, idempotent=False, open_world=False
+        ),
+    )(
+        with_auto_backup(
+            domain="file",
+            id_param="path",
+            mandatory=True,
+            skip_fn=_write_mode_is_invalid,
+        )(log_tool_usage(legacy_errors(FilesystemContractTools.ha_write_file)))
+    )
+
+    ha_delete_file = tool(
+        name="ha_delete_file",
+        tags={"Files", "beta"},
+        annotations=write_hints(
+            "Delete File", destructive=True, idempotent=True, open_world=False
+        ),
+    )(
+        with_auto_backup(domain="file", id_param="path", mandatory=True)(
+            log_tool_usage(legacy_errors(FilesystemContractTools.ha_delete_file))
+        )
+    )
+
+
 def register_filesystem_tools(mcp: Any, client: Any, **kwargs: Any) -> None:
     """Register filesystem access tools with the MCP server.
 
@@ -1062,3 +759,40 @@ def register_filesystem_tools(mcp: Any, client: Any, **kwargs: Any) -> None:
 
     logger.info("Filesystem tools enabled via feature flag")
     register_tool_methods(mcp, FilesystemTools(client))
+
+
+async def _registered_tool_services(client: Any) -> dict[str, Any] | None:
+    """Return the ``ha_mcp_tools`` services in HA's registry, None for no domain."""
+    # HA /api/services returns a list of {"domain": str, "services": {...}}
+    # objects — stable across all supported HA versions.
+    services = await client.get_services()
+    for entry in services:
+        if isinstance(entry, dict) and entry.get("domain") == MCP_TOOLS_DOMAIN:
+            return entry.get("services") or {}
+    return None
+
+
+async def _assert_file_edits_supported(client: Any) -> None:
+    """Replace an opaque missing-service failure with an update prompt.
+
+    Asks the service registry instead of comparing versions, which cannot tell
+    either way: an unreleased build (master, E2E, the dev environment) reports
+    the previous release's number while already carrying the service, and a dev
+    pre-release carries the next release's number, also when it was cut before
+    the service existed. Scoped to edits, unlike MIN_COMPONENT_VERSION, so
+    whole-file writes need no component update.
+    """
+    if EDIT_FILE_SERVICE in (await _registered_tool_services(client) or {}):
+        return
+    raise_tool_error(
+        create_error_response(
+            ErrorCode.COMPONENT_NOT_INSTALLED,
+            "ha_write_file(edits=...) needs a newer ha_mcp_tools custom component: "
+            f"the installed one has no {EDIT_FILE_SERVICE} service.",
+            suggestions=[
+                "Settings → System → Updates → HA-MCP → Update (HACS, or the Marketplace on Home Assistant 2026.11+)",
+                "Restart Home Assistant after the update completes",
+                "Or send the whole file with content= instead of edits",
+            ],
+        )
+    )

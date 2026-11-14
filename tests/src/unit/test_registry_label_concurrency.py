@@ -61,12 +61,15 @@ from ha_mcp.utils.registry_update_lock import (
 # ``registry_update_locks`` (entity tools) resolves it in its own module, and
 # ``backup_entity_ids`` through ``backup_manager``.
 _LOCK_SITES = (
-    "ha_mcp.tools.tools_labels",
-    "ha_mcp.tools.tools_areas",
+    "ha_mcp.backends.legacy_labels",
+    "ha_mcp.runtime.area_writes",
+    "ha_mcp.backends.remote_snapshot_registry",
     "ha_mcp.utils.registry_update_lock",
     "ha_mcp.tools.config_helpers.registry",
     "ha_mcp.tools.config_helpers.create",
     "ha_mcp.tools.config_helpers.update",
+    "ha_mcp.runtime.helper_storage",
+    "ha_mcp.runtime.helper_removal_storage",
     "ha_mcp.backup_manager",
 )
 # Bounds a wait that only runs out when the protection is gone.

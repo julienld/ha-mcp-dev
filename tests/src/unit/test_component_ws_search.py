@@ -37,13 +37,14 @@ from typing import Any
 import orjson
 import pytest
 import voluptuous as vol
+from homeassistant.core import Context, State
 from homeassistant.exceptions import HomeAssistantError
 
 # Server-side scoring path the component must stay in parity with.
 from ha_mcp.tools.search.entities import _match_exact_search_entity
 from ha_mcp.utils.fuzzy_search import calculate_ratio
 
-from ._component_ws_api import COMPONENT_VERSION, wsapi
+from ._component_ws_api import COMPONENT_VERSION, NATIVE_COMMANDS, wsapi
 from ._component_ws_fakes import (
     FakeRegEntry,
     FakeServices,
@@ -58,37 +59,25 @@ _REPO_ROOT = Path(__file__).resolve().parents[3]
 # =============================================================================
 # Fakes
 # =============================================================================
-class FakeState:
-    def __init__(
-        self,
+def FakeState(
+    entity_id: str,
+    state: str = "on",
+    friendly_name: str | None = None,
+    last_changed: str = "2026-07-16T00:00:00+00:00",
+    last_updated: str = "2026-07-16T00:00:00+00:00",
+    **attrs: Any,
+) -> State:
+    """Build Core's actual State for the existing callers of this fixture."""
+    if friendly_name is not None:
+        attrs["friendly_name"] = friendly_name
+    return State(
         entity_id,
-        state="on",
-        friendly_name=None,
-        last_changed="2026-07-16T00:00:00+00:00",
-        last_updated="2026-07-16T00:00:00+00:00",
-        **attrs,
-    ):
-        self.entity_id = entity_id
-        self.state = state
-        self.attributes = dict(attrs)
-        if friendly_name is not None:
-            self.attributes["friendly_name"] = friendly_name
-        self.last_changed = last_changed
-        self.last_updated = last_updated
-
-    def as_dict(self):
-        # Mirrors core ``State.as_dict()`` / the REST ``/api/states/<id>`` shape.
-        # Timestamps are already ISO strings here — the real WS transport encodes
-        # core's datetimes to the same isoformat, so the server sees plain JSON
-        # either way (see websocket_api.overview._do_states byte-parity note).
-        return {
-            "entity_id": self.entity_id,
-            "state": self.state,
-            "attributes": dict(self.attributes),
-            "last_changed": self.last_changed,
-            "last_updated": self.last_updated,
-            "context": {"id": "01ABC", "parent_id": None, "user_id": None},
-        }
+        state,
+        attrs,
+        last_changed=datetime.fromisoformat(last_changed),
+        last_updated=datetime.fromisoformat(last_updated),
+        context=Context(id="01ABC"),
+    )
 
 
 class FakeStates:
@@ -1910,7 +1899,10 @@ class TestRegistrationAndAdminGate:
             wsapi.todo_items.WS_TODO_ITEM,  # test_component_todo_items.py
             wsapi.automation_config.WS_AUTOMATION_CONFIG,
             wsapi.config_references.WS_CONFIG_REFERENCES,  # its own test file
-        } | {wsapi.flow_record.WS_FLOW_RECORD, wsapi.flow_outline.WS_FLOW_OUTLINE}
+        } | NATIVE_COMMANDS | {
+            wsapi.flow_record.WS_FLOW_RECORD,
+            wsapi.flow_outline.WS_FLOW_OUTLINE,
+        }
         assert "ha_mcp_tools/config_get" not in functional_ws.registered
 
     @pytest.mark.parametrize("command", _ALL_COMMANDS)

@@ -1,26 +1,16 @@
 """Native logbook lookups for trace debugging."""
 
 import logging
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Literal
+
+from ha_mcp.runtime.trace_logbook import TraceLogbook as TraceLogbook
 
 from .log_sources_logbook import LogbookLogSourceMixin
 
 logger = logging.getLogger(__name__)
 
 LOGBOOK_ROW_LIMIT = 50
-
-
-@dataclass(frozen=True)
-class TraceLogbook:
-    """Logbook rows for one trace run."""
-
-    entries: list[dict[str, Any]]
-    transport: Literal["component", "rest"] | None
-    warnings: list[str]
-    total: int = 0
-    truncated: bool = False
 
 
 class _TraceLogbookReader(LogbookLogSourceMixin):

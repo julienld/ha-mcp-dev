@@ -16,7 +16,6 @@ import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
@@ -27,10 +26,12 @@ from homeassistant.setup import async_setup_component
 from pytest_homeassistant.common import MockConfigEntry
 
 from ha_mcp import backup_manager as bm
+from ha_mcp import config as config_module
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp.client.rest_client import HomeAssistantClient, HomeAssistantConnectionError
 from ha_mcp.errors import DEFAULT_SUGGESTIONS, ErrorCode
-from ha_mcp.tools import auto_backup, helper_flows
+from ha_mcp.runtime import helper_flows
+from ha_mcp.tools import auto_backup
 from ha_mcp.tools.tools_integrations import IntegrationTools
 
 from ._client_spies import sent_messages
@@ -113,11 +114,11 @@ async def _refused(
 
 @pytest.fixture
 def auto_backup_on(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setattr(
-        auto_backup,
-        "get_global_settings",
-        lambda: SimpleNamespace(enable_auto_backup=True, auto_backup_dir=str(tmp_path)),
+    settings = config_module.get_global_settings().model_copy(
+        update={"enable_auto_backup": True, "auto_backup_dir": str(tmp_path)}
     )
+    monkeypatch.setattr(config_module, "get_global_settings", lambda: settings)
+    monkeypatch.setattr(auto_backup, "get_global_settings", lambda: settings)
 
 
 async def test_entity_of_a_non_helper_integration_is_refused(
@@ -326,7 +327,9 @@ async def test_entity_route_backs_up_the_resolved_helper_before_deleting(
             return hass.config_entries.async_get_entry(entry.entry_id) is not None
     else:
         entity_id = await _storage_entity(hass, core_client)
-        expected = ("helper_input_boolean", entity_id)
+        row = entity_registry.async_get(entity_id)
+        assert row is not None
+        expected = ("helper_input_boolean", row.unique_id)
 
         def present() -> bool:
             return hass.states.get(entity_id) is not None

@@ -1,7 +1,6 @@
 """Unit tests for ha_mcp_tools custom component file operations.
 
-These tests focus on the pure Python utility functions that don't require
-Home Assistant dependencies.
+Pure utility functions are tested without Home Assistant dependencies.
 """
 
 import glob
@@ -70,7 +69,7 @@ class TestReadLogTailSync:
     def test_matches_whole_file_split_semantics(self, tmp_path, tail, chunk_size):
         content = "l1\nlé2\n\nl4 ünïcode\nl5\n"
         target = tmp_path / "home-assistant.log.fault"
-        target.write_text(content, encoding="utf-8")
+        target.write_text(content, encoding="utf-8", newline="\n")
         result = _read_log_tail_sync(target, tail, chunk_size=chunk_size)
         expected_content, expected_total, expected_truncated = self._reference(
             content, tail
@@ -98,7 +97,7 @@ class TestReadLogTailSync:
 
     def test_reads_only_the_tail_bytes(self, tmp_path, monkeypatch):
         target = tmp_path / "home-assistant.log"
-        target.write_text("x\n" * 10_000)
+        target.write_text("x\n" * 10_000, newline="\n")
         reads: list[int] = []
         real_open = Path.open
 
@@ -1150,11 +1149,9 @@ class TestEditYamlConfigExtraAllowedKeys:
 
         import custom_components.ha_mcp_tools as comp
 
-        src = inspect.getsource(comp)
-        start = src.index("_parse_and_validate_yaml_path(\n")
-        block = src[start : start + 400]
+        src = inspect.getsource(comp.YamlEditor._validate)
         assert (
-            "extra_allowed_keys=_effective_extra_allowed_keys(hass, call)" in block
+            "extra_allowed_keys=_effective_extra_allowed_keys(hass, options)" in src
         ), (
             "the edit handler stopped forwarding the effective extra keys (wire "
             "union component store); the operator setting would be silently inert"
@@ -1317,12 +1314,12 @@ class TestDenyFloor:
         # A real .storage UNDER this config is still denied (relative-input scan).
         assert _violates_deny_floor(config_dir, ".storage/auth") is True
 
+    @pytest.mark.skipif(
+        os.name == "nt",
+        reason="Windows resolves link/.. lexically before opening; this regression targets POSIX open semantics",
+    )
     def test_symlink_dotdot_lexical_erase_escape_blocked(self, tmp_path):
-        # #1586 review (HIGH): a symlink under an allowed dir + ``..`` escapes
-        # the config dir even though os.path.normpath lexically collapses
-        # ``link/..`` to a safe-looking in-config path. open(2) resolves the
-        # symlink THEN applies ``..``, landing outside — _resolves_within
-        # resolves the RAW path so enforcement matches the real open target.
+        # POSIX open follows the symlink before applying the parent segment.
         config_dir = tmp_path / "config"
         config_dir.mkdir()
         (config_dir / "www").mkdir()
@@ -1472,9 +1469,7 @@ class TestEffectiveExtraAllowedKeys:
         return hass
 
     def _call(self, wire):
-        call = MagicMock()
-        call.data = {"extra_allowed_keys": wire}
-        return call
+        return {"extra_allowed_keys": wire}
 
     def test_unions_wire_and_store(self):
         import custom_components.ha_mcp_tools as comp
@@ -1894,6 +1889,7 @@ class TestResolvesWithin:
         # base/link/x resolves to outside/x — escapes base.
         assert _resolves_within(base, "link/x") is False
 
+    @pytest.mark.skipif(os.name == "nt", reason="POSIX symlink/.. open semantics")
     def test_symlink_dotdot_lexical_erase_escape_rejected(self, tmp_path):
         # The HIGH finding's core: `<base>/<symlink>/..`. normpath lexically
         # collapses `link/..` back to base, but open(2) resolves link first,
@@ -1907,12 +1903,15 @@ class TestResolvesWithin:
         assert _resolves_within(base, "link/../escape") is False
 
 
+@pytest.mark.skipif(
+    os.name == "nt", reason="HAOS volume roots are POSIX absolute paths"
+)
 class TestVolumeSymlinkEscape:
     """End-to-end #1586 review HIGH regression: a symlink under a configured
     volume that escapes the volume root is denied for read AND write/delete."""
 
     def test_volume_symlink_dotdot_escape_blocked(self, tmp_path, monkeypatch):
-        import custom_components.ha_mcp_tools as comp
+        import custom_components.ha_mcp_tools.file_paths as comp
 
         config_dir = tmp_path / "config"
         config_dir.mkdir()
@@ -1931,7 +1930,7 @@ class TestVolumeSymlinkEscape:
         )
 
     def test_volume_symlink_within_root_allowed(self, tmp_path, monkeypatch):
-        import custom_components.ha_mcp_tools as comp
+        import custom_components.ha_mcp_tools.file_paths as comp
 
         config_dir = tmp_path / "config"
         config_dir.mkdir()
@@ -1953,7 +1952,7 @@ class TestVolumeSymlinkEscape:
         # root (so _resolves_within allows it) but points at secrets.yaml. Only
         # the resolved-basename floor check catches it (volume reads are never
         # masked, so this must be denied).
-        import custom_components.ha_mcp_tools as comp
+        import custom_components.ha_mcp_tools.file_paths as comp
 
         config_dir = tmp_path / "config"
         config_dir.mkdir()
@@ -1974,7 +1973,7 @@ class TestVolumeSymlinkEscape:
         # A symlink that resolves to a .storage dir WITHIN the volume root stays
         # inside the root (passes _resolves_within) — only the resolved-segment
         # deny floor blocks it. Read AND write/delete must be denied.
-        import custom_components.ha_mcp_tools as comp
+        import custom_components.ha_mcp_tools.file_paths as comp
 
         config_dir = tmp_path / "config"
         config_dir.mkdir()
@@ -1996,7 +1995,7 @@ class TestVolumeSymlinkEscape:
     ):
         # Validation-time (store) deny floor: adding an innocuously-named entry
         # that resolves to secrets.yaml must be rejected before persisting.
-        import custom_components.ha_mcp_tools as comp
+        import custom_components.ha_mcp_tools.file_paths as comp
 
         volume = tmp_path / "vol"
         volume.mkdir()
@@ -2348,7 +2347,8 @@ class TestPackageDirMarkersCached:
             raise AssertionError("cache miss: re-parsed an unchanged config")
 
         monkeypatch.setattr(
-            "custom_components.ha_mcp_tools._load_package_dir_markers_tracked", _boom
+            "custom_components.ha_mcp_tools.package_dirs._load_package_dir_markers_tracked",
+            _boom,
         )
         assert _package_dir_markers_cached(p) == {"pkgs"}
 
@@ -2576,9 +2576,9 @@ class TestBinaryFileDeleteBackup:
         (tmp_path / "www" / "logo.png").write_bytes(b"\x89PNG\r\n\x1a\n\xff\xfe\x00")
 
         monkeypatch.setattr(comp, "_caller_token_ok", lambda hass, call: True)
-        monkeypatch.setattr(comp, "_current_extra_dirs", lambda hass: [])
         monkeypatch.setattr(
-            comp, "_detect_package_dirs", AsyncMock(return_value={"packages"})
+            "custom_components.ha_mcp_tools.file_access._detect_package_dirs",
+            AsyncMock(return_value={"packages"}),
         )
 
         async def _run_in_executor(func, *args):

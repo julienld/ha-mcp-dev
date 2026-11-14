@@ -12,6 +12,7 @@ from typing import Any
 import requests
 from urllib3.exceptions import InsecureRequestWarning
 
+from ._conftest_native_runtime import configure_native_entry, native_runtime_selected
 from .utilities.streamable_http import parse_mcp_response
 from .utilities.topology import tools_entry_absent
 
@@ -114,7 +115,7 @@ def _is_no_tools_entry_selected() -> bool:
     On these lanes the component's "HA-MCP File & YAML Tools" config entry is
     absent, so the privileged filesystem / YAML services never register. It is
     orthogonal to the backend selectors: each backend has its own no-tools
-    shape (see ``_prepare_testcontainer_config`` / ``_prepare_haos_image``).
+    shape (see ``prepare_testcontainer_config`` / ``_prepare_haos_image``).
 
     Delegates to ``utilities.topology.tools_entry_absent`` — the staging here
     and the markers / assertions there must never disagree about which
@@ -229,6 +230,9 @@ def _install_embedded_server(config_path: Path, wheel_name: str) -> None:
             }
         )
         storage_file.write_text(json.dumps(data, indent=2))
+
+    if native_runtime_selected():
+        configure_native_entry(config_path, _EMBEDDED_ENTRY_ID)
 
     server_data_dir = config_path / _EMBEDDED_SERVER_CONFIG_SUBDIR
     server_data_dir.mkdir(parents=True, exist_ok=True)

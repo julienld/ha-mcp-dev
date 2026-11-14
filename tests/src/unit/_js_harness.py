@@ -654,7 +654,7 @@ def discover_script_surfaces() -> list[ScriptSurface]:
 # returns the rendered HTML (a module-level constant or a render
 # function invoked with placeholder args). Add a new entry to register
 # a new Python-rendered UI for parse coverage.
-def _render_settings_html() -> str:
+def render_settings_html() -> str:
     from ha_mcp.settings_ui import _SETTINGS_HTML
 
     return _SETTINGS_HTML
@@ -672,6 +672,6 @@ def _render_consent_html() -> str:
 
 
 _PY_RENDERERS: list[tuple[str, str, Any]] = [
-    ("settings_ui", "ha_mcp.settings_ui", _render_settings_html),
+    ("settings_ui", "ha_mcp.settings_ui", render_settings_html),
     ("consent_form", "ha_mcp.auth.consent_form", _render_consent_html),
 ]
