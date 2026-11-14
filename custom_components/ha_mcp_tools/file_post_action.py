@@ -23,12 +23,18 @@ _YAML_SUFFIXES = (".yaml", ".yml")
 
 
 async def reload_after_edit(
-    hass: HomeAssistant, domain: str, service: str
+    hass: HomeAssistant, domain: str, service: str, *, context: Any = None
 ) -> dict[str, Any]:
     """Call a reload service and report it as ``post_action``."""
     reload_service = f"{domain}.{service}"
     try:
-        await hass.services.async_call(domain, service, {}, blocking=True)
+        await hass.services.async_call(
+            domain,
+            service,
+            {},
+            blocking=True,
+            **({"context": context} if context is not None else {}),
+        )
     except Exception as err:  # noqa: BLE001
         _LOGGER.warning("%s failed after a file change: %s", reload_service, err)
         return {
@@ -49,7 +55,7 @@ def _max_custom_template_size() -> int | None:
 
 
 async def _custom_template_action(
-    hass: HomeAssistant, rel_path: str, size: int
+    hass: HomeAssistant, rel_path: str, size: int, *, context: Any = None
 ) -> dict[str, Any]:
     # Core's loader: custom_templates/**/*.jinja, at most MAX_CUSTOM_TEMPLATE_SIZE.
     if not rel_path.endswith(".jinja"):
@@ -67,7 +73,9 @@ async def _custom_template_action(
                 f"templates over {limit:,} bytes, so templates cannot import it."
             ]
         }
-    return await reload_after_edit(hass, "homeassistant", "reload_custom_templates")
+    return await reload_after_edit(
+        hass, "homeassistant", "reload_custom_templates", context=context
+    )
 
 
 def _dashboards_using(
@@ -125,7 +133,7 @@ def _config_relative(hass: HomeAssistant, abs_path: str) -> str | None:
 
 
 async def after_file_write(
-    hass: HomeAssistant, rel_path: str, size: int
+    hass: HomeAssistant, rel_path: str, size: int, *, context: Any = None
 ) -> dict[str, Any]:
     """Response fields for a file written at ``rel_path``; empty when none apply.
 
@@ -141,9 +149,11 @@ async def after_file_write(
     normalized = posixpath.normpath(rel_path.replace("\\", "/"))
     top = normalized.split("/", 1)[0]
     if top == "themes" and normalized.endswith(_YAML_SUFFIXES):
-        return await reload_after_edit(hass, "frontend", "reload_themes")
+        return await reload_after_edit(
+            hass, "frontend", "reload_themes", context=context
+        )
     if top == "custom_templates":
-        return await _custom_template_action(hass, normalized, size)
+        return await _custom_template_action(hass, normalized, size, context=context)
     if top == "dashboards" and normalized.endswith(_YAML_SUFFIXES):
         return _dashboard_action(hass, normalized)
     return {}

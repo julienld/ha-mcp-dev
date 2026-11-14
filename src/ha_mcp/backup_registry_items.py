@@ -18,6 +18,11 @@ from typing import Any
 
 from .backup_entity_ids import _manager
 from .client.rest_client import HomeAssistantCommandError
+from .runtime.error_text import core_error_message
+from .runtime.registry_recovery_values import registry_fields_match as _has_fields
+from .runtime.registry_recovery_values import (
+    registry_identity_warning as _other_id_warning,
+)
 
 
 async def _rows(client: Any, kind: str) -> list[Any]:
@@ -62,18 +67,6 @@ async def _category_rows(client: Any, scope: str) -> list[Any]:
 _AREA_OR_FLOOR = ("area", "floor")
 
 
-def _same(a: Any, b: Any) -> bool:
-    # Core keeps aliases and labels in sets and lists them in hash order, so a
-    # list value matches in any order.
-    if isinstance(a, list) and isinstance(b, list):
-        return sorted(map(str, a)) == sorted(map(str, b))
-    return bool(a == b)
-
-
-def _has_fields(row: dict[str, Any], fields: dict[str, Any]) -> bool:
-    return all(_same(row.get(key), value) for key, value in fields.items())
-
-
 def _like(rows: list[Any], payload: dict[str, Any]) -> Any:
     """The row whose fields all match the payload, None when there is none."""
     return next((r for r in rows if _has_fields(r, payload)), None)
@@ -95,18 +88,6 @@ def _noting(row: Any, *warnings: str) -> Any:
     if not warnings:
         return row
     return {**row, "warnings": [*(row.get("warnings") or []), *warnings]}
-
-
-def _other_id_warning(row: Any, id_key: str, item_id: str) -> str | None:
-    """The warning for a restore that gave the item an id other than its own."""
-    new_id = row.get(id_key)
-    if new_id == item_id:
-        return None
-    noun = id_key.removesuffix("_id")
-    return (
-        f"The {noun} came back as {new_id}, not {item_id}: anything that refers "
-        f"to the {noun} by {item_id} still matches nothing."
-    )
 
 
 async def _restore_item(
@@ -153,8 +134,6 @@ async def _restore_item(
                 client, {"type": f"config/{registry}/create", **extra_ids, **fields}
             )
         except HomeAssistantCommandError as err:
-            from .tools.helpers import core_error_message  # import cycle, as _rows
-
             noun = id_key.removesuffix("_id")
             core = core_error_message(err)
             holder = (
@@ -199,8 +178,8 @@ async def restore_label(client: Any, entity_id: str, config: Any) -> Any:
 
 
 async def fetch_category(client: Any, entity_id: str) -> Any:
-    scope, _, cat_id = entity_id.partition(":")
-    if not cat_id:
+    scope, separator, cat_id = entity_id.rpartition(":")
+    if not separator or not cat_id:
         return None
     for item in await _category_rows(client, scope):
         if item.get("category_id") == cat_id:
@@ -209,7 +188,7 @@ async def fetch_category(client: Any, entity_id: str) -> Any:
 
 
 async def restore_category(client: Any, entity_id: str, config: Any) -> Any:
-    scope, _, cat_id = entity_id.partition(":")
+    scope, _, cat_id = entity_id.rpartition(":")
     scope = scope or config.get("scope")
     rows = await _category_rows(client, scope)
     payload = _manager()._strip_readonly(config, "category_id", "scope")
@@ -280,9 +259,6 @@ async def _area_warnings(client: Any, stored: dict[str, Any], row: Any) -> list[
             "accepted it: give the area another floor with ha_set_area_or_floor."
         )
     return warnings
-
-
-REGISTRY_ITEM_DOMAINS = frozenset({"label", "category", "area_or_floor"})
 
 
 async def restored_item(client: Any, domain: str, entity_id: str, config: Any) -> Any:

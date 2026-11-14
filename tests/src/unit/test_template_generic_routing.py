@@ -46,7 +46,7 @@ from ha_mcp import backup_manager as bm
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp.client.rest_client import HomeAssistantClient, HomeAssistantConnectionError
 from ha_mcp.config import get_global_settings, reset_global_settings
-from ha_mcp.tools import config_entry_backup
+from ha_mcp.runtime import helper_flows, helper_removal_entries
 from ha_mcp.tools.tools_integrations import IntegrationTools
 
 _PLAIN = "plain_hub"
@@ -344,9 +344,9 @@ async def test_template_enable_disable_keeps_integration_backup(
     assert snapshot["config"]["entry_id"] == entry.entry_id
     assert snapshot["config"]["domain"] == "template"
     assert {key: snapshot["config"][key] for key in original} == original
-    # Only the own-entry guard reads the entry; the backup keeps the whole
-    # integration fragment without resolving a helper domain.
-    get_entry.assert_awaited_once_with(entry.entry_id)
+    # Admission and capture may recheck the target; every read stays bound to it.
+    assert get_entry.await_args_list
+    assert all(call.args == (entry.entry_id,) for call in get_entry.await_args_list)
 
 
 @pytest.mark.parametrize("operation", ["options", "delete"])
@@ -389,7 +389,7 @@ async def test_generic_template_mutation_preserves_best_effort_capture_policy(
         # Core's list of helper flows, which names the snapshot's domain,
         # gets no answer.
         monkeypatch.setattr(
-            config_entry_backup,
+            helper_flows if operation == "options" else helper_removal_entries,
             "helper_flow_types",
             AsyncMock(side_effect=HomeAssistantConnectionError("no answer")),
         )
@@ -403,9 +403,10 @@ async def test_generic_template_mutation_preserves_best_effort_capture_policy(
     snapshots, locked = await _first_mutation(world)
     assert (snapshots, locked) == ([], True)
     assert world.snapshots() == []
-    # The mutation itself reads the entry once (the options walker, or the
-    # delete's own-entry guard), independently of backup.
-    assert get_entry.await_count == 1 + int(capture_state == "lookup_failed")
+    assert get_entry.await_args_list
+    assert all(call.args == (entry.entry_id,) for call in get_entry.await_args_list)
+    if capture_state == "lookup_failed":
+        assert any("No pre-write backup" in warning for warning in result["warnings"])
 
 
 @pytest.mark.parametrize("confirm", [False, True])

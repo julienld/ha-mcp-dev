@@ -21,13 +21,24 @@ from functools import partial
 from typing import TYPE_CHECKING, Any
 
 from .backup_entity_ids import _manager
+from .runtime.integration_snapshot import (
+    _enabled_then_failed as _enabled_then_failed,
+)
+from .runtime.integration_snapshot import (
+    _options_not_restored as _options_not_restored,
+)
+from .runtime.integration_snapshot import (
+    integration_snapshot_value,
+)
+from .runtime.integration_snapshot import (
+    restore_integration as shared_restore_integration,
+)
 
 if TYPE_CHECKING:
-    from .backup_manager import BackupRestoreError
+    pass
 
 
-async def fetch_integration(client: Any, entity_id: str) -> Any:
-    from .redaction import placeholder_option_keys
+async def fetch_integration(client: Any, entity_id: str) -> dict[str, Any] | None:
     from .tools import component_config_entries
     from .tools.component_api import component_supports, get_component_caps
 
@@ -53,17 +64,9 @@ async def fetch_integration(client: Any, entity_id: str) -> Any:
         return None
     if not read.rows:
         return None
-    row = {key: value for key, value in read.rows[0].items() if key != "subentries"}
-    options = row.pop("options", None)
-    if not isinstance(options, dict):
-        row["options_unavailable"] = "options_missing"
-    elif read.secret_scrub_degraded:
-        row["options_unavailable"] = "secret_scrub_degraded"
-    elif placeholder_option_keys(options):
-        row["options_unavailable"] = "redacted_options"
-    else:
-        row["options"] = options
-    return row
+    return integration_snapshot_value(
+        read.rows[0], secret_scrub_degraded=read.secret_scrub_degraded
+    )
 
 
 async def _read_options(client: Any, entry_id: str) -> Any:
@@ -89,97 +92,9 @@ async def _set_disabled_by(client: Any, entry_id: str, disabled_by: Any) -> Any:
 
 
 async def restore_integration(client: Any, entity_id: str, config: Any) -> Any:
-    bm = _manager()
-    current = await fetch_integration(client, entity_id)
-    if current is None:
-        raise bm.BackupRestoreError(
-            f"Config entry {entity_id} ({config.get('domain')}) no longer exists. "
-            "An integration snapshot holds only the entry's metadata, options and "
-            "enabled state, so it cannot recreate a deleted entry. Nothing was "
-            "changed; add the integration again to recover it.",
-            reason="entry_deleted",
-            suggestions=[
-                "Add it again with ha_set_integration, or have the user add it in "
-                "the HA UI when it needs their credentials."
-            ],
-        )
-    options = config.get("options")
-    if "options" in config and not isinstance(options, dict):
-        raise bm.BackupRestoreError(
-            "The integration snapshot's options are not an object. Nothing was "
-            "changed.",
-            reason="invalid_snapshot",
-        )
-    if options is not None and "options" not in current:
-        raise bm.BackupRestoreError(
-            f"The current options of config entry {entity_id} cannot be read "
-            f"({current.get('options_unavailable')}), so the snapshot's options "
-            "cannot be checked against them. Nothing was changed.",
-            reason="options_unreadable",
-        )
-    not_restored = _options_not_restored(config, current)
-    disabled_by = None if config.get("disabled_by") is None else "user"
-    enable_first = disabled_by is None and current.get("disabled_by") is not None
-    if enable_first:
-        result = await _set_disabled_by(client, entity_id, None)
-    if (
-        not_restored is None
-        and options is not None
-        and not bm._snapshot_configs_match(options, current["options"])
-    ):
-        try:
-            await _restore_options(client, entity_id, config, current["options"])
-        except bm.BackupRestoreError as err:
-            if not enable_first:
-                raise
-            raise _enabled_then_failed(entity_id, err) from err
-    if not enable_first:
-        result = await _set_disabled_by(client, entity_id, disabled_by)
-    if not_restored is not None:
-        verification_status, why = not_restored
-        raise bm.BackupRestoreError(
-            f"The enabled state of config entry {entity_id} was restored, but "
-            f"its options were not: {why}.",
-            apply_status="applied",
-            verification_status=verification_status,
-            reason="options_not_restored",
-        )
-    return result
-
-
-def _enabled_then_failed(entity_id: str, err: BackupRestoreError) -> BackupRestoreError:
-    """``err`` from the options restore of an entry the restore enabled first."""
-    if err.outcome["apply_status"] != "not_applied":
-        detail = f"then its options restore failed: {err}"
-    elif err.outcome.get("reason"):
-        detail = f"but its options were not restored: {err}"
-    else:
-        detail = "but its options were not restored: the options flow refused them"
-    failed: BackupRestoreError = _manager().BackupRestoreError(
-        f"Config entry {entity_id} was enabled, {detail}",
-        # The enable applied; the options restore keeps its own status.
-        **{
-            **err.outcome,
-            "apply_status": "applied",
-            "options_apply_status": err.outcome["apply_status"],
-        },
+    return await shared_restore_integration(
+        _LegacyIntegrationRestore(client, entity_id), entity_id, config
     )
-    return failed
-
-
-def _options_not_restored(
-    config: Any, current: dict[str, Any]
-) -> tuple[str, str] | None:
-    """``(verification_status, why)`` for options a restore cannot put back."""
-    if "options_unavailable" in config or "options" not in config:
-        why = config.get("options_unavailable", "taken before options were captured")
-        return ("unavailable", f"the snapshot holds none ({why})")
-    if config.get("options") == {} and current["options"]:
-        return (
-            "mismatched",
-            "the snapshot's are empty, which an options flow cannot produce",
-        )
-    return None
 
 
 async def _restore_options(
@@ -187,9 +102,10 @@ async def _restore_options(
 ) -> None:
     from .tools.config_entry_flow import restore_config_entry_options
 
-    bm = _manager()
     options = config["options"]
-    await bm._apply_and_verify(
+    from .runtime.snapshot_flow_values import _apply_and_verify, _verify_readback
+
+    await _apply_and_verify(
         f"{config.get('domain')} integration",
         partial(
             restore_config_entry_options,
@@ -200,9 +116,33 @@ async def _restore_options(
             fixed_options=current_options,
         ),
         partial(
-            bm._verify_readback,
+            _verify_readback,
             partial(_read_options, client, entity_id),
             {"options": options},
             ("options",),
         ),
     )
+
+
+class _LegacyIntegrationRestore:
+    def __init__(self, client: Any, entry_id: str) -> None:
+        self.client, self.entry_id = client, entry_id
+
+    async def read(self) -> dict[str, Any] | None:
+        return await fetch_integration(self.client, self.entry_id)
+
+    async def set_disabled(self, disabled_by: str | None) -> Any:
+        return await _set_disabled_by(self.client, self.entry_id, disabled_by)
+
+    async def restore_options(
+        self, config: dict[str, Any], current_options: dict[str, Any]
+    ) -> None:
+        await _restore_options(self.client, self.entry_id, config, current_options)
+
+
+__all__ = [
+    "_enabled_then_failed",
+    "_options_not_restored",
+    "fetch_integration",
+    "restore_integration",
+]

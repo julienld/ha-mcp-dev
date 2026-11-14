@@ -33,7 +33,10 @@ it as ``None`` — the same discipline as ``device_get``'s opt-in entities join.
 from __future__ import annotations
 
 import logging
-from typing import Any, NamedTuple
+from typing import Any
+
+from ha_mcp.runtime.integration_components import ComponentEntries
+from ha_mcp.runtime.reconfigure_identity import EntryUniqueId as EntryUniqueId
 
 from ..client.rest_client import (
     HomeAssistantCommandError,
@@ -52,15 +55,6 @@ logger = logging.getLogger(__name__)
 WS_CONFIG_ENTRIES = "ha_mcp_tools/config_entries"
 
 
-class EntryUniqueId(NamedTuple):
-    """A config entry's ``unique_id``, and whether it could be read at all."""
-
-    #: False when no component answered or its answer could not be trusted.
-    known: bool
-    #: The value when ``known``; always ``None`` when not.
-    value: str | None
-
-
 UNKNOWN_UNIQUE_ID = EntryUniqueId(known=False, value=None)
 
 
@@ -69,18 +63,6 @@ SCRUB_DEGRADED_WARNING = (
     "secrets.yaml could not be read, so config entry options in this response "
     "were not scrubbed of resolved !secret values."
 )
-
-
-class ComponentEntries(NamedTuple):
-    """One trusted ``config_entries`` answer."""
-
-    rows: list[dict[str, Any]]
-    #: The component could not read ``secrets.yaml``, so ``options`` went out
-    #: unscrubbed.
-    secret_scrub_degraded: bool
-    #: The component applied ``integration_type``; False means the rows are
-    #: not filtered by type and the caller must match the type itself.
-    type_filtered: bool = False
 
 
 async def fetch_config_entries(

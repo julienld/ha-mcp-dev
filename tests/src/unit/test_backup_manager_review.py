@@ -97,7 +97,9 @@ async def test_snapshot_does_not_reuse_an_existing_predictable_temp(
         def now(cls, tz: Any = None) -> _FixedClock:
             return cls(2026, 9, 10, tzinfo=UTC)
 
-    monkeypatch.setattr(bm, "datetime", _FixedClock)
+    from ha_mcp.runtime import snapshot_files
+
+    monkeypatch.setattr(snapshot_files, "datetime", _FixedClock)
     first = await real_snapshot(manager, template_entry)
     first.unlink()
     leftover = first.with_suffix(".yaml.tmp")

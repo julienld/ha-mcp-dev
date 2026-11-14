@@ -7,12 +7,13 @@ component (#1887). The YAML tool and the backup restore path share these checks.
 import logging
 from typing import Any
 
+from packaging.version import Version
+
 from ..errors import ErrorCode, create_error_response
 from .helpers import raise_tool_error
 from .tools_filesystem import (
     _COMPONENT_VERSION_CACHE,
     _ensure_caller_token,
-    _version_tuple,
     call_mcp_tools_service,
 )
 from .util_helpers import unwrap_service_response
@@ -33,16 +34,16 @@ MIN_COMPONENT_VERSION_EXTRA_YAML_KEYS = "1.2.4"
 async def _component_supports_extra_keys(client: Any) -> bool:
     """Return whether the component is new enough for extra YAML write keys."""
 
-    def _current() -> tuple[int, ...] | None:
+    def _current() -> Version | None:
         reported = _COMPONENT_VERSION_CACHE.get(client, "")
         if not reported:
             return None
         try:
-            return _version_tuple(reported)
+            return Version(reported)
         except ValueError:
             return None
 
-    floor = _version_tuple(MIN_COMPONENT_VERSION_EXTRA_YAML_KEYS)
+    floor = Version(MIN_COMPONENT_VERSION_EXTRA_YAML_KEYS)
     await _ensure_caller_token(client)
     parsed = _current()
     if parsed is None or parsed < floor:
