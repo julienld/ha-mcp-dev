@@ -303,7 +303,9 @@ def _server_helper_flows(monkeypatch: pytest.MonkeyPatch) -> None:
     starts every test with an empty per-client cache. A test that needs another
     list patches ``_fetch_helper_flow_types`` again.
     """
-    from ha_mcp.tools import helper_flows
+    from unittest.mock import AsyncMock
+
+    from ha_mcp.runtime import helper_flows
 
     from ._core_helper_flows import CORE_HELPER_FLOWS
 
@@ -364,7 +366,7 @@ def mock_client():
 def no_flow_outline(monkeypatch: pytest.MonkeyPatch) -> None:
     """No component describes a flow's declared steps, for a test whose client
     is a test double: a form then says only what its own step reports."""
-    from ha_mcp.tools.config_helpers import describe
+    from ha_mcp.runtime import flow_description as describe
 
     monkeypatch.setattr(describe, "flow_outline", AsyncMock(return_value=None))
     # The component is there; it has no declaration for the test's flow.
@@ -380,7 +382,7 @@ def opened_flows(
     A test that continues a flow by ``flow_id`` seeds it here, as
     ``drive_flow`` would have when it opened the flow.
     """
-    from ha_mcp.tools import integration_flow_steps
+    from ha_mcp.runtime import integration_flow_steps
 
     flows: dict[str, tuple[str, str | None]] = {}
     monkeypatch.setattr(integration_flow_steps, "_opened_flows", flows)

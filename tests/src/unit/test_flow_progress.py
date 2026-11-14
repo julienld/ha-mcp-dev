@@ -36,12 +36,15 @@ from homeassistant.setup import async_setup_component
 from pytest_homeassistant.common import MockConfigEntry, mock_config_flow
 
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
+from ha_mcp.backends.remote import RemoteBackend
 from ha_mcp.client.rest_client import (
     HomeAssistantAPIError,
     HomeAssistantClient,
     HomeAssistantConnectionError,
 )
-from ha_mcp.tools import config_entry_flow_progress
+from ha_mcp.runtime.flows import progress as config_entry_flow_progress
+from ha_mcp.runtime.flows.session import FlowSession
+from ha_mcp.tool_api import CallContext
 from ha_mcp.tools.config_entry_flow import CreationFlowError, recreate_flow_helper
 from ha_mcp.tools.config_entry_flow_errors import ReconfigureStatus
 from ha_mcp.tools.config_entry_flow_introspect import (
@@ -265,38 +268,53 @@ _SUBMIT_FN = {
 }
 
 
+@dataclass(frozen=True)
+class _OwnedTarget:
+    flow: FlowTarget
+    session: FlowSession
+
+    def abort_fn(self, _client: HomeAssistantClient) -> Callable[..., Awaitable[Any]]:
+        return self.flow.abort_fn(self.session)
+
+
 def _target(
     client: HomeAssistantClient, kind: str, entry: MockConfigEntry
-) -> tuple[FlowTarget, Callable[[], Awaitable[dict[str, Any]]]]:
+) -> tuple[_OwnedTarget, Callable[[], Awaitable[dict[str, Any]]]]:
     """The flow of ``kind`` and the client call that opens it in Core."""
+    session = FlowSession(RemoteBackend(client), CallContext(None))
     if kind == "setup":
-        return FlowTarget("setup", _DOMAIN), partial(client.start_config_flow, _DOMAIN)
+        return _OwnedTarget(FlowTarget("setup", _DOMAIN), session), partial(
+            session.start_config_flow, _DOMAIN
+        )
     if kind == "options":
         return (
-            FlowTarget("options", _DOMAIN, entry.entry_id),
-            partial(client.start_options_flow, entry.entry_id),
+            _OwnedTarget(FlowTarget("options", _DOMAIN, entry.entry_id), session),
+            partial(session.start_options_flow, entry.entry_id),
         )
     if kind == "subentry":
         return (
-            FlowTarget("subentry", _DOMAIN, entry.entry_id, subentry_type="plane"),
-            partial(client.start_config_subentry_flow, entry.entry_id, "plane"),
+            _OwnedTarget(
+                FlowTarget("subentry", _DOMAIN, entry.entry_id, subentry_type="plane"),
+                session,
+            ),
+            partial(session.start_config_subentry_flow, entry.entry_id, "plane"),
         )
     return (
-        FlowTarget("reconfigure", _DOMAIN, entry.entry_id),
-        partial(client.start_reconfigure_flow, _DOMAIN, entry.entry_id),
+        _OwnedTarget(FlowTarget("reconfigure", _DOMAIN, entry.entry_id), session),
+        partial(session.start_reconfigure_flow, _DOMAIN, entry.entry_id),
     )
 
 
 async def _drive(
     client: HomeAssistantClient,
-    target: FlowTarget,
+    target: _OwnedTarget,
     start: Callable[[], Awaitable[dict[str, Any]]],
     config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """One step-driver call that opens the flow."""
     return await drive_flow(
-        client,
-        target,
+        target.session,
+        target.flow,
         flow_id=None,
         config=config,
         menu_choice=None,
@@ -339,10 +357,11 @@ async def test_progress_then_form_returns_the_form_from_a_get_on_the_flow(
     run.mode, run.after = "progress", "form"
     run.release.set()
 
+    session = FlowSession(RemoteBackend(client), CallContext(None))
     result = await _drive(
         client,
-        FlowTarget("setup", _DOMAIN),
-        partial(client.start_config_flow, _DOMAIN),
+        _OwnedTarget(FlowTarget("setup", _DOMAIN), session),
+        partial(session.start_config_flow, _DOMAIN),
     )
 
     assert (result["flow_type"], result["step_id"]) == ("form", "pick")
@@ -562,10 +581,8 @@ async def test_a_failed_abort_after_an_error_logs_its_traceback(
     [
         # The refused form is still open; its abort gets no answer.
         ("refuse", "validation_failed", "WARNING", "HomeAssistantConnectionError"),
-        # Core already ended the flow: its abort meets Core's 404.
-        ("abort", "flow_aborted", "DEBUG", "HomeAssistantAPIError"),
     ],
-    ids=["failed", "gone"],
+    ids=["failed"],
 )
 async def test_a_helper_recreation_abort_logs_the_error_type_only(
     hass: HomeAssistant,
@@ -600,3 +617,45 @@ async def test_a_helper_recreation_abort_logs_the_error_type_only(
         record.getMessage(),
     )
     assert "PRIVATE_TEST_PAYLOAD" not in caplog.text
+
+
+async def test_helper_recreation_does_not_abort_a_flow_core_already_ended(
+    hass: HomeAssistant,
+    client: HomeAssistantClient,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with (
+        patch.object(
+            client, "abort_config_flow", wraps=client.abort_config_flow
+        ) as aborted,
+        caplog.at_level(logging.DEBUG),
+        pytest.raises(CreationFlowError),
+    ):
+        await recreate_flow_helper(client, _DOMAIN, {"host": "abort"})
+    aborted.assert_not_awaited()
+    assert open_flow_ids(hass) == []
+    assert not any("cleanup failed" in record.getMessage() for record in caplog.records)
+
+
+async def test_abort_of_a_core_ended_flow_logs_only_the_error_type_at_debug(
+    client: HomeAssistantClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    step = await client.start_config_flow(_DOMAIN)
+    flow_id = step["flow_id"]
+    ended = await client.submit_config_flow_step(flow_id, {"host": "abort"})
+    assert ended["type"] == "abort"
+    with caplog.at_level(logging.DEBUG):
+        await abort_failed_flow_type_only(
+            client.abort_config_flow,
+            flow_id,
+            "Flow %s cleanup failed (error_type=%s)",
+            flow_id,
+        )
+    (record,) = [
+        record for record in caplog.records if "cleanup failed" in record.getMessage()
+    ]
+    assert record.levelname == "DEBUG"
+    assert (
+        record.getMessage()
+        == f"Flow {flow_id} cleanup failed (error_type=HomeAssistantAPIError)"
+    )

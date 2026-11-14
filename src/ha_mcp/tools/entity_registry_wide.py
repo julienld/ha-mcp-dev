@@ -11,6 +11,11 @@ settings as it returns them.
 
 from typing import Any
 
+from ha_mcp.backends.legacy import legacy_errors_sync
+from ha_mcp.runtime.entity_registry_settings import (
+    is_registry_wide_call as _is_registry_wide_call,
+)
+
 from ..client.rest_client import HomeAssistantCommandNotSent, HomeAssistantError
 from ..errors import ErrorCode, create_error_response
 from .entity_expose_batch import read_expose_new
@@ -66,37 +71,7 @@ async def get_registry_wide(client: Any, assistant: str | None) -> dict[str, Any
     return response
 
 
-def is_registry_wide_call(
-    entity_id: Any, params: dict[str, Any], entity_params: dict[str, Any]
-) -> bool:
-    """False when entity_id is given, True for a registry-wide call.
-
-    Raises on a call that mixes the two kinds and on one with neither.
-    """
-    registry_wide = [k for k, v in params.items() if v is not None]
-    if entity_id is not None:
-        if registry_wide:
-            raise_tool_error(
-                create_error_response(
-                    ErrorCode.VALIDATION_INVALID_PARAMETER,
-                    f"{', '.join(registry_wide)} are registry-wide and take no entity_id.",
-                    suggestions=[
-                        "Send the registry-wide settings in a call without entity_id"
-                    ],
-                )
-            )
-        return False
-    given = [k for k, v in entity_params.items() if v is not None]
-    if given or not registry_wide:
-        raise_tool_error(
-            create_error_response(
-                ErrorCode.VALIDATION_MISSING_PARAMETER,
-                "entity_id is required"
-                + (f" for {', '.join(given)}" if given else "")
-                + f"; only {', '.join(params)} take none.",
-            )
-        )
-    return True
+is_registry_wide_call = legacy_errors_sync(_is_registry_wide_call)
 
 
 async def set_registry_wide(

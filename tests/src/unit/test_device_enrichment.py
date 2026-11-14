@@ -27,8 +27,10 @@ from homeassistant.setup import async_setup_component
 from pytest_homeassistant.common import MockConfigEntry
 from zwave_js_server.const import NodeStatus
 
+from ha_mcp.backends.remote import RemoteBackend
 from ha_mcp.client.rest_client import HomeAssistantClient, HomeAssistantConnectionError
-from ha_mcp.tools import tools_registry
+from ha_mcp.runtime import devices as device_runtime
+from ha_mcp.tool_api import CallContext
 from ha_mcp.tools.tools_registry import RegistryTools
 
 from ._client_spies import sent_messages
@@ -244,18 +246,20 @@ async def test_unanswered_radio_read_still_returns_the_device(
     other reads are Core's.
     """
     unanswered: list[AsyncMock] = []
-    read = getattr(tools_registry, reader)
+    read = getattr(device_runtime, reader)
 
-    async def read_without_answer(client: HomeAssistantClient, *args: Any) -> None:
+    async def read_without_answer(
+        backend: RemoteBackend, context: CallContext, *args: Any
+    ) -> None:
         with patch.object(
-            client,
+            backend.client,
             "send_websocket_message",
             AsyncMock(side_effect=HomeAssistantConnectionError("Connection lost")),
         ) as no_answer:
             unanswered.append(no_answer)
-            await read(client, *args)
+            await read(backend, context, *args)
 
-    monkeypatch.setattr(tools_registry, reader, read_without_answer)
+    monkeypatch.setattr(device_runtime, reader, read_without_answer)
     dev = _device(hass, domain, identifier)
 
     result = await tools.ha_get_device(device_id=dev.id)

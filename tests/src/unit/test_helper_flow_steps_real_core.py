@@ -36,12 +36,12 @@ from ha_mcp.client.rest_client import (
     HomeAssistantClient,
     HomeAssistantConnectionError,
 )
+from ha_mcp.runtime import flow_description as describe
 from ha_mcp.tools.config_entry_flow import (
     CreationFlowError,
     recreate_flow_helper,
     restore_config_entry_options,
 )
-from ha_mcp.tools.config_helpers import describe
 from ha_mcp.tools.tools_config_helpers import HelperConfigTools
 
 _SOURCES = ["sensor.a", "sensor.b"]

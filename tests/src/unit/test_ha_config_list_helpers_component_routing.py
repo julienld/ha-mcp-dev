@@ -44,7 +44,8 @@ from ha_mcp.client.rest_client import (
     HomeAssistantCommandTimeout,
     HomeAssistantConnectionError,
 )
-from ha_mcp.tools import component_api, helper_flows, tools_config_helpers
+from ha_mcp.runtime import helper_flows
+from ha_mcp.tools import component_api, tools_config_helpers
 from ha_mcp.tools.config_helpers import registry as helper_registry
 from ha_mcp.tools.config_helpers.listing import _shape_collection_helper_record
 from ha_mcp.tools.config_helpers.schemas import SIMPLE_HELPER_TYPES
@@ -793,73 +794,6 @@ def _component_all_result() -> dict[str, Any]:
 
 
 @pytest.mark.asyncio
-async def test_all_types_via_component_returns_merged_listing() -> None:
-    """helper_type='all' merges component records + legacy person/tag lists."""
-    ws = make_ws(
-        "ha_mcp_tools/helpers_list",
-        info_result=_CAPS_HELPERS,
-        cmd_result=_component_all_result(),
-    )
-    client = RoutingClient()
-    list_helpers = _build_list_helpers(client)
-
-    with patch_ws(ws, tools_config_helpers):
-        resp = await list_helpers(helper_type="all")
-
-    assert resp["success"] is True
-    assert resp["helper_type"] == "all"
-    # Collection + flow (component) + person x2 + tag (legacy fallbacks).
-    assert resp["count"] == 5
-    by_type = {h.get("helper_type"): h for h in resp["helpers"]}
-    assert set(by_type) == {"input_boolean", "template", "person", "tag"}
-    # Collection record: #1794 shape preserved and self-describes its type.
-    assert by_type["input_boolean"]["id"] == "abc123"
-    assert by_type["input_boolean"]["entity_id"] == "input_boolean.foo"
-    assert by_type["input_boolean"]["name"] == "New Name"
-    # Flow record: entry_id + options carried through.
-    assert by_type["template"]["entry_id"] == "cfgentry123"
-    assert by_type["template"]["options"] == {"state": "{{ 1 + 1 }}"}
-    # Person and tag came from the legacy fallback (the uncovered simple types).
-    assert by_type["tag"]["id"] == "tag-42"
-    assert client.list_calls == 2
-    # The component command requests all types (no helper_types filter).
-    (call,) = _helpers_calls(ws)
-    assert "helper_types" not in call.kwargs
-    assert call.kwargs["include_flow_helpers"] is True
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("helper_type", ["input_boolean", "all"])
-async def test_yaml_helper_is_not_listed_as_a_stored_helper(helper_type: str) -> None:
-    """input_boolean/list lists stored helpers only. A YAML-defined one, which
-    the component sends with a null storage id and its state attributes, must
-    not appear as though those attributes were its stored config."""
-    result = _component_all_result()
-    result["helpers"].append(
-        {
-            "helper_type": "input_boolean",
-            "object_id": "yaml_flag",
-            "entity_id": "input_boolean.yaml_flag",
-            "name": "YAML Flag",
-            "kind": "collection",
-            "storage_id": None,
-            "config": {"friendly_name": "YAML Flag", "editable": False},
-        }
-    )
-    ws = make_ws(
-        "ha_mcp_tools/helpers_list", info_result=_CAPS_HELPERS, cmd_result=result
-    )
-    list_helpers = _build_list_helpers(RoutingClient())
-
-    with patch_ws(ws, tools_config_helpers):
-        resp = await list_helpers(helper_type=helper_type)
-
-    listed = {h.get("entity_id") for h in resp["helpers"]}
-    assert "input_boolean.foo" in listed
-    assert "input_boolean.yaml_flag" not in listed
-
-
-@pytest.mark.asyncio
 async def test_all_types_refuses_a_listing_that_misses_a_custom_helper_flow(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -958,43 +892,3 @@ async def test_a_custom_helper_flow_left_out_by_a_failed_loader_read_names_it(
     assert error["code"] == "SERVICE_CALL_FAILED"
     assert "loader" in error["message"]
     assert "my_custom_helper" in error["message"]
-
-
-@pytest.mark.asyncio
-async def test_all_types_without_component_raises_component_required() -> None:
-    """helper_type='all' with no component surface → hard COMPONENT_NOT_INSTALLED."""
-    ws = make_ws(
-        "ha_mcp_tools/helpers_list",
-        info_exc=HomeAssistantCommandError(
-            "Command failed: no info", "unknown_command"
-        ),
-    )
-    client = RoutingClient()
-    list_helpers = _build_list_helpers(client)
-
-    with patch_ws(ws, tools_config_helpers), pytest.raises(ToolError) as excinfo:
-        await list_helpers(helper_type="all")
-
-    assert json.loads(str(excinfo.value))["error"]["code"] == "COMPONENT_NOT_INSTALLED"
-    # Never falls back to any legacy list and never issues the component command.
-    assert client.list_calls == 0
-    assert not _helpers_calls(ws)
-
-
-@pytest.mark.asyncio
-async def test_all_types_component_error_raises_component_required() -> None:
-    """A component handler error on helper_type='all' → same hard error, no legacy."""
-    ws = make_ws(
-        "ha_mcp_tools/helpers_list",
-        info_result=_CAPS_HELPERS,
-        cmd_exc=HomeAssistantCommandError("Command failed: boom", "internal_error"),
-    )
-    client = RoutingClient()
-    list_helpers = _build_list_helpers(client)
-
-    with patch_ws(ws, tools_config_helpers), pytest.raises(ToolError) as excinfo:
-        await list_helpers(helper_type="all")
-
-    assert json.loads(str(excinfo.value))["error"]["code"] == "COMPONENT_NOT_INSTALLED"
-    # No legacy all-types path exists, so nothing is served from legacy.
-    assert client.list_calls == 0

@@ -16,7 +16,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from ha_mcp.tools import helper_flows
+from ha_mcp.runtime import helper_flows
 from ha_mcp.tools.smart_search import SmartSearchTools
 
 
