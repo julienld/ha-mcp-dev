@@ -41,7 +41,7 @@ from ha_mcp.tools.log_common import (
     MAX_LIMIT,
     SUPERVISOR_SEARCH_WINDOW_LINES,
 )
-from ha_mcp.tools.tools_logs import register_logs_tools
+from ha_mcp.tools.tools_logs import LegacyLogsFacade, LogTools
 
 from ._logbook_fallback import disable_logbook_websocket
 from ._tool_errors import error_body
@@ -79,23 +79,8 @@ def addon_install_no_token():
 
 
 def _register_and_collect(client: Any) -> dict[str, Any]:
-    """Register utility tools on a collector mcp and return the registered tools.
-
-    The production decorator chain is ``@mcp.tool(...)`` outside ``@log_tool_usage``,
-    so the collected entry is the ``log_tool_usage``-wrapped async function.
-    """
-    collected: dict[str, Any] = {}
-
-    def _tool(**_kwargs: Any) -> Any:
-        def _wrap(fn: Any) -> Any:
-            collected[fn.__name__] = fn
-            return fn
-
-        return _wrap
-
-    mcp = SimpleNamespace(tool=_tool)
-    register_logs_tools(mcp, client)
-    return collected
+    """Exercise the public tool method and its actual exception boundary."""
+    return {"ha_get_logs": LegacyLogsFacade(LogTools(client).get_logs).ha_get_logs}
 
 
 class TestGetAddonLogs:

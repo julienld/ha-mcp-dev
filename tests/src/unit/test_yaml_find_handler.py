@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -28,7 +29,7 @@ def _call(yaml_path="template"):
 
 def test_handler_returns_relative_files(monkeypatch):
     def fake_load(path, secrets):
-        assert path == "/config/configuration.yaml"
+        assert path == str(Path("/config") / "configuration.yaml")
         return {"template": {}}
 
     monkeypatch.setattr(yaml_find, "load_yaml_config_file", fake_load)

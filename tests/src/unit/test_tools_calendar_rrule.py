@@ -34,7 +34,7 @@ from ._calendars import (
     local_calendar,
     remote_calendar,
 )
-from ._tool_errors import error_of
+from ._tool_errors import error_body, error_of
 
 _RRULE_HINT = "Check RRULE syntax"
 _EXCLUSIVE_END_HINT = "For an all-day event the end date is exclusive"
@@ -268,7 +268,11 @@ async def test_single_day_all_day_event_leads_with_exclusive_end_hint(
             end="2026-07-04",
         )
 
-    assert error_of(exc_info)["suggestions"][0].startswith(_EXCLUSIVE_END_HINT)
+    assert any(
+        s.startswith(_EXCLUSIVE_END_HINT) for s in error_of(exc_info)["suggestions"]
+    )
+    assert error_body(exc_info)["write_outcome_unknown"] is True
+    assert "before retrying" in error_of(exc_info)["suggestions"][0]
     assert _created(writable) == []
 
 
