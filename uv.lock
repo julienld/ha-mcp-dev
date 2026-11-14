@@ -36,6 +36,10 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/7f/70/72e4ab117425ccdc4d10bd523a94c1baa051a15586057d64a4c6888f9e3f/aiodns-4.0.4-py3-none-any.whl", hash = "sha256:c24dd605bac70a1676ce503f967a98483ff163507198557d8e9db16267e6cfd2", size = 12696, upload-time = "2026-05-20T01:54:14.134Z" },
 ]
 
+[options]
+exclude-newer = "0001-01-01T00:00:00Z" # This has no effect and is included for backwards compatibility when using relative exclude-newer values.
+exclude-newer-span = "P7D"
+
 [[package]]
 name = "aiofile"
 version = "3.9.0"
@@ -1437,6 +1441,7 @@ dependencies = [
     { name = "jsonref" },
     { name = "jsonschema" },
     { name = "jsonschema-path" },
+    { name = "markdown-it-py" },
     { name = "openapi-pydantic" },
     { name = "opentelemetry-api" },
     { name = "packaging" },
@@ -1446,6 +1451,7 @@ dependencies = [
     { name = "pydantic", extra = ["email"] },
     { name = "pydantic-monty" },
     { name = "pydantic-settings" },
+    { name = "pygments" },
     { name = "pyjwt", extra = ["crypto"] },
     { name = "pyperclip" },
     { name = "python-dotenv" },
@@ -1522,11 +1528,12 @@ requires-dist = [
     { name = "exceptiongroup", specifier = ">=1.2.2" },
     { name = "griffelib", specifier = ">=2.0.0" },
     { name = "httpx", extras = ["socks"], specifier = ">=0.28.1,<0.29" },
-    { name = "httpx2", specifier = ">=2.10.0" },
+    { name = "httpx2", specifier = ">=2.10.0,<3" },
     { name = "joserfc", specifier = ">=1.5.0" },
     { name = "jsonref", specifier = ">=1.1.0" },
     { name = "jsonschema", specifier = ">=4.20.0" },
     { name = "jsonschema-path", specifier = ">=0.3.4" },
+    { name = "markdown-it-py", specifier = ">=2.2.0" },
     { name = "openapi-pydantic", specifier = ">=0.6.0" },
     { name = "opentelemetry-api", specifier = ">=1.28.0" },
     { name = "packaging", specifier = ">=24.0" },
@@ -1536,6 +1543,7 @@ requires-dist = [
     { name = "pydantic", extras = ["email"], specifier = ">=2.13.4,<3" },
     { name = "pydantic-monty", specifier = "==0.0.18" },
     { name = "pydantic-settings", specifier = ">=2.0.0" },
+    { name = "pygments", specifier = ">=2.13.0,<3.0.0" },
     { name = "pyjwt", extras = ["crypto"], specifier = ">=2.10.1" },
     { name = "pyperclip", specifier = ">=1.9.0" },
     { name = "python-dotenv", specifier = ">=1.2.4,<2" },

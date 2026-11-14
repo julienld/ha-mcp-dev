@@ -4,6 +4,9 @@ import logging
 from typing import Any
 
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
+from ha_mcp.backends.legacy import legacy_errors_sync
+from ha_mcp.runtime.core_options import merge_core_options as _merge_core_options
+from ha_mcp.runtime.websocket_policy import command_payload as command_payload
 
 from ..client.websocket_client import get_websocket_client
 from ..errors import ErrorCode, create_error_response
@@ -103,18 +106,6 @@ async def _contract_bridge(
         return {}  # unreachable
 
 
-def command_payload(command: str, payload: dict[str, Any]) -> dict[str, Any]:
-    """Preserve every payload field while preventing command-envelope injection."""
-    if {"id", "type"} & payload.keys():
-        raise_tool_error(
-            create_error_response(
-                ErrorCode.VALIDATION_FAILED,
-                "id and type are reserved WebSocket transport fields",
-            )
-        )
-    return {"type": command, **payload}
-
-
 async def validate_energy_proposal(
     client: Any, config: dict[str, Any]
 ) -> dict[str, Any]:
@@ -132,19 +123,4 @@ async def validate_energy_proposal(
     return result
 
 
-def merge_core_options(
-    params: dict[str, Any], options: dict[str, Any] | None
-) -> dict[str, Any]:
-    """Pass native options through while retaining the tool's bounded query envelope."""
-    if not options:
-        return params
-    reserved = set(params) | {"id", "type"}
-    if overlap := reserved.intersection(options):
-        raise_tool_error(
-            create_error_response(
-                ErrorCode.VALIDATION_INVALID_PARAMETER,
-                "Use the tool parameters for protected query fields",
-                context={"protected_fields": sorted(overlap)},
-            )
-        )
-    return {**params, **options}
+merge_core_options = legacy_errors_sync(_merge_core_options)
