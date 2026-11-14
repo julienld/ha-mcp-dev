@@ -29,7 +29,7 @@ Registering the old name as a second, disabled tool would not work:
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
 from ha_mcp._vendor.fastmcp.server.middleware.middleware import (
@@ -38,15 +38,12 @@ from ha_mcp._vendor.fastmcp.server.middleware.middleware import (
     MiddlewareContext,
 )
 
-from ..client.rest_client import HomeAssistantError
 from ..renamed_tools import (
     RENAMED_TOOLS,
     adapt_retired_arguments,
     add_stale_list_warning,
     retired_parameters_used,
 )
-from .entity_expose_batch import read_expose_new
-from .helpers import exception_to_structured_error
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +54,7 @@ async def adapt_retired_call(
     name: str,
     arguments: Mapping[str, Any] | None,
     get_client: Callable[[], Any] | None,
+    validate_assistant: Callable[[str], Awaitable[Any]] | None = None,
 ) -> dict[str, Any] | None:
     """``adapt_retired_arguments``, after Core judged what the adapter drops.
 
@@ -73,12 +71,19 @@ async def adapt_retired_call(
         and arguments.get("entity_id") is not None
         and arguments.get("assistant") is not None
     ):
-        assert get_client is not None, "the server passes its client"
         assistant = arguments["assistant"]
-        try:
-            await read_expose_new(get_client(), assistant)
-        except HomeAssistantError as exc:
-            exception_to_structured_error(exc, {"assistant": assistant})
+        if validate_assistant is not None:
+            await validate_assistant(assistant)
+        else:
+            from ..client.rest_client import HomeAssistantError
+            from .entity_expose_batch import read_expose_new
+            from .helpers import exception_to_structured_error
+
+            assert get_client is not None, "the server passes its client"
+            try:
+                await read_expose_new(get_client(), assistant)
+            except HomeAssistantError as exc:
+                exception_to_structured_error(exc, {"assistant": assistant})
     return adapt_retired_arguments(name, arguments)
 
 
@@ -90,10 +95,16 @@ class RenamedToolAliasMiddleware(Middleware):
     on, rather than an alias it would not recognise.
     """
 
-    def __init__(self, get_client: Callable[[], Any] | None = None) -> None:
+    def __init__(
+        self,
+        get_client: Callable[[], Any] | None = None,
+        *,
+        validate_assistant: Callable[[str], Awaitable[Any]] | None = None,
+    ) -> None:
         # Core judges a name the retired signature carried and the current
         # one drops (``adapt_retired_call``).
         self._get_client = get_client
+        self._validate_assistant = validate_assistant
         # Which retired names have been logged at INFO already, so the first
         # call on each is audible and the rest stay at DEBUG. An operator
         # otherwise has no way to know a client is still calling the old name —
@@ -132,7 +143,9 @@ class RenamedToolAliasMiddleware(Middleware):
             renames.append((called, name))
             # ``adapt_retired_call`` maps the retired signature onto the
             # current one; a plain rename forwards the arguments as they are.
-            arguments = await adapt_retired_call(called, arguments, self._get_client)
+            arguments = await adapt_retired_call(
+                called, arguments, self._get_client, self._validate_assistant
+            )
         retired_parameters = retired_parameters_used(name, arguments)
         if retired_parameters:
             arguments = {
