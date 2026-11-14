@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -27,17 +27,37 @@ def strings_unread_warning(domain: str) -> str:
     )
 
 
+async def configured_language(client: Any, subject: str) -> tuple[str, str | None]:
+    """Read Core's configured language and disclose an unavailable language."""
+    try:
+        config = await client.get_config()
+    except Exception as exc:
+        logger.warning("Could not read the configured language", exc_info=True)
+        return "en", f"{subject} may be untranslated: language unavailable: {exc}"
+    language = config.get("language") if isinstance(config, Mapping) else None
+    if isinstance(language, str) and language:
+        return language, None
+    logger.warning("Home Assistant config carries no usable language: %r", config)
+    return "en", f"{subject} may be untranslated: language unavailable"
+
+
 async def fetch_flow_strings(
-    client: Any, domain: str, category: str
+    client: Any,
+    domain: str | Sequence[str],
+    category: str,
+    *,
+    language: str = "en",
 ) -> dict[str, Any] | None:
-    """One ``frontend/get_translations`` read in English; ``None`` if it failed.
+    """Read Core strings through the bound owner; ``None`` if it failed.
 
     ``category`` is a top-level ``strings.json`` key (``config``, ``options``,
     ``config_subentries``). ``None`` (no answer, or an error answer) is kept
     apart from ``{}`` (Core ships no strings) so a caller can say so.
     """
     try:
-        result = await client.read_flow_translations(domain, category)
+        result = await client.read_flow_translations(
+            domain, category, language=language
+        )
     except Exception:
         logger.warning("translations for %s failed", domain, exc_info=True)
         return None

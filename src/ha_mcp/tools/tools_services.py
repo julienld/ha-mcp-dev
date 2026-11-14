@@ -27,6 +27,7 @@ from .component_api import (
     invalidate_caps,
     is_unknown_command,
 )
+from .flow_translations import configured_language
 from .helpers import (
     log_tool_usage,
     register_tool_methods,
@@ -87,7 +88,9 @@ async def _fetch_catalog_and_translations(
     component_payload = await _fetch_services_list_via_component(client, domain=domain)
     if component_payload is not None:
         return component_payload["services"], component_payload["translations"]
-    language, language_warning = await _configured_language(client)
+    language, language_warning = await configured_language(
+        client, "service descriptions"
+    )
     if language_warning and warnings is not None:
         warnings.append(language_warning)
     rest_services = await client.get_services()

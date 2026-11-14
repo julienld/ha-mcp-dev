@@ -48,6 +48,18 @@ async def _category_mutation(
         hass, f"config/category_registry/{action}", arguments["data"]
     )
     registry, serializer = _category_owners(hass)
+    absent = arguments.get("expected_absent")
+    if (
+        action == "create"
+        and absent
+        and _category_row(registry, serializer, absent["scope"], absent["category_id"])
+        is not None
+    ):
+        raise ToolFailure(
+            "CONFIG_CONFLICT",
+            "The removed category reappeared before recreation",
+            status="not_started",
+        )
     before = (
         _category_row(registry, serializer, data["scope"], data["category_id"])
         if action != "create"

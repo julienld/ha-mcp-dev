@@ -100,11 +100,23 @@ async def translations(
 ) -> dict[str, Any]:
     from homeassistant.helpers.translation import async_get_translations
 
-    if arguments["category"] not in {"config", "options"}:
+    if arguments["category"] not in {
+        "config",
+        "options",
+        "config_subentries",
+        "issues",
+        "system_health",
+        "title",
+    }:
         raise UnsupportedOperation("helpers.translations.category")
     return {
         "resources": await async_get_translations(
-            hass, "en", arguments["category"], {arguments["handler"]}
+            hass,
+            arguments.get("language", "en"),
+            arguments["category"],
+            {arguments["handler"]}
+            if isinstance(arguments["handler"], str)
+            else set(arguments["handler"]),
         )
     }
 

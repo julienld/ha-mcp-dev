@@ -133,7 +133,7 @@ def label_get_result(
 
 
 def label_set_result(
-    name: str,
+    name: str | None,
     action: str,
     data: dict[str, Any],
     label_id: str | None,
@@ -144,7 +144,7 @@ def label_set_result(
         "success": True,
         "label_id": data.get("label_id") or label_id,
         "label_data": data,
-        "message": f"Successfully {'created' if action == 'create' else 'updated'} label: {name}",
+        "message": f"Successfully {'created' if action == 'create' else 'updated'} label: {data.get('name')}",
     }
     if assigned is not None:
         result["assigned_areas"] = assigned

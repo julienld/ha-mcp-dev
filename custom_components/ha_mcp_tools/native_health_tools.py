@@ -12,7 +12,9 @@ from .native_operations.health import NativeHealth
 
 def health_definition(manager: Any) -> ToolDefinition:
     async def invoke(arguments: dict[str, Any], actor: CallContext) -> dict[str, Any]:
-        service = NativeHealth(manager.hass, actor, authorize=manager.backend.authorize)
+        service = NativeHealth(
+            manager.hass, actor, authorize=manager.backend.authorize, manager=manager
+        )
         return await HealthFacade(service.get).ha_get_system_health(**arguments)
 
     return define_tool(
@@ -21,7 +23,7 @@ def health_definition(manager: Any) -> ToolDefinition:
         "ha_get_system_health",
         source_module="tools_system",
         annotations=read_only_hints(
-            "Get System Health (incl. ZHA/Z-Wave/integration diagnostics)",
+            "Get System Health (incl. ZHA/Z-Wave/Thread/Matter networks)",
             open_world=True,
         ),
         tags=frozenset(

@@ -23,8 +23,16 @@ from ha_mcp.runtime.label_values import (
     with_retry_suggestions,
 )
 from ha_mcp.runtime.mutation_guard import check_mutation_admission
+from ha_mcp.runtime.registry_recovery_values import (
+    note_registry_identity,
+    registry_fields_match,
+)
 from ha_mcp.runtime.snapshot_payloads import InvalidBackupSnapshotError, _strip_readonly
-from ha_mcp.runtime.validation import validate_identifier_not_empty
+from ha_mcp.runtime.validation import (
+    clearable_value,
+    refuse_blank_name,
+    validate_identifier_not_empty,
+)
 from ha_mcp.tool_api import CallContext, ToolFailure, UnsupportedOperation
 from ha_mcp.utils.config_hash import json_values_equal
 from ha_mcp.utils.registry_update_lock import registry_update_lock
@@ -123,19 +131,36 @@ class NativeLabels:
                     context={"action": "get"},
                 )
             registry, serialize = self._label_owner()
-            return label_get_result(
+            result = label_get_result(
                 [
                     self._json(serialize(entry))
                     for entry in registry.async_list_labels()
                 ],
                 label_id,
             )
+            if label_id is not None:
+                from homeassistant.components.search import ItemType, Searcher
+                from homeassistant.helpers.entity import entity_sources
+
+                try:
+                    result["related"] = self._json(
+                        Searcher(self.hass, entity_sources(self.hass)).async_search(
+                            ItemType.LABEL, label_id
+                        )
+                    )
+                except Exception as error:  # noqa: BLE001 - a missing graph is not an unused label
+                    result["related"] = None
+                    result.setdefault("warnings", []).append(
+                        f"related unavailable: {error}"
+                    )
+            await self._authorize()
+            return result
         except Exception as error:
             raise self._failure(error, {"label_id": label_id}) from error
 
     async def set(
         self,
-        name: str,
+        name: str | None = None,
         label_id: str | None = None,
         color: str | None = None,
         icon: str | None = None,
@@ -144,6 +169,7 @@ class NativeLabels:
     ) -> dict[str, Any]:
         try:
             await self._admit()
+            refuse_blank_name(name, {"action": "set", "label_id": label_id})
             if label_id is not None:
                 validate_identifier_not_empty(
                     label_id,
@@ -162,12 +188,12 @@ class NativeLabels:
                     {entry.id for entry in self._area_owner().async_list_areas()},
                 )
             action = "create" if label_id is None else "update"
-            data: dict[str, Any] = {"name": name}
+            data: dict[str, Any] = {"name": name} if name is not None else {}
             if label_id is not None:
                 data["label_id"] = label_id
             data.update(
                 {
-                    key: value
+                    key: clearable_value(value, key)
                     for key, value in (
                         ("color", color),
                         ("icon", icon),
@@ -219,6 +245,28 @@ class NativeLabels:
             raise InvalidBackupSnapshotError(
                 "Label snapshot does not match its identity"
             )
+        if expected is None:
+            registry, serialize = self._label_owner()
+            if registry.async_get_label(label_id) is not None:
+                raise ToolFailure(
+                    "CONFIG_CONFLICT",
+                    "The removed label reappeared before restoration",
+                    status="not_started",
+                )
+            payload = _strip_readonly(config, "label_id")
+            for entry in registry.async_list_labels():
+                current = self._json(serialize(entry))
+                if registry_fields_match(current, payload):
+                    return note_registry_identity(current, "label_id", label_id)
+            row, _, _ = await self._write_label(
+                "create",
+                {key: value for key, value in payload.items() if value is not None},
+                expected=None,
+                capture=False,
+                absent_id=label_id,
+            )
+            assert row is not None
+            return note_registry_identity(row, "label_id", label_id)
         row, _, _ = await self._write_label(
             "update",
             {**_strip_readonly(config, "label_id"), "label_id": label_id},
@@ -235,8 +283,10 @@ class NativeLabels:
         *,
         expected: Any = _CURRENT,
         capture: bool = True,
+        absent_id: str | None = None,
     ) -> tuple[dict[str, Any] | None, list[str], Any]:
         identifier = data.get("label_id")
+        observed_identifier = identifier if identifier is not None else absent_id
         async with (
             registry_update_lock("label", identifier)
             if identifier is not None
@@ -247,8 +297,8 @@ class NativeLabels:
                 self.hass, f"config/label_registry/{action}", data
             )
             before = (
-                self._label_row(registry, serialize, identifier)
-                if identifier is not None
+                self._label_row(registry, serialize, observed_identifier)
+                if observed_identifier is not None
                 else None
             )
             if identifier is not None and before is None:
@@ -281,8 +331,10 @@ class NativeLabels:
             await self._admit()
             current_registry, current_serializer = self._label_owner()
             current = (
-                self._label_row(current_registry, current_serializer, identifier)
-                if identifier is not None
+                self._label_row(
+                    current_registry, current_serializer, observed_identifier
+                )
+                if observed_identifier is not None
                 else None
             )
             if current_registry is not registry or not json_values_equal(

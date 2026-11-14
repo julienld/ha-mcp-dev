@@ -909,4 +909,4 @@ def get_settings() -> Settings:
     # settings initialization may populate the process environment from .env.
     if env_path.exists():
         load_dotenv(env_path)
-    return Settings()  # type: ignore[call-arg]
+    return Settings()

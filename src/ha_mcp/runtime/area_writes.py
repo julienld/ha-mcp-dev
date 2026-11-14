@@ -271,7 +271,9 @@ class AreaWriteTools(AreaConfigTools):
 
         Removing an area unassigns its entities and devices (the entities and
         devices themselves are not removed). Removing a floor unassigns its
-        areas. May break automations referencing the removed area/floor.
+        areas. May break automations referencing the removed area/floor. The
+        auto-backup of this call restores the area or floor itself, not the
+        entities, devices or areas it carried.
         """
         id_key = "area_id" if kind == "area" else "floor_id"
         try:

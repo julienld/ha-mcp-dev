@@ -10,6 +10,26 @@ changes. The 6 November compatibility pass below restores the installation
 floor and automatic entity-history contracts; historical audit entries remain
 evidence of their original candidate, rather than current behavior.
 
+## Main contracts integrated on 14 November 2026
+
+The integration target is Main `5447a7eb35853b8cdc20dfe380186bedb7529363`.
+Labels and categories accept updates without a name; omitted fields stay unchanged
+and blank clearable fields use Core's clear value. Label reads expose Core's
+Related set. A deleted label, category, area or floor can be recreated from a
+snapshot. Core chooses its actual ID; a changed ID is returned with a warning
+that existing references to the old ID remain broken. Assignments held by other entities, devices or areas are not rebuilt automatically;
+the snapshot and its historical identity stay intact.
+
+System health returns Core's settled health data, translated health/repair text,
+repair data, integration startup timings, Supervisor information where available,
+and richer radio-network data. Pending observations retain their deadline status;
+Native drains probes it owns and does not cancel shared Core futures. Configuration
+checks retain Core's error/warning strings. Diagnostics belong to
+`ha_get_integration(include_diagnostics=True)` and theme discovery to
+`ha_manage_theme(action="list")`; the former system-health diagnostic parameters
+are no longer advertised, following Main. Installed-provider, live-agent and
+independent Main-to-Native client-upgrade qualification remain separate requirements.
+
 ## Entity Registry reference, 13 November 2026
 
 The candidate incorporates upstream `c8df42eb763ef803a8af837f06ef738dcee4fa76`,

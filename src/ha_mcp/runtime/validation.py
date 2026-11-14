@@ -108,6 +108,21 @@ def clear_hint(param_name: str) -> str:
     )
 
 
+def refuse_blank_name(name: str | None, context: dict[str, Any]) -> None:
+    """Keep omitted names, but refuse blank label/category names."""
+    if name is not None:
+        validate_identifier_not_empty(
+            name,
+            "name",
+            message=(
+                "name must not be blank (an HA-MCP safeguard: Core accepts a "
+                "blank name, and a blank value clears the other fields)"
+            ),
+            suggestions=["Pass a non-empty name, or omit name on update to keep it"],
+            context=context,
+        )
+
+
 def clearable_value(
     value: str | None,
     param_name: str,

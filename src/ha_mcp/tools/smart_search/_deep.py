@@ -519,7 +519,7 @@ class DeepSearchMixin(SceneSearchMixin, FlowHelperSearchMixin):
             try:
                 config = await asyncio.wait_for(
                     self.client._request("GET", f"/config/automation/config/{uid}"),
-                    timeout=INDIVIDUAL_CONFIG_TIMEOUT,
+                    timeout=self.config_timeout,
                 )
                 return (uid, config, None)
             except HomeAssistantAPIError as e:
@@ -544,7 +544,7 @@ class DeepSearchMixin(SceneSearchMixin, FlowHelperSearchMixin):
                 # timeout while still perfectly healthy (#1784).
                 logger.debug(
                     f"Automation individual config fetch ({uid}) timed "
-                    f"out after {INDIVIDUAL_CONFIG_TIMEOUT}s."
+                    f"out after {self.config_timeout}s."
                 )
                 return (uid, None, "timeout")
             except Exception as e:  # noqa: BLE001
@@ -662,7 +662,7 @@ class DeepSearchMixin(SceneSearchMixin, FlowHelperSearchMixin):
             try:
                 config_resp = await asyncio.wait_for(
                     self.client.get_script_config(sid),
-                    timeout=INDIVIDUAL_CONFIG_TIMEOUT,
+                    timeout=self.config_timeout,
                 )
                 return (sid, config_resp.get("config", {}), None)
             except HomeAssistantAPIError as e:
@@ -684,7 +684,7 @@ class DeepSearchMixin(SceneSearchMixin, FlowHelperSearchMixin):
                 # batch concurrency, distinct from a real failure (#1784).
                 logger.debug(
                     f"Script individual config fetch ({sid}) timed out "
-                    f"after {INDIVIDUAL_CONFIG_TIMEOUT}s."
+                    f"after {self.config_timeout}s."
                 )
                 return (sid, None, "timeout")
             except Exception as e:  # noqa: BLE001
@@ -1117,7 +1117,7 @@ class DeepSearchMixin(SceneSearchMixin, FlowHelperSearchMixin):
                     get_data["url_path"] = url_path
                 resp = await asyncio.wait_for(
                     self.client.send_websocket_message(get_data),
-                    timeout=INDIVIDUAL_CONFIG_TIMEOUT,
+                    timeout=self.config_timeout,
                 )
                 # A soft failure does NOT raise: send_websocket_message returns
                 # {"success": False, "error": ...} on a 403-after-retries or a

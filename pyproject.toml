@@ -132,6 +132,7 @@ source-exclude = [
 
 [tool.mypy]
 python_version = "3.14"
+plugins = ["pydantic.mypy"]
 mypy_path = "src"
 # /tmp keeps the cache on Linux tmpfs — avoids the slow Windows FS in WSL2.
 # Windows-native contributors can remove this line or override with MYPY_CACHE_DIR.
@@ -151,6 +152,11 @@ check_untyped_defs = true
 warn_redundant_casts = true
 warn_unused_ignores = true
 explicit_package_bases = true
+
+[tool.pydantic-mypy]
+# Keep the field types on a model's __init__; the plugin's default types
+# every argument as Any.
+init_typed = true
 
 [[tool.mypy.overrides]]
 # Vendored websockets: upstream's typing, not ours to check. follow_imports
@@ -231,12 +237,10 @@ module = [
     "tests.src.unit.test_component_template_diagnose",
     "tests.src.unit.test_component_ws_phase2_async",
     "tests.src.unit.test_component_ws_search",
-    "tests.src.unit.test_config",
     "tests.src.unit.test_config_flow",
     "tests.src.unit.test_config_flow_server",
     "tests.src.unit.test_core_contract",
     "tests.src.unit.test_custom_component_file_edits",
-    "tests.src.unit.test_custom_component_file_writes",
     "tests.src.unit.test_dashboard_edit_routing",
     "tests.src.unit.test_dashboard_patch",
     "tests.src.unit.test_dashboard_screenshot_theme_guard",
@@ -276,7 +280,6 @@ module = [
     "tests.src.unit.test_helper_response_shape",
     "tests.src.unit.test_http_transport_options",
     "tests.src.unit.test_image_info",
-    "tests.src.unit.test_individual_fetch_settings",
     "tests.src.unit.test_integration_reconfigure",
     "tests.src.unit.test_listen_sockets",
     "tests.src.unit.test_llm_api",
@@ -308,12 +311,10 @@ module = [
     "tests.src.unit.test_rest_client_scripts",
     "tests.src.unit.test_search_fields_projection",
     "tests.src.unit.test_search_related_graph",
-    "tests.src.unit.test_search_time_budget_settings",
     "tests.src.unit.test_set_dashboard_metadata",
     "tests.src.unit.test_settings_ui",
     "tests.src.unit.test_settings_ui_handler_selection",
     "tests.src.unit.test_settings_ui_i18n",
-    "tests.src.unit.test_sidecar_pin_port",
     "tests.src.unit.test_standard_mode_logging",
     "tests.src.unit.test_startup_log_collector",
     "tests.src.unit.test_stdio_settings_sidecar",
@@ -665,15 +666,20 @@ dev = [
     # Provides `uv run hamcp-test-env` without shipping it in the ha-mcp wheel.
     "hamcp-test-env",
     # The requirements of the Core integrations whose own handlers the unit
-    # tests run, as Core's test suite does: Thread and OTBR, Z-Wave JS, ZHA,
+    # tests run, as Core's test suite does: Thread and OTBR, Z-Wave JS, Matter, ZHA,
     # KNX, Local Calendar and Remote Calendar, plus usb, hassio,
-    # homeassistant_hardware and infrared, which those load. Only the device,
+    # homeassistant_hardware, infrared and stream, which those load. Only the device,
     # bus or server below each library is replaced. Each pin
     # equals the integration's manifest in the Core above;
     # test_dev_integration_pins.py keeps them equal.
     "python-otbr-api==3.1.0",
     "pyroute2==0.9.6",
     "zwave-js-server-python==0.74.0",
+    "matter-python-client==1.5.5",
+    "matter-ble-proxy==0.7.1",
+    "PyTurboJPEG==1.8.3",
+    "av==19.0.0",
+    "numpy==2.3.2",
     "zha==2.4.3",
     "zha-quirks==2.4.1",
     "aiousbwatcher==1.1.2",

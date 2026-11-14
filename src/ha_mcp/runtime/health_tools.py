@@ -1,11 +1,9 @@
-"""Shared public system-health signature, independent of Core and MCP."""
+"""One public system-health contract for Core and remote owners."""
 
 from collections.abc import Awaitable, Callable
 from typing import Annotated, Any
 
 from pydantic import Field
-
-from ha_mcp.tools.coercion import JSON_STRING_COERCION
 
 
 class HealthFacade:
@@ -18,24 +16,27 @@ class HealthFacade:
             str | None,
             Field(
                 description=(
-                    "Comma-separated extra sections: 'repairs' (Repair items, "
+                    "Comma-separated extra sections: 'repairs' (Repair items with "
+                    "the title, description and data the Repairs page shows, "
                     "active only unless include_dismissed_repairs=True); "
                     "'zha_network' (ZHA devices with radio signal summary: name, "
                     "LQI, RSSI); 'zha_network_full' (all ZHA device details; large "
-                    "on 100+ device networks); 'zwave_network' (Z-Wave JS status "
-                    "and node summary: status, security, routing); "
-                    "'thread_network' (per border-router channel, extended_pan_id "
-                    "and border_agent_id; not per-node Thread health); "
-                    "'matter_network' (Matter integration presence: "
-                    "config_entry_id, state, title; per-node health is in Matter "
-                    "node diagnostics); 'themes' (installed theme names, count, "
-                    "default_theme, default_dark_theme); 'diagnostics' "
-                    "(per-integration diagnostics dump, integration-defined JSON; "
-                    "REQUIRES config_entry_id; payloads can be large — pair with "
-                    "diagnostics_fields or diagnostics_truncate_at_bytes); "
+                    "on 100+ device networks); 'zwave_network' (Z-Wave JS driver "
+                    "connection, controller and node status); "
+                    "'thread_network' (the Thread datasets Home Assistant knows, "
+                    "and its OTBR border routers; no network keys); "
+                    "'matter_network' (what the Matter panel reads: Core's Matter "
+                    "config entry and network topology, nodes and connections "
+                    "capped at 50 each); "
+                    "'supervisor' (Supervisor installs: resolution info with the "
+                    "unhealthy and unsupported reasons, and the Core and "
+                    "Supervisor container stats); 'integration_startup' (each "
+                    "integration's setup time in seconds, slowest first); "
                     "'config_check' (validate the HA configuration, the "
                     "pre-restart check ha_restart runs automatically; returns "
-                    "{result: valid|invalid, is_valid, errors}); 'dead_entities' "
+                    "Core's {result: valid|invalid, errors, warnings}, the "
+                    "messages as one string or null; warnings alone stay "
+                    "valid); 'dead_entities' "
                     "(orphaned/stale entity-registry entries: config_entry_orphans "
                     "whose owning integration instance is gone, and stale_restored "
                     "entries HA restored on startup that the loaded integration no "
@@ -55,58 +56,22 @@ class HealthFacade:
                 )
             ),
         ] = False,
-        config_entry_id: Annotated[
-            str | None,
-            Field(
-                description="Config entry ID of the integration (find via ha_get_integration). Required when include contains 'diagnostics'."
-            ),
-        ] = None,
-        device_id: Annotated[
-            str | None,
-            Field(
-                description="With include='diagnostics', return the device-scoped dump for this device instead of the full integration dump. Some integrations only expose config-entry-level dumps."
-            ),
-        ] = None,
-        diagnostics_fields: Annotated[
-            list[str] | str | None,
-            JSON_STRING_COERCION,
-            Field(
-                description="Top-level keys to keep from the diagnostics data payload (e.g. ['home_assistant', 'issues']). Accepts a JSON list or comma-separated string. Only applies with include='diagnostics'."
-            ),
-        ] = None,
-        diagnostics_truncate_at_bytes: Annotated[
-            int | None,
-            Field(
-                ge=1,
-                description="Byte cap on the serialized diagnostics payload (post-projection / post-data_path). On hit, drops data and emits truncated=true, bytes_total, byte_cap, plus available_fields (when the capped value is a dict). Recommended starting point: 20000. Only applies with include='diagnostics'.",
-            ),
-        ] = None,
-        diagnostics_data_path: Annotated[
-            str | None,
-            Field(
-                description="Dotted path into the diagnostics data sub-tree (e.g. 'data.devices' for ZHA per-device records). Walks into the post-fields payload. Resolution failures replace data with null and surface data_path_error. Only applies with include='diagnostics'."
-            ),
-        ] = None,
-        diagnostics_data_offset: Annotated[
-            int | None,
-            Field(
-                ge=0,
-                description="Pagination start index for list-valued diagnostics_data_path results. Only applies with include='diagnostics'.",
-            ),
-        ] = 0,
-        diagnostics_data_limit: Annotated[
-            int | None,
-            Field(
-                ge=1,
-                description="Pagination window for list-valued diagnostics_data_path results; data becomes {path, items, offset, limit, total, has_more}. Only applies with include='diagnostics'.",
-            ),
-        ] = None,
     ) -> dict[str, Any]:
-        """Get Home Assistant system health, including Zigbee (ZHA), Z-Wave JS, and per-integration diagnostics dumps.
+        """Get Home Assistant system health, including Zigbee (ZHA), Z-Wave JS, Thread and Matter networks.
 
         Returns health check results from integrations, system resources, and
         connectivity; available information varies by installation type and
-        loaded integrations. Optional sections are selected with `include`.
+        loaded integrations. Each domain carries the ``name`` and key ``labels``
+        the System information dialog shows. Checks that Home Assistant runs in
+        the background are awaited up to a deadline; one still running shows as
+        pending, with a warning. Optional sections are selected with `include`.
+
+        Not for one integration's diagnostics: use
+        ha_get_integration(include_diagnostics=True). Not for themes: use
+        ha_manage_theme(action='list'). Not for a single device's radio state:
+        use ha_get_device. Use this tool for the state of the whole
+        installation: health checks, repairs, radio networks, Supervisor,
+        startup times and the configuration check.
 
         The result may include ``ha_mcp_update`` ``{current, latest,
         update_available}``. When update_available is true, tell the user a newer
@@ -114,16 +79,8 @@ class HealthFacade:
 
         EXAMPLES:
         - ha_get_system_health(include="repairs,zha_network,zwave_network,config_check")
-        - Page a list-valued diagnostics sub-tree: ha_get_system_health(include="diagnostics", config_entry_id="abc", diagnostics_data_path="<list-valued path>", diagnostics_data_limit=10), then repeat with diagnostics_data_offset=10 while has_more is true.
+        - ha_get_system_health(include="supervisor,integration_startup")
         """
         return await self.get_health(
-            include=include,
-            include_dismissed_repairs=include_dismissed_repairs,
-            config_entry_id=config_entry_id,
-            device_id=device_id,
-            diagnostics_fields=diagnostics_fields,
-            diagnostics_truncate_at_bytes=diagnostics_truncate_at_bytes,
-            diagnostics_data_path=diagnostics_data_path,
-            diagnostics_data_offset=diagnostics_data_offset,
-            diagnostics_data_limit=diagnostics_data_limit,
+            include=include, include_dismissed_repairs=include_dismissed_repairs
         )

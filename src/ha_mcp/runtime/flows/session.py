@@ -1,6 +1,6 @@
 """Finite flow ports used by the existing walkers, without a network client."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from contextlib import AbstractAsyncContextManager, nullcontext
 from typing import Any, cast
 
@@ -116,11 +116,11 @@ class FlowSession(BackendTools):
         )
 
     async def read_flow_translations(
-        self, domain: str, category: str
+        self, domain: str | Sequence[str], category: str, *, language: str = "en"
     ) -> dict[str, Any]:
         return await self._mapping(
             "helpers.translations",
-            {"handler": domain, "category": category},
+            {"handler": domain, "category": category, "language": language},
             self.context,
         )
 

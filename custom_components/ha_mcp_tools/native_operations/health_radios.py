@@ -71,13 +71,27 @@ async def zwave_status(
             status="not_started",
         )
     controller.update(state)
+    version = client.version
+    if version is None:
+        raise ToolFailure(
+            "RADIO_UNAVAILABLE",
+            "Z-Wave JS client version is not available",
+            status="not_started",
+        )
     return {
+        "client": {
+            "ws_server_url": client.ws_server_url,
+            "state": "connected" if client.connected else "disconnected",
+            "driver_version": version.driver_version,
+            "server_version": version.server_version,
+            "server_logging_enabled": client.server_logging_enabled,
+        },
         "controller": {
             **{name: getattr(controller, name) for name in _CONTROLLER_FIELDS},
             "type": controller.controller_type,
             "is_sis_present": controller.is_SIS_present,
             "nodes": [node_status(node) for node in controller.nodes.values()],
-        }
+        },
     }
 
 

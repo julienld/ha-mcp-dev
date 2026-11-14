@@ -418,6 +418,17 @@ class NativeSnapshots:
                 data["domain"].removeprefix("helper_"),
             )
         current = await self.domains.current(data, actor)
+        if data["domain"] in {"label", "category", "area_or_floor"}:
+            from ha_mcp.runtime.snapshot_registry_restore import registry_comparison
+
+            current = await registry_comparison(
+                self.manager.backend,
+                actor,
+                data["domain"],
+                data["entity_id"],
+                data["config"],
+                current,
+            )
         return comparison_values(data, current)
 
     async def diff_snapshot(self, name: str, actor: CallContext) -> Any:

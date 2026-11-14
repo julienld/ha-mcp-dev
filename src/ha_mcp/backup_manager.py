@@ -92,6 +92,14 @@ from .backup_helper_target import (
 from .backup_helper_target import require_holds as _require_holds
 from .backup_helper_target import safety_target as _safety_target
 from .backup_integrations import fetch_integration, restore_integration
+from .backup_registry_items import REGISTRY_ITEM_DOMAINS as _REGISTRY_ITEM_DOMAINS
+from .backup_registry_items import fetch_area_or_floor as _fetch_area_or_floor
+from .backup_registry_items import fetch_category as _fetch_category
+from .backup_registry_items import fetch_label as _fetch_label
+from .backup_registry_items import restore_area_or_floor as _restore_area_or_floor
+from .backup_registry_items import restore_category as _restore_category
+from .backup_registry_items import restore_label as _restore_label
+from .backup_registry_items import restored_item as _restored_item
 from .backup_tags import restore_tag, tag_snapshot
 from .backup_todo import current_key as todo_current_key
 from .backup_todo import fetch_todo_item
@@ -157,6 +165,8 @@ from .utils.owned_executor import await_backup_io as _await_backup_io
 from .utils.registry_update_lock import registry_update_lock
 
 logger = logging.getLogger(__name__)
+
+_REGISTRY_READONLY_KEYS = frozenset({"created_at", "modified_at"})
 
 # Output cap for diff_snapshot. Bounded payload keeps the tool response
 # token-friendly even when the user diffs against a freshly-rewritten
@@ -1075,6 +1085,21 @@ class BackupManager(SnapshotFilesMixin):
             return todo_current_key(target, data["config"])
         return target
 
+    async def _registry_item_current(
+        self, domain: str, entity_id: str, config: dict[str, Any], current: Any
+    ) -> Any:
+        """Compare Core-restored registry items without timestamp-only drift."""
+        if current is None:
+            return await _restored_item(self._client, domain, entity_id, config)
+        if isinstance(current, dict):
+            keep = {
+                key: value
+                for key, value in config.items()
+                if key in _REGISTRY_READONLY_KEYS
+            }
+            return {**current, **keep}
+        return current
+
     async def snapshot_comparison(self, name: str) -> tuple[dict[str, Any], Any]:
         """Read a snapshot and the live config for its stable target identity."""
         data = await asyncio.to_thread(self.read_snapshot, name)
@@ -1104,6 +1129,10 @@ class BackupManager(SnapshotFilesMixin):
             live = await _dashboard_resource_like(self._client, data["config"])
             if live is not None:
                 current = {**live, "id": data["config"].get("id")}
+        elif domain in _REGISTRY_ITEM_DOMAINS and isinstance(data["config"], dict):
+            current = await self._registry_item_current(
+                domain, data["entity_id"], data["config"], current
+            )
         return comparison_values(data, current)
 
     async def diff_snapshot(self, name: str) -> DiffResponse | DiffResponseText:
@@ -1519,73 +1548,6 @@ async def _restore_dashboard_resource(client: Any, entity_id: str, config: Any) 
 # zone / area / floor / integration / helper registries.
 
 
-async def _fetch_label(client: Any, entity_id: str) -> Any:
-    # Route the capture through the component's ``registries`` capability when
-    # available (one in-process read of the label registry) instead of dumping
-    # the whole registry via WS. Lazy import to avoid the backup_manager →
-    # tools → backup_manager cycle (same pattern as ``_fetch_device``). ``None``
-    # from the helper means "component unavailable"; fall back to the full list.
-    from .tools.component_registries import fetch_registries_via_component
-
-    component_result = await fetch_registries_via_component(client, ["label"])
-    if component_result is not None:
-        items = component_result.get("labels") or []
-    else:
-        items = _require_list(
-            await _ws_send(client, {"type": "config/label_registry/list"}),
-            "config/label_registry/list",
-        )
-    for item in items:
-        if item.get("label_id") == entity_id:
-            return item
-    return None
-
-
-async def _restore_label(client: Any, entity_id: str, config: Any) -> Any:
-    payload = _strip_readonly(config, "label_id")
-    payload["type"] = "config/label_registry/update"
-    payload["label_id"] = entity_id
-    return await _ws_send(client, payload)
-
-
-# Categories — config/category_registry/{list,update}
-
-
-async def _fetch_category(client: Any, entity_id: str) -> Any:
-    scope, _, cat_id = entity_id.rpartition(":")
-    if not cat_id:
-        return None
-    # Same component-first routing as ``_fetch_label``; categories are scoped,
-    # so the requested scope rides ``category_scopes``.
-    from .tools.component_registries import fetch_registries_via_component
-
-    component_result = await fetch_registries_via_component(
-        client, ["category"], category_scopes=[scope]
-    )
-    if component_result is not None:
-        items = (component_result.get("categories") or {}).get(scope, [])
-    else:
-        items = _require_list(
-            await _ws_send(
-                client, {"type": "config/category_registry/list", "scope": scope}
-            ),
-            "config/category_registry/list",
-        )
-    for item in items:
-        if item.get("category_id") == cat_id:
-            return {"scope": scope, **item}
-    return None
-
-
-async def _restore_category(client: Any, entity_id: str, config: Any) -> Any:
-    from .backends.remote_snapshot_registry import restore_registry_snapshot
-
-    return await restore_registry_snapshot(client, "category", entity_id, config)
-
-
-# Groups — group.set service. Fetch via state API.
-
-
 async def _fetch_group(client: Any, entity_id: str) -> Any:
     eid = entity_id if entity_id.startswith("group.") else f"group.{entity_id}"
     state = await _rest_get_or_none(client, f"states/{eid}")
@@ -1613,49 +1575,6 @@ async def _restore_group(client: Any, entity_id: str, config: Any) -> Any:
 
 
 # Areas / floors — config/area_registry/{list,update}, config/floor_registry/{list,update}
-
-
-async def _fetch_area_or_floor(client: Any, entity_id: str) -> Any:
-    kind, _, real_id = entity_id.partition(":")
-    if not real_id:
-        return None
-    # Same component-first routing as ``_fetch_label`` / ``_fetch_category``.
-    from .tools.component_registries import fetch_registries_via_component
-
-    if kind == "area":
-        component_result = await fetch_registries_via_component(client, ["area"])
-        if component_result is not None:
-            items = component_result.get("areas") or []
-        else:
-            items = _require_list(
-                await _ws_send(client, {"type": "config/area_registry/list"}),
-                "config/area_registry/list",
-            )
-        for item in items:
-            if item.get("area_id") == real_id:
-                return {"kind": "area", **item}
-    elif kind == "floor":
-        component_result = await fetch_registries_via_component(client, ["floor"])
-        if component_result is not None:
-            items = component_result.get("floors") or []
-        else:
-            items = _require_list(
-                await _ws_send(client, {"type": "config/floor_registry/list"}),
-                "config/floor_registry/list",
-            )
-        for item in items:
-            if item.get("floor_id") == real_id:
-                return {"kind": "floor", **item}
-    return None
-
-
-async def _restore_area_or_floor(client: Any, entity_id: str, config: Any) -> Any:
-    from .backends.remote_snapshot_registry import restore_registry_snapshot
-
-    return await restore_registry_snapshot(client, "area_or_floor", entity_id, config)
-
-
-# Todo items — entity_id is "<todo.entity>::<item_uid>"
 
 
 async def _fetch_todo_item(client: Any, entity_id: str) -> Any:

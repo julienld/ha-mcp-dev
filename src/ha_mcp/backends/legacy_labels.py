@@ -9,6 +9,7 @@ from ha_mcp.backends.legacy import legacy_errors_sync
 from ha_mcp.backup_manager import get_backup_manager
 from ha_mcp.config import get_global_settings
 from ha_mcp.errors import TOOL_ERROR_LOG_LEVEL, ErrorCode, create_error_response
+from ha_mcp.runtime.error_text import core_error_message
 from ha_mcp.runtime.errors import websocket_error_message
 from ha_mcp.runtime.label_values import (
     PARTIAL_RETRY_SUGGESTIONS as _PARTIAL_RETRY_SUGGESTIONS,
@@ -24,8 +25,11 @@ from ha_mcp.runtime.label_values import (
 )
 from ha_mcp.runtime.label_values import string_labels as _string_labels
 from ha_mcp.tools.helpers import (
+    clearable_value,
     exception_to_structured_error,
+    raise_core_refusal,
     raise_tool_error,
+    refuse_blank_name,
     validate_identifier_not_empty,
 )
 from ha_mcp.utils.registry_update_lock import registry_update_lock
@@ -77,7 +81,7 @@ class LegacyLabels:
             )
         return labels
 
-    async def _require_existing_label(self, label_id: str, name: str) -> None:
+    async def _require_existing_label(self, label_id: str, name: str | None) -> None:
         """Raise RESOURCE_NOT_FOUND if ``label_id`` is not in the registry.
 
         Enforces the strict update-only contract (issue #1860): update of an
@@ -420,11 +424,12 @@ class LegacyLabels:
 
     async def _prepare_label_write(
         self,
-        name: str,
+        name: str | None,
         label_id: str | None,
         areas: str | list[str] | None,
     ) -> list[str] | None:
         """Validate create/update discriminator and optional area targets."""
+        refuse_blank_name(name, {"action": "set", "label_id": label_id})
         # ``None`` stays the documented "create-new" sentinel; explicit
         # empty/whitespace is rejected so the create/update discriminator
         # cannot silently route an intended update to create.
@@ -452,32 +457,31 @@ class LegacyLabels:
 
     def _build_label_set_message(
         self,
-        name: str,
+        name: str | None,
         label_id: str | None,
         color: str | None,
         icon: str | None,
         description: str | None,
     ) -> tuple[str, dict[str, Any]]:
         action = "update" if label_id else "create"
-        message: dict[str, Any] = {
-            "type": f"config/label_registry/{action}",
-            "name": name,
-        }
+        message: dict[str, Any] = {"type": f"config/label_registry/{action}"}
+        if name is not None:
+            message["name"] = name
         if action == "update":
             message["label_id"] = label_id
         if color is not None:
-            message["color"] = color
+            message["color"] = clearable_value(color, "color")
         if icon is not None:
-            message["icon"] = icon
+            message["icon"] = clearable_value(icon, "icon")
         if description is not None:
-            message["description"] = description
+            message["description"] = clearable_value(description, "description")
         return action, message
 
     async def _label_set_success_response(
         self,
         result: dict[str, Any],
         action: str,
-        name: str,
+        name: str | None,
         label_id: str | None,
         parsed_areas: list[str] | None,
     ) -> dict[str, Any]:
@@ -498,7 +502,7 @@ class LegacyLabels:
 
     async def set(
         self,
-        name: str,
+        name: str | None = None,
         label_id: str | None = None,
         color: str | None = None,
         icon: str | None = None,
@@ -515,7 +519,19 @@ class LegacyLabels:
                 return await self._label_set_success_response(
                     result, action, name, label_id, parsed_areas
                 )
-            self._raise_label_set_failure(result, action, name, label_id)
+            suggestions = [
+                "Use ha_config_get_label() to see the existing labels and their IDs"
+            ]
+            if action == "create" and name is None:
+                suggestions.insert(
+                    0, "Pass name to create a label, or label_id to update one"
+                )
+            raise_core_refusal(
+                f"Failed to {action} label",
+                result,
+                context={"name": name, "label_id": label_id},
+                suggestions=suggestions,
+            )
 
         except ToolError:
             raise
@@ -558,13 +574,18 @@ class LegacyLabels:
                     "message": f"Successfully deleted label: {label_id}",
                 }
             else:
-                error_str = str(result.get("error", "")).lower()
-                if "not found" in error_str or "doesn't exist" in error_str:
+                if (
+                    core_error_message(result.get("error", ""))
+                    == "Label ID doesn't exist"
+                ):
                     raise_tool_error(
                         create_error_response(
                             ErrorCode.RESOURCE_NOT_FOUND,
                             f"Label not found: {label_id}",
-                            context={"label_id": label_id},
+                            context={
+                                "label_id": label_id,
+                                "ha_error_code": result.get("error_code"),
+                            },
                             suggestions=[
                                 "Use ha_config_get_label() without label_id to see all labels",
                             ],
@@ -606,7 +627,17 @@ class LegacyLabels:
                     context={"action": "get"},
                 )
             labels = await self._list_labels(context={"label_id": label_id})
-            return _legacy_get_result(labels, label_id)
+            result = _legacy_get_result(labels, label_id)
+            if label_id is not None:
+                from ha_mcp.tools.util_helpers import search_related
+
+                warnings: list[str] = []
+                result["related"] = await search_related(
+                    self._client, "label", label_id, warnings
+                )
+                if warnings:
+                    result["warnings"] = warnings
+            return result
         except ToolError:
             raise
         except Exception as error:  # noqa: BLE001 - legacy classifier preserves public failures

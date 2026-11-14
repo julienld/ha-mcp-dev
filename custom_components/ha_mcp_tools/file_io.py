@@ -265,6 +265,18 @@ def _replace_file_sync(
     if state is not None:
         state.started = True
     target_file.parent.mkdir(parents=True, exist_ok=True)
+    if target_file.exists():
+        from .file_ops import _replace_contents
+
+        _replace_contents(
+            target_file,
+            content.encode("utf-8"),
+            before_replace=lambda: _check_file_image(target_file, expected),
+        )
+        if state is not None:
+            state.committed = True
+        stat = target_file.stat()
+        return {"size": stat.st_size, "mtime": stat.st_mtime}
     # The temporary belongs only to this invocation; an existing sibling
     # .tmp file or symlink is never opened or removed.
     with tempfile.NamedTemporaryFile(

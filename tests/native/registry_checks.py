@@ -110,3 +110,27 @@ async def exercise_labels(checks: Any, base: str, area_id: str) -> None:
     listed = await checks.call("ha_config_get_label")
     assert not any(row["label_id"] == label_id for row in listed["labels"]), listed
     checks.passed("canonical_Core_label_restore_and_removal_preserve_public_contract")
+
+    recreated = await checks.call(
+        "ha_config_set_label", {"name": "Native recreate original"}
+    )
+    previous_id = recreated["label_id"]
+    await checks.call(
+        "ha_config_set_label",
+        {"label_id": previous_id, "name": "Native recreate renamed"},
+    )
+    await checks.call("ha_config_remove_label", {"label_id": previous_id})
+    response = await checks.client.get(
+        panel, params={"domain": "label", "entity_id": previous_id}
+    )
+    response.raise_for_status()
+    saved = response.json()["backups"][0]["name"]
+    restored = await checks.client.post(panel + "/" + saved + "/restore", json={})
+    assert restored.status_code == 200, restored.text
+    labels = (await checks.call("ha_config_get_label"))["labels"]
+    matches = [row for row in labels if row["name"] == "Native recreate renamed"]
+    assert len(matches) == 1 and matches[0]["label_id"] != previous_id, labels
+    await checks.call("ha_config_remove_label", {"label_id": matches[0]["label_id"]})
+    checks.passed(
+        "native_deleted_label_recreation_keeps_Core_identity_and_public_backup_path"
+    )

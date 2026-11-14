@@ -9,17 +9,10 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.json import json_bytes
 
-from ha_mcp.errors import HomeAssistantAPIError
-from ha_mcp.runtime.diagnostics import (
-    _project_cap_and_paginate_diagnostics,
-    parse_diagnostics_fields,
-)
 from ha_mcp.runtime.health_results import (
     HealthResults,
     dead_entities_result,
     repair_section,
-    summarize_theme_listing,
-    thread_network_result,
     zha_network_result,
     zwave_network_result,
 )
@@ -28,48 +21,32 @@ from ha_mcp.utils.owned_executor import await_owned_io
 
 from .health_info import read_health_info
 from .health_radios import thread_status, zwave_status
-from .integration_inspection import diagnostics
+from .health_sections import HealthSections
+from .radio_access import RadioSession
+from .radio_thread import handle_thread
 from .registry_access import Authorize, authorize_actor, registry_failure
+from .supervisor_access import SupervisorAccess
 
 
 @dataclass(slots=True)
-class NativeHealth(HealthResults):
+class NativeHealth(HealthSections, HealthResults):
     hass: HomeAssistant
     actor: CallContext
     authorize: Authorize = field(kw_only=True, repr=False)
 
+    manager: Any = field(default=None, kw_only=True, repr=False)
+
     async def get(
-        self,
-        include: str | None,
-        include_dismissed_repairs: bool,
-        config_entry_id: str | None,
-        device_id: str | None,
-        diagnostics_fields: list[str] | str | None,
-        diagnostics_truncate_at_bytes: int | None,
-        diagnostics_data_path: str | None,
-        diagnostics_data_offset: int | None,
-        diagnostics_data_limit: int | None,
+        self, include: str | None = None, include_dismissed_repairs: bool = False
     ) -> dict[str, Any]:
         try:
             await authorize_actor(self.actor, self.authorize)
             includes = self._parse_includes(include)
             try:
                 result = await read_health_info(self.hass, self.actor, self.authorize)
+                await self._health_labels(result)
             except UnsupportedOperation:
-                if not includes.intersection(
-                    {
-                        "repairs",
-                        "zha_network",
-                        "zha_network_full",
-                        "zwave_network",
-                        "thread_network",
-                        "matter_network",
-                        "themes",
-                        "diagnostics",
-                        "config_check",
-                        "dead_entities",
-                    }
-                ):
+                if not includes:
                     raise
                 result = {
                     "success": True,
@@ -82,36 +59,9 @@ class NativeHealth(HealthResults):
                     ],
                 }
             self._warn_unknown_includes(result, includes)
-            fields = parse_diagnostics_fields(diagnostics_fields)
-            snapshot = self._snapshot(includes)
-            sections = self._sections(includes, snapshot, include_dismissed_repairs)
-            if "diagnostics" in includes:
-                sections.append(
-                    (
-                        "diagnostics",
-                        lambda: self._diagnostics(
-                            config_entry_id,
-                            device_id,
-                            fields,
-                            diagnostics_truncate_at_bytes,
-                            diagnostics_data_path,
-                            diagnostics_data_offset or 0,
-                            diagnostics_data_limit,
-                        ),
-                    )
-                )
-            elif (
-                config_entry_id
-                or device_id
-                or diagnostics_fields is not None
-                or diagnostics_truncate_at_bytes is not None
-                or diagnostics_data_path is not None
-                or diagnostics_data_limit is not None
-                or (diagnostics_data_offset or 0) > 0
-            ):
-                result.setdefault("warnings", []).append(
-                    "config_entry_id, device_id, diagnostics_fields, diagnostics_truncate_at_bytes, diagnostics_data_path, diagnostics_data_offset, and/or diagnostics_data_limit were provided but ignored because 'diagnostics' is not in include"
-                )
+            sections = self._sections(
+                includes, self._snapshot(includes), bool(include_dismissed_repairs)
+            )
             values = await await_owned_io(
                 asyncio.gather(
                     *(self._section(name, read) for name, read in sections),
@@ -176,8 +126,10 @@ class NativeHealth(HealthResults):
             sections.append(("thread_network", self._thread))
         if "matter_network" in includes:
             sections.append(("matter_network", lambda: self._matter(snapshot)))
-        if "themes" in includes:
-            sections.append(("themes", self._themes))
+        if "integration_startup" in includes:
+            sections.append(("integration_startup", self._startup))
+        if "supervisor" in includes:
+            sections.append(("supervisor", self._supervisor))
         if "dead_entities" in includes:
             sections.append(("dead_entities", lambda: self._dead(snapshot)))
         if "config_check" in includes:
@@ -213,7 +165,9 @@ class NativeHealth(HealthResults):
     async def _repairs(
         self, snapshot: dict[str, Any] | Exception, dismissed: bool
     ) -> dict[str, Any]:
-        return repair_section(self._rows(snapshot, "issues"), dismissed)
+        return await self._repair_details(
+            repair_section(self._rows(snapshot, "issues"), dismissed)
+        )
 
     async def _zha(self, full: bool) -> dict[str, Any]:
         from ..native_registry_ops import _zha_devices
@@ -238,31 +192,36 @@ class NativeHealth(HealthResults):
         return zwave_network_result(json.loads(json_bytes(value)))
 
     async def _thread(self) -> dict[str, Any]:
-        return thread_network_result(
-            await thread_status(self.hass, self.actor, self.authorize)
-        )
+        datasets = await self._section("datasets", self._thread_datasets)
+        routers = await self._section("border_routers", self._thread_routers)
+        result: dict[str, Any] = {}
+        if "error" in datasets:
+            result["datasets_error"] = (
+                f"Thread datasets not available: {datasets['error']}"
+            )
+        else:
+            result["datasets"] = datasets["datasets"]
+        if "error" in routers:
+            result["border_routers_error"] = (
+                f"OTBR border routers not available: {routers['error']}"
+            )
+        else:
+            result["border_routers"] = routers["border_routers"]
+        return result
+
+    async def _thread_datasets(self) -> dict[str, Any]:
+        session = RadioSession(self.hass, self.actor, self.authorize)
+        result = await handle_thread(session, "list_datasets", {})
+        session.verify()
+        datasets: dict[str, Any] = result["datasets"]
+        return datasets
+
+    async def _thread_routers(self) -> dict[str, Any]:
+        result = await thread_status(self.hass, self.actor, self.authorize)
+        return {"border_routers": list(result.values())}
 
     async def _matter(self, snapshot: dict[str, Any] | Exception) -> dict[str, Any]:
-        entry = next(
-            (
-                row
-                for row in self._rows(snapshot, "config_entries")
-                if row.get("domain") == "matter"
-            ),
-            None,
-        )
-        if entry is None:
-            raise ToolFailure("RADIO_UNAVAILABLE", "Matter integration not found")
-        return {
-            "config_entry_id": entry.get("entry_id"),
-            "state": entry.get("state"),
-            "title": entry.get("title"),
-        }
-
-    async def _themes(self) -> dict[str, Any]:
-        from .frontend_themes import theme_image
-
-        return summarize_theme_listing(theme_image(self.hass))
+        return await self._matter_network()
 
     async def _dead(self, snapshot: dict[str, Any] | Exception) -> dict[str, Any]:
         entries = self._rows(snapshot, "config_entries")
@@ -287,6 +246,24 @@ class NativeHealth(HealthResults):
             ]
         return result
 
+    async def _supervisor(self) -> dict[str, Any]:
+        if "hassio" not in self.hass.config.components:
+            return {"error": "Supervisor is not available on this installation"}
+        access = SupervisorAccess(self.manager, self.actor)
+        result: dict[str, Any] = {}
+        for name, path in (
+            ("resolution", "/resolution/info"),
+            ("core_stats", "/core/stats"),
+            ("supervisor_stats", "/supervisor/stats"),
+        ):
+            try:
+                result[name] = await access._read(path)
+            except ToolFailure as error:
+                if error.code == "AUTH_FORBIDDEN":
+                    raise
+                result[name] = {"error": str(error)}
+        return result
+
     async def _config_check(self) -> dict[str, Any]:
         from homeassistant.helpers import check_config
 
@@ -295,69 +272,9 @@ class NativeHealth(HealthResults):
         )
         return {
             "result": "invalid" if checked.errors else "valid",
-            "is_valid": not bool(checked.errors),
-            "errors": checked.error_str or [],
-            "warnings": checked.warning_str or [],
+            "errors": checked.error_str or None,
+            "warnings": checked.warning_str or None,
         }
-
-    async def _diagnostics(
-        self,
-        entry_id: str | None,
-        device_id: str | None,
-        fields: list[str] | None,
-        cap: int | None,
-        path: str | None,
-        offset: int,
-        limit: int | None,
-    ) -> dict[str, Any]:
-        result: dict[str, Any] = {"config_entry_id": entry_id}
-        if device_id:
-            result["device_id"] = device_id
-        if not entry_id:
-            result["error"] = (
-                "config_entry_id is required for diagnostics fetch. Use ha_get_integration() to find the config_entry_id for the integration."
-            )
-            return result
-        try:
-            result["data"] = await await_owned_io(
-                diagnostics(
-                    self.hass,
-                    {"entry_id": entry_id, "device_id": device_id, "timeout": 60},
-                )
-            )
-        except HomeAssistantAPIError as error:
-            if error.status_code != 404:
-                result["error"] = f"Diagnostics fetch failed: {error}"
-                return result
-            scope = "device" if device_id else "config entry"
-            result["error"] = (
-                f"Diagnostics not available for this {scope}: integration may not implement the diagnostics platform, or the id is invalid. Verify via ha_get_integration()."
-            )
-            return result
-        except ToolFailure as error:
-            if error.code == "AUTH_FORBIDDEN":
-                raise
-            result.update(error=str(error), error_code=error.code)
-            return result
-        except Exception as error:  # noqa: BLE001 - preserve target identity on independent provider failure
-            result["error"] = f"Diagnostics fetch failed: {error}"
-            return result
-        if result["data"] is None:
-            result.pop("data")
-            result["error"] = "Diagnostics endpoint returned an empty body"
-            return result
-        await await_owned_io(
-            self.hass.async_add_executor_job(
-                _project_cap_and_paginate_diagnostics,
-                result,
-                fields,
-                cap,
-                path,
-                offset,
-                limit,
-            )
-        )
-        return result
 
 
 def _empty_section(name: str) -> dict[str, Any]:

@@ -5,9 +5,10 @@ This module provides common helper functions used across multiple tool registrat
 """
 
 import logging
-from typing import Any
+from typing import Any, cast
 
 from ha_mcp.backends.legacy_flows import legacy_helper_flow
+from ha_mcp.client.rest_client import HomeAssistantError
 from ha_mcp.runtime.errors import websocket_error_message
 from ha_mcp.runtime.health_results import (
     filter_active_repairs,
@@ -34,6 +35,7 @@ from ha_mcp.runtime.websocket_policy import (
 from ha_mcp.runtime.websocket_policy import (
     supervisor_path as supervisor_path,
 )
+from ha_mcp.tools.helpers import core_error_message
 
 from ..runtime.action_constants import (
     _SERVICE_TO_STATE,
@@ -178,3 +180,24 @@ async def list_visible_registry_ids(
         and entity_id.startswith(prefix)
         and entity_id not in hidden
     ][:10]
+
+
+async def search_related(
+    client: Any, item_type: str, item_id: str, warnings: list[str]
+) -> dict[str, Any] | None:
+    """Core's ``search/related`` answer for one item, the Related set its UI shows.
+
+    None, with the reason in ``warnings``, when Core does not answer it.
+    """
+    try:
+        result = await client.send_websocket_message(
+            {"type": "search/related", "item_type": item_type, "item_id": item_id}
+        )
+    except HomeAssistantError as e:
+        warnings.append(f"related unavailable: {e}")
+        return None
+    if not result.get("success"):
+        reason = core_error_message(result.get("error") or "request failed")
+        warnings.append(f"related unavailable: {reason}")
+        return None
+    return cast(dict[str, Any], result["result"])

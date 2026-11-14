@@ -11,7 +11,7 @@ class Labels(Protocol):
     async def get(self, label_id: str | None = None) -> dict[str, Any]: ...
     async def set(
         self,
-        name: str,
+        name: str | None = None,
         label_id: str | None = None,
         color: str | None = None,
         icon: str | None = None,
@@ -38,7 +38,14 @@ class LabelTools:
         """Get label info - list all labels or get a specific one by ID.
 
         Without a label_id: Lists all Home Assistant labels with their configurations.
-        With a label_id: Returns configuration for that specific label.
+        With a label_id: Returns that label and, as `related`, Home Assistant's
+        Related set for it: the areas, devices and entities that carry it (an
+        automation, script, scene, group or person that carries it is also listed
+        under its own key), the automations and scripts that target it, and the
+        areas, floors, devices, config entries and integrations of the carrying
+        items. A template that uses the label (for example `label_entities('x')`)
+        is not listed. `related` is None, with a warning, when Home Assistant
+        cannot answer; that does not mean the label is unused.
 
         EXAMPLES:
         - List all labels: ha_config_get_label()
@@ -53,7 +60,13 @@ class LabelTools:
 
     async def ha_config_set_label(
         self,
-        name: Annotated[str, Field(description="Display name for the label")],
+        name: Annotated[
+            str | None,
+            Field(
+                description="Display name. Required to create; omit on update to keep it.",
+                default=None,
+            ),
+        ] = None,
         label_id: Annotated[
             str | None,
             Field(
@@ -64,21 +77,21 @@ class LabelTools:
         color: Annotated[
             str | None,
             Field(
-                description="Color for the label (e.g., 'red', 'blue', 'green', or hex like '#FF5733')",
+                description="Color for the label (e.g., 'red', 'blue', 'green', or hex like '#FF5733'); '' or ' ' clears it",
                 default=None,
             ),
         ] = None,
         icon: Annotated[
             str | None,
             Field(
-                description="Material Design Icon (e.g., 'mdi:tag', 'mdi:label')",
+                description="Material Design Icon (e.g., 'mdi:tag', 'mdi:label'); '' or ' ' clears it",
                 default=None,
             ),
         ] = None,
         description: Annotated[
             str | None,
             Field(
-                description="Description of the label's purpose",
+                description="Description of the label's purpose; '' or ' ' clears it",
                 default=None,
             ),
         ] = None,
@@ -104,9 +117,9 @@ class LabelTools:
         for entities, devices, and areas.
 
         EXAMPLES:
-        - Create: ha_config_set_label("Security", color="red", icon="mdi:shield", description="Security-related devices")
-        - Update: ha_config_set_label("Updated Name", label_id="my_label_id", color="blue")
-        - Create and apply to areas: ha_config_set_label("Site Home", areas=["kitchen", "living_room"])
+        - Create: ha_config_set_label(name="Security", color="red", icon="mdi:shield", description="Security-related devices")
+        - Update: ha_config_set_label(label_id="my_label_id", color="blue")
+        - Create and apply to areas: ha_config_set_label(name="Site Home", areas=["kitchen", "living_room"])
 
         After creating a label, use ha_set_entity(labels=["label_id"]) to assign it to entities,
         ha_set_device(labels=["label_id"]) for devices, or
@@ -131,15 +144,21 @@ class LabelTools:
         """
         Delete a Home Assistant label.
 
-        Removes the label from the label registry. This will also remove the label
-        from all entities, devices, and areas that have it assigned.
+        Removes the label from the label registry. Home Assistant also takes it off
+        every entity, device and area that carries it. Automations and scripts that
+        target the label keep the reference, which then matches nothing.
+
+        To take a label off one item and keep it, use ha_set_entity,
+        ha_set_device or ha_set_area_or_floor instead. Before deleting, call
+        ha_config_get_label(label_id): its `related` lists what carries or
+        targets the label, but not a template that uses it, so an empty `related`
+        does not prove the label unused. The auto-backup of this call restores
+        the label itself, under the id its current name gives it (a new one if
+        it was renamed since it was created), not what carried it.
 
         EXAMPLES:
         - Delete label: ha_config_remove_label("my_label_id")
 
         Use ha_config_get_label() to find label IDs.
-
-        **WARNING:** Deleting a label will remove it from all assigned entities.
-        This action cannot be undone.
         """
         return await self.labels.remove(label_id=label_id)

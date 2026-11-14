@@ -23,7 +23,6 @@ from ..errors import (
     ErrorCode,
     create_auth_error,
     create_connection_error,
-    create_error_response,
 )
 from ..redaction import scrub_known_secrets
 from ..runtime.action_params import (
@@ -272,17 +271,25 @@ def raise_core_refusal(
     suggestions: list[str] | None = None,
     suffix: str = "",
 ) -> NoReturn:
-    """Raise a failed WebSocket command as ``{what}: <error>{suffix}``, the
-    error without the client's prefix, coded by :func:`ws_failure_code` with
-    Core's own code kept as ``ha_error_code``."""
-    raise_tool_error(
-        create_error_response(
-            ws_failure_code(result),
-            f"{what}: {core_error_message(result.get('error', 'Unknown error'))}{suffix}",
-            suggestions=suggestions,
-            context={**(context or {}), "ha_error_code": result.get("error_code")},
-        )
-    )
+    """Map the shared Core refusal back to the legacy ToolError contract."""
+    from ha_mcp.runtime.errors import raise_core_refusal as refuse
+    from ha_mcp.tool_api import ToolFailure
+
+    try:
+        refuse(what, result, context, suggestions, suffix)
+    except ToolFailure as error:
+        raise_tool_error(error.data)
+
+
+def refuse_blank_name(name: str | None, context: dict[str, Any]) -> None:
+    """Map the shared blank-name safeguard to the legacy ToolError contract."""
+    from ha_mcp.runtime.validation import refuse_blank_name as refuse
+    from ha_mcp.tool_api import ToolFailure
+
+    try:
+        refuse(name, context)
+    except ToolFailure as error:
+        raise_tool_error(error.data)
 
 
 def clear_or_keep(value: str | None, param_name: str) -> str | None:

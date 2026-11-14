@@ -55,10 +55,6 @@ async def _settle_values(
         value = _future_value(owner, future)
         for domain, key in pending[future]:
             domains[domain]["info"][key] = value
-    for future in unresolved:
-        if future in owned:
-            for domain, key in pending[future]:
-                domains[domain]["info"][key] = {"type": "failed", "error": "timeout"}
     return bool(unresolved)
 
 
@@ -80,7 +76,7 @@ async def _collect(hass: HomeAssistant, owner: Any, timeout: float) -> dict[str,
         unresolved = await _settle_values(owner, domains, pending, owned, deadline)
         result: dict[str, Any] = {
             "success": True,
-            "health_info": {"type": "initial", "data": domains},
+            "health_info": domains,
             "component_count": len(domains),
             "message": f"Retrieved health info for {len(domains)} components",
         }
@@ -104,7 +100,7 @@ async def read_health_info(
     actor: CallContext,
     authorize: Authorize,
     *,
-    timeout: float = 10,
+    timeout: float = 15,
 ) -> dict[str, Any]:
     from homeassistant.components import system_health as owner
 

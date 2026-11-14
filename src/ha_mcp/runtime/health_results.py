@@ -17,9 +17,9 @@ class HealthResults:
             "zwave_network",
             "thread_network",
             "matter_network",
-            "diagnostics",
+            "integration_startup",
+            "supervisor",
             "config_check",
-            "themes",
             "dead_entities",
         }
         unknown = includes - VALID_INCLUDES
@@ -27,6 +27,12 @@ class HealthResults:
             result.setdefault("warnings", []).append(
                 f"Unknown include sections ignored: {', '.join(sorted(unknown))}"
             )
+        for section, replacement in (
+            ("diagnostics", "ha_get_integration(include_diagnostics=True)"),
+            ("themes", "ha_manage_theme(action='list')"),
+        ):
+            if section in unknown:
+                result["warnings"].append(f"'{section}' moved to {replacement}")
 
     @staticmethod
     def _parse_includes(include: str | None) -> set[str]:
@@ -189,21 +195,13 @@ def zha_network_result(raw_devices: list[dict[str, Any]], full: bool) -> dict[st
 def zwave_network_result(net_data: dict[str, Any]) -> dict[str, Any]:
     ZWAVE_NODE_LIMIT = 50
     zwave_network: dict[str, Any] = {}
-    zwave_network["controller"] = net_data.get("controller", {})
-    nodes = net_data.get("controller", {}).get("nodes", [])
+    controller = dict(net_data.get("controller", {}))
+    nodes = controller.pop("nodes", [])
+    zwave_network["controller"] = controller
+    zwave_network["client"] = net_data.get("client", {})
     total_nodes = len(nodes)
     capped_nodes = nodes[:ZWAVE_NODE_LIMIT]
-    node_summaries = [
-        {
-            "node_id": n.get("node_id"),
-            "status": n.get("status"),
-            "is_routing": n.get("is_routing"),
-            "is_secure": n.get("is_secure"),
-            "zwave_plus_version": n.get("zwave_plus_version"),
-            "is_controller_node": n.get("is_controller_node"),
-        }
-        for n in capped_nodes
-    ]
+    node_summaries = capped_nodes
     zwave_network["nodes"] = node_summaries
     zwave_network["count"] = len(node_summaries)
     zwave_network["total_count"] = total_nodes

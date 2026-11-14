@@ -2,7 +2,8 @@
 
 from typing import Any, NoReturn
 
-from ha_mcp.errors import ErrorCode, is_service_outcome_unknown
+from ha_mcp.errors import ErrorCode, create_error_response, is_service_outcome_unknown
+from ha_mcp.runtime.error_text import core_error_message
 from ha_mcp.tool_api import ToolFailure
 
 
@@ -56,3 +57,23 @@ def websocket_error_message(error: Any) -> str:
     if isinstance(error, dict):
         return str(error.get("message", error))
     return str(error)
+
+
+def raise_core_refusal(
+    what: str,
+    result: dict[str, Any],
+    context: dict[str, Any] | None = None,
+    suggestions: list[str] | None = None,
+    suffix: str = "",
+) -> NoReturn:
+    """Raise a failed WebSocket command as ``{what}: <error>{suffix}``, the
+    error without the client's prefix, coded by :func:`ws_failure_code` with
+    Core's own code kept as ``ha_error_code``."""
+    raise_failure(
+        create_error_response(
+            ws_failure_code(result),
+            f"{what}: {core_error_message(result.get('error', 'Unknown error'))}{suffix}",
+            suggestions=suggestions,
+            context={**(context or {}), "ha_error_code": result.get("error_code")},
+        )
+    )

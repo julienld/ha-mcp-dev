@@ -87,6 +87,17 @@ async def _mutate(
         hass, f"config/{domain}_registry/{action}", arguments["data"]
     )
     registry, serialize = _owners(hass, domain)
+    absent = arguments.get("expected_absent")
+    if (
+        action == "create"
+        and absent
+        and _row(hass, domain, absent[f"{domain}_id"]) is not None
+    ):
+        raise ToolFailure(
+            "CONFIG_CONFLICT",
+            "The removed location reappeared before recreation",
+            status="not_started",
+        )
     before = _row(hass, domain, data[f"{domain}_id"]) if action != "create" else None
     if not json_values_equal(before, arguments["expected_item"]):
         raise ToolFailure(

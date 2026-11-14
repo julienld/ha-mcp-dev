@@ -16,9 +16,11 @@ async def describe_operation(
         return await client.send_websocket_message(
             {
                 "type": "frontend/get_translations",
-                "language": "en",
+                "language": arguments.get("language", "en"),
                 "category": arguments["category"],
-                "integration": [arguments["handler"]],
+                "integration": [arguments["handler"]]
+                if isinstance(arguments["handler"], str)
+                else list(arguments["handler"]),
             }
         )
     if operation == "helpers.catalog":
