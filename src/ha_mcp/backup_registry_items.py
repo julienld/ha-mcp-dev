@@ -178,8 +178,8 @@ async def restore_label(client: Any, entity_id: str, config: Any) -> Any:
 
 
 async def fetch_category(client: Any, entity_id: str) -> Any:
-    scope, _, cat_id = entity_id.partition(":")
-    if not cat_id:
+    scope, separator, cat_id = entity_id.rpartition(":")
+    if not separator or not cat_id:
         return None
     for item in await _category_rows(client, scope):
         if item.get("category_id") == cat_id:
@@ -188,7 +188,7 @@ async def fetch_category(client: Any, entity_id: str) -> Any:
 
 
 async def restore_category(client: Any, entity_id: str, config: Any) -> Any:
-    scope, _, cat_id = entity_id.partition(":")
+    scope, _, cat_id = entity_id.rpartition(":")
     scope = scope or config.get("scope")
     rows = await _category_rows(client, scope)
     payload = _manager()._strip_readonly(config, "category_id", "scope")
