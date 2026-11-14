@@ -7,8 +7,10 @@ stamping script against a scratch copy of the component.
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -43,29 +45,34 @@ class TestMirrorSyncShape:
         # yaml reads the bare `on` key as True.
         triggers = _workflow(_MIRROR)[True]
         assert triggers["workflow_run"]["workflows"] == [
-            "SemVer Release",
-            "Publish Dev Channel",
+            _workflow(_WORKFLOWS / "release-publish.yml")["name"],
+            _workflow(_WORKFLOWS / "publish-dev.yml")["name"],
         ]
         # A dispatched dev build from another branch must never be mirrored.
         assert triggers["workflow_run"]["branches"] == ["master"]
-        gate = _workflow(_MIRROR)["jobs"]["gate"]["steps"][0]
+        gate = next(
+            s
+            for s in _workflow(_MIRROR)["jobs"]["gate"]["steps"]
+            if s.get("id") == "decide"
+        )
         assert "head_branch" in gate["env"]["TRIGGER_BRANCH"]
         assert '"$TRIGGER_BRANCH" != master' in gate["run"]
 
-    def test_gate_keys_on_the_jobs_that_publish_the_pin(self) -> None:
-        gate = _workflow(_MIRROR)["jobs"]["gate"]["steps"][0]["run"]
+    def test_gate_follows_the_stable_publisher_and_the_dev_pypi_job(self) -> None:
+        gate = next(
+            s
+            for s in _workflow(_MIRROR)["jobs"]["gate"]["steps"]
+            if s.get("id") == "decide"
+        )["run"]
         jobs = {
             job["name"]
-            for path in (
-                _WORKFLOWS / "publish-dev.yml",
-                _WORKFLOWS / "semver-release.yml",
-            )
-            for job in _workflow(path)["jobs"].values()
+            for job in _workflow(_WORKFLOWS / "publish-dev.yml")["jobs"].values()
             if "name" in job
         }
-        assert "Semantic Release" in jobs
         assert "Publish PyPI (dev channel)" in jobs
-        assert 'job="Semantic Release"' in gate
+        publisher = _workflow(_WORKFLOWS / "release-publish.yml")["name"]
+        assert f'"$TRIGGER_WORKFLOW" = "{publisher}"' in gate
+        assert '"finalized_tag=$FINALIZED_TAG"' in gate
         assert 'job="Publish PyPI (dev channel)"' in gate
 
     def test_dev_leg_pins_the_version_the_dev_build_uploaded(self) -> None:
@@ -118,13 +125,14 @@ class TestMirrorSyncShape:
         assert 'cp "$SRC/hacs.json" "$SRC/LICENSE" /tmp/mirror/' in stage["run"]
 
     @pytest.mark.parametrize(
-        ("trigger", "expected"), [("release-of-c0", "1.0.0"), ("", "1.1.0")]
+        ("trigger", "matches_alias", "expected"),
+        [("v1.0.0", True, "1.0.0"), ("", True, None), ("v1.0.0", False, None)],
     )
     def test_stable_leg_syncs_the_release_its_trigger_cut(
-        self, tmp_path: Path, trigger: str, expected: str
+        self, tmp_path: Path, trigger: str, matches_alias: bool, expected: str | None
     ) -> None:
-        # Runs queue: a run for release 1.0.0 that waits while 1.1.0 lands must
-        # still tag 1.0.0. A recovery dispatch (no trigger) re-tags the newest.
+        # Recovery needs a finalized tag and its still-current raw stable alias;
+        # a newer public release is not evidence of successful finalization.
         repo = tmp_path / "repo"
         repo.mkdir()
 
@@ -159,21 +167,184 @@ class TestMirrorSyncShape:
         )
         output = tmp_path / "out"
         result = subprocess.run(
-            ["bash", "-e", "-c", resolve["run"]],
+            [
+                shutil.which("bash") or "bash",
+                "-e",
+                "-c",
+                (
+                    'gh() { case "$2" in\n'
+                    "repos/o/r/releases/latest) echo v1.1.0;;\n"
+                    'repos/o/r/git/ref/tags/stable) echo "$STABLE_OBJECT";;\n'
+                    "repos/o/r/git/ref/tags/v1.0.0) echo finalized-object;;\n"
+                    "repos/o/r/git/ref/tags/v1.1.0) echo newest-object;;\n"
+                    "*) return 2;; esac; }\n"
+                )
+                + resolve["run"],
+            ],
             cwd=repo,
             env={
-                "PATH": "/usr/bin:/bin",
+                **os.environ,
                 "CHANNEL": "stable",
-                "TRIGGER_SHA": shas[0] if trigger else "",
-                "RUNNER_TEMP": str(tmp_path),
-                "GITHUB_OUTPUT": str(output),
+                "FINALIZED_TAG": trigger,
+                "STABLE_OBJECT": (
+                    "newest-object"
+                    if not trigger
+                    else "finalized-object"
+                    if matches_alias
+                    else "other-object"
+                ),
+                "GITHUB_REPOSITORY": "o/r",
+                "RUNNER_TEMP": tmp_path.as_posix(),
+                "GITHUB_OUTPUT": output.as_posix(),
             },
             capture_output=True,
             text=True,
             check=False,
         )
-        assert result.returncode == 0, result.stderr
-        assert f"version={expected}" in output.read_text().splitlines()
+        assert (result.returncode == 0) is (expected is not None), result.stderr
+        if expected is None:
+            assert not (tmp_path / "release-src").exists()
+        else:
+            values = dict(
+                line.split("=", 1) for line in output.read_text().splitlines()
+            )
+            assert values["version"] == expected
+            assert values["tag"] == trigger
+            assert git("-C", values["src"], "rev-parse", "HEAD") == shas[1]
+
+    @pytest.mark.parametrize("finalized", ["", "v1.0.0"])
+    def test_manual_stable_recovery_requires_the_publishers_marker(
+        self, tmp_path: Path, finalized: str
+    ) -> None:
+        workflow = _workflow(_MIRROR)
+        pick = next(
+            s for s in workflow["jobs"]["gate"]["steps"] if s.get("id") == "decide"
+        )
+        output = tmp_path / "output"
+        result = subprocess.run(
+            [shutil.which("bash") or "bash", "-e", "-c", pick["run"]],
+            cwd=tmp_path,
+            env={
+                **os.environ,
+                "EVENT": "workflow_dispatch",
+                "DISPATCH_CHANNEL": "stable",
+                "TRIGGER_BRANCH": "master",
+                "TRIGGER_CONCLUSION": "",
+                "FINALIZED_TAG": finalized,
+                "GITHUB_OUTPUT": output.as_posix(),
+            },
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+        assert (result.returncode == 0) is bool(finalized), result.stderr
+        if finalized:
+            values = output.read_text().splitlines()
+            assert "channel=stable" in values and f"finalized_tag={finalized}" in values
+
+    @pytest.mark.parametrize(
+        "branch,run_id,run_kind,accepted",
+        [
+            ("master", "42", "workflow_run", True),
+            ("feature", "42", "workflow_run", False),
+            ("master", "abc", "workflow_run", False),
+            ("master", "0", "workflow_run", False),
+            ("master", "", "workflow_run", False),
+            ("master", "42", "workflow_dispatch", True),
+            ("master", "42", "other-workflow", False),
+            ("master", "42", "other-branch", False),
+            ("master", "42", "pull_request", False),
+            ("master", "42", "pull_request_target", False),
+            ("master", "42", "push", False),
+            ("master", "42", "lookup-error", False),
+        ],
+    )
+    def test_manual_recovery_requires_a_trusted_publisher_run(
+        self, tmp_path: Path, branch: str, run_id: str, run_kind: str, accepted: bool
+    ) -> None:
+        step = next(
+            s
+            for s in _workflow(_MIRROR)["jobs"]["gate"]["steps"]
+            if s.get("name") == "Validate stable recovery input"
+        )
+        run = {
+            "id": 42,
+            "workflow_id": 74 if run_kind == "other-workflow" else 73,
+            "name": "Release Publish",
+            "head_branch": "feature" if run_kind == "other-branch" else "master",
+            "event": run_kind
+            if run_kind
+            in {"workflow_dispatch", "pull_request", "pull_request_target", "push"}
+            else "workflow_run",
+            # Finalization can have succeeded before a later Docker job failed.
+            "conclusion": "failure",
+        }
+        stub = (
+            'gh() { printf "%s\\n" "$2" >> api-called\n'
+            'case "$2" in\n'
+            'repos/o/r/actions/workflows/release-publish.yml) printf "%s\\n" \'{"id":73}\' | jq -r "$4";;\n'
+            'repos/o/r/actions/runs/42) [ "$RUN_KIND" != lookup-error ] || return 2\n'
+            'printf "%s\\n" "$RUN_JSON" | jq -r "$4";;\n'
+            "*) return 2;; esac; }\n"
+        )
+        result = subprocess.run(
+            [shutil.which("bash") or "bash", "-e", "-c", stub + step["run"]],
+            cwd=tmp_path,
+            env={
+                **os.environ,
+                "RECOVERY_BRANCH": branch,
+                "RECOVERY_RUN_ID": run_id,
+                "GITHUB_REPOSITORY": "o/r",
+                "RUN_KIND": run_kind,
+                "RUN_JSON": json.dumps(run),
+            },
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+        assert (result.returncode == 0) is accepted, result.stderr
+        if branch != "master" or run_id != "42":
+            assert (
+                "Stable recovery requires master and a finalized Release Publish run ID"
+                in result.stdout
+            )
+            assert not (tmp_path / "api-called").exists()
+
+    @pytest.mark.parametrize("matches_alias", [False, True])
+    def test_alias_change_after_resolution_blocks_the_mirror_tag(
+        self, tmp_path, matches_alias
+    ) -> None:
+        step = next(
+            s
+            for s in _workflow(_MIRROR)["jobs"]["sync"]["steps"]
+            if s.get("name") == "Tag the mirror"
+        )
+        stub = (
+            'gh() { case "$2" in *tags/stable) echo "$ALIAS_OBJECT";; '
+            "*tags/v1.0.0) echo finalized-object;; *) return 2;; esac; }\n"
+            "git() { echo called > git-called; echo existing-tag; }\n"
+        )
+        result = subprocess.run(
+            [shutil.which("bash") or "bash", "-e", "-c", stub + step["run"]],
+            cwd=tmp_path,
+            env={
+                **os.environ,
+                "CHANNEL": "stable",
+                "TAG": "v1.0.0",
+                "GITHUB_REPOSITORY": "o/r",
+                "ALIAS_OBJECT": "finalized-object" if matches_alias else "other-object",
+            },
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+        assert (result.returncode == 0) is matches_alias, result.stderr
+        if not matches_alias:
+            assert "Stable changed after resolution" in result.stdout
+        assert (tmp_path / "git-called").exists() is matches_alias
 
     def test_snapshot_is_stamped(self) -> None:
         stage = next(
@@ -277,6 +448,148 @@ _OLD_DEV_TAGS = ["v2.2.3-dev.423", "v9.0.0-dev.996", "v9.0.0-dev.997"]
 
 
 class TestMirrorReleaseOnTag:
+    @pytest.mark.parametrize(
+        "scenario",
+        [
+            "new",
+            "bad-digest",
+            "upstream-replaced",
+            "mirror-replaced",
+            "draft-replaced-before-publish",
+            "upstream-pruned",
+            "incomplete-upload",
+            "draft-empty",
+            "draft-incomplete",
+            "draft-complete-upstream-pruned",
+        ],
+    )
+    def test_only_verified_or_already_uploaded_zips_can_be_published(
+        self, tmp_path: Path, scenario: str
+    ) -> None:
+        """A retry recovers drafts and preserves uploaded assets after pruning."""
+        marker = tmp_path / ".github"
+        marker.mkdir()
+        payload = tmp_path / "payload.zip"
+        payload.write_bytes(b"the upstream integration artifact")
+        digest = hashlib.sha256(payload.read_bytes()).hexdigest()
+        (marker / "component-zip-source.json").write_text(
+            json.dumps(
+                {
+                    "repository": "upstream/repo",
+                    "tag": "v9.1.0-dev.1",
+                    "digest": "sha256:"
+                    + ("0" * 64 if scenario == "bad-digest" else digest),
+                }
+            )
+        )
+        if scenario == "upstream-replaced":
+            payload.write_bytes(b"a replacement artifact with its own valid digest")
+            digest = hashlib.sha256(payload.read_bytes()).hexdigest()
+        bin_dir = tmp_path / "bin"
+        bin_dir.mkdir()
+        calls = tmp_path / "calls"
+        fake_gh = (
+            'gh() { printf "%s\\n" "$*" >> calls\n'
+            'case "$1 $2" in\n'
+            '  "api repos/mirror/repo/releases/tags/v9.1.0-dev.1")\n'
+            '    case "$SCENARIO" in draft-*) return 1;; esac\n'
+            '    [ "$SCENARIO" = upstream-pruned ] && printf "sha256:%s\\n" "$ZIP_DIGEST"; return 0;;\n'
+            '  "api repos/mirror/repo/releases/73")\n'
+            '    case "$SCENARIO" in mirror-replaced) printf "sha256:%064d\\n" 0;;\n'
+            '      draft-replaced-before-publish) if [ -f mirror-looked-up ]; then printf "sha256:%064d\\n" 0; else touch mirror-looked-up; fi;;\n'
+            "    esac\n"
+            '    case "$SCENARIO" in upstream-pruned|draft-complete-upstream-pruned)\n'
+            '      printf "sha256:%s\\n" "$ZIP_DIGEST";; esac\n'
+            "    return 0;;\n"
+            '  "release view")\n'
+            '    case "$SCENARIO" in upstream-pruned|incomplete-upload|mirror-replaced|draft-*) ;; *) return 1;; esac\n'
+            '    case "$*" in *databaseId*) echo 73;; *isDraft*)\n'
+            '      case "$SCENARIO" in draft-*) echo true;; *) echo false;; esac;;\n'
+            "      *) echo ha_mcp_tools.zip;; esac;;\n"
+            '  "api repos/upstream/repo/releases/tags/v9.1.0-dev.1")\n'
+            '    case "$SCENARIO" in *upstream-pruned) return 1;; esac\n'
+            '    printf "sha256:%s\\n" "$ZIP_DIGEST";;\n'
+            '  "release download") mkdir -p dist/integration; cp payload.zip dist/integration/ha_mcp_tools.zip;;\n'
+            '  "release create")\n'
+            '    case "$*" in *--draft*) return 1;; esac\n'
+            '    [ "$4" = dist/integration/ha_mcp_tools.zip ] && [ -s "$4" ] || return 1\n'
+            "    touch mirror-uploaded;;\n"
+            '  "release upload")\n'
+            '    case "$SCENARIO" in *incomplete*)\n'
+            '      case "$*" in *--clobber*) ;; *) return 1;; esac;; esac\n'
+            "    touch mirror-uploaded;;\n"
+            '  "release edit")\n'
+            '    [ "$SCENARIO" = draft-complete-upstream-pruned ] || [ -f mirror-uploaded ] || return 1\n'
+            "    touch draft-published;;\n"
+            "  *) return 2;;\nesac\n}\nsleep() { :; }\n"
+        )
+        if sys.platform == "win32":
+            # Native Git Bash needs the test interpreter, not Windows' Store alias.
+            (bin_dir / "python3").write_text(
+                f'#!/bin/sh\nexec "{Path(sys.executable).as_posix()}" "$@"\n',
+                newline="\n",
+            )
+        env = {
+            **os.environ,
+            "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+            "SCENARIO": scenario,
+            "ZIP_DIGEST": "0" * 64 if scenario == "bad-digest" else digest,
+            "GITHUB_REF_NAME": "v9.1.0-dev.1",
+            "GITHUB_REPOSITORY": "mirror/repo",
+        }
+        for step in ("Copy the upstream integration ZIP", "Create release for tag"):
+            result = subprocess.run(
+                [
+                    shutil.which("bash") or "bash",
+                    "-e",
+                    "-c",
+                    fake_gh + _release_on_tag_step(step)["run"],
+                ],
+                cwd=tmp_path,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=45,
+            )
+            if result.returncode != 0:
+                break
+        assert calls.exists(), result.stderr
+        attempted = calls.read_text().splitlines()
+        if scenario in {
+            "bad-digest",
+            "upstream-replaced",
+            "mirror-replaced",
+            "draft-replaced-before-publish",
+        }:
+            assert result.returncode != 0
+            assert not any(
+                c.startswith(("release create", "release edit", "release upload"))
+                for c in attempted
+            )
+        else:
+            assert result.returncode == 0, result.stderr
+            if scenario.endswith("upstream-pruned"):
+                assert not any(
+                    c.startswith(
+                        ("api repos/upstream/", "release download", "release upload")
+                    )
+                    for c in attempted
+                )
+            else:
+                expected = (
+                    "release upload"
+                    if scenario
+                    in {"incomplete-upload", "draft-empty", "draft-incomplete"}
+                    else "release create"
+                )
+                assert any(c.startswith(expected) for c in attempted)
+                assert (
+                    tmp_path / "dist/integration/ha_mcp_tools.zip"
+                ).read_bytes() == payload.read_bytes()
+            if scenario.startswith("draft-"):
+                assert (tmp_path / "draft-published").exists()
+
     def test_keeps_as_many_dev_pre_releases_as_the_main_repository(self) -> None:
         # Past HACS's 30-release window a stable release behind the dev
         # builds is no longer seen, so the mirror prunes like publish-dev.yml.
