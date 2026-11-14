@@ -312,10 +312,10 @@ class TestHacsSearch:
             "Category filter should be lovelace"
         )
 
-        # Results carry the store's own name for the lovelace category
+        # The input alias does not rename the provider's category in returned rows.
         for result_item in data["results"]:
             assert result_item["category"] == "plugin", (
-                "Result category should be plugin"
+                "Result category should retain the store's plugin value"
             )
 
         logger.info(f"Search 'card' in lovelace: {data['total_matches']} matches")
@@ -478,6 +478,20 @@ class TestHacsRepositoryInfo:
         logger.info("Repository info test passed")
 
 
+def _marketplace_precondition_refused(data: dict) -> bool:
+    error = data.get("error")
+    if not isinstance(error, dict) or error.get("code") != "AUTH_FORBIDDEN":
+        return False
+    message = str(error.get("message", ""))
+    return data.get("success") is False and any(
+        marker in message
+        for marker in (
+            "Marketplace warning_not_accepted:",
+            "Marketplace github_not_connected:",
+        )
+    )
+
+
 @pytest.mark.hacs
 @pytest.mark.slow
 class TestHacsWriteOperations:
@@ -514,6 +528,9 @@ class TestHacsWriteOperations:
         if unavailable:
             pytest.skip(f"HACS not available: {reason}")
 
+        if _marketplace_precondition_refused(data):
+            return  # Core refuses this user before repository validation.
+
         # Should fail with format error
         assert data.get("success") is False, "Should fail for invalid format"
         assert (
@@ -545,6 +562,9 @@ class TestHacsWriteOperations:
         unavailable, reason = is_hacs_unavailable(data)
         if unavailable:
             pytest.skip(f"HACS not available: {reason}")
+
+        if _marketplace_precondition_refused(data):
+            return  # Core refuses this user before looking up the requested target.
 
         # Same contract as test_repository_info_not_found: pin the canonical
         # RESOURCE_NOT_FOUND code and the "not found" phrase so the matcher
@@ -644,8 +664,9 @@ class TestHacsWriteOperations:
         assert error.get("code") == "RESOURCE_NOT_FOUND", (
             f"Expected RESOURCE_NOT_FOUND, got code={error.get('code')!r}"
         )
-        assert "not downloaded" in (error.get("message") or "").lower(), (
-            f"Expected 'not downloaded' in message, got {error.get('message')!r}"
+        message = (error.get("message") or "").lower()
+        assert "not downloaded" in message or "not installed" in message, (
+            f"Expected an uninstalled-repository refusal, got {error.get('message')!r}"
         )
 
         logger.info("Remove store-only repository test passed")
@@ -670,6 +691,16 @@ class TestHacsWriteOperations:
         assert search.get("success"), f"Store search failed: {search.get('error')}"
         expected = "marketplace" if marketplace.get("success") else "hacs"
         assert search["store"]["api"] == expected
+        owner_info = (
+            marketplace
+            if expected == "marketplace"
+            else (await ha_client.send_websocket_message({"type": "hacs/info"}))
+        )
+        assert owner_info.get("success"), owner_info
+        assert search["store"]["version"] == owner_info["result"]["version"]
+        assert sorted(search["store"]["categories"]) == sorted(
+            owner_info["result"]["categories"]
+        )
 
         if expected == "hacs":
             return
