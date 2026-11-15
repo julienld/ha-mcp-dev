@@ -1,323 +1,272 @@
-"""Known raw commands retain Core bodies without creating a transport server."""
+"""Raw Native commands are checked against the actual Core owners and wire API."""
 
-import importlib
 import json
-import sys
-from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
+from typing import Any
+from unittest.mock import Mock
 
 import pytest
+import voluptuous as vol
+from homeassistant.auth.models import User
+from homeassistant.components import api
+from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.helpers import area_registry as ar
+from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
+from homeassistant.setup import async_setup_component
+from pytest_homeassistant.common import MockConfigEntry
 
+from custom_components.ha_mcp_tools.native_backend import NativeBackend
+from ha_mcp.client.rest_client import HomeAssistantClient
 from ha_mcp.runtime import Engine
-from ha_mcp.runtime.catalog import build_initial_catalog
-from ha_mcp.tool_api import CallContext
+from ha_mcp.tool_api import CallContext, ToolDefinition
 
-from ._native_backend_module import native as native
-from .test_component_ws_phase2_async import _call_hass, _FakeCallServices
-from .test_native_engine_backend import EventBus, authorize
+from ._client_spies import sent_commands
+from ._command_faults import pooled_socket
+from ._native_core_backend import backend as backend
+from ._native_test_engine import native_engine
 
 
 @pytest.mark.parametrize("single", [False, True])
 async def test_registry_reads_keep_raw_keys_and_isolate_invalid_ids(
-    native, monkeypatch, single
-):
-    owner = importlib.import_module(
-        "custom_components.ha_mcp_tools.native_registry_ops"
-    )
-    helpers = importlib.import_module(
-        "custom_components.ha_mcp_tools.helper_collections"
-    )
-    cv = sys.modules["homeassistant.helpers.config_validation"]
-    monkeypatch.setattr(
-        sys.modules["homeassistant.helpers"], "config_validation", cv, raising=False
-    )
-
-    def normalize(raw):
-        if raw == "invalid":
-            raise helpers._INVALID_ERRORS[0]("Invalid entity ID")
-        return raw.strip().lower()
-
-    monkeypatch.setattr(cv, "entity_id", normalize)
-    monkeypatch.setattr(
-        cv, "entity_ids", lambda values: [normalize(raw) for raw in values]
-    )
-    rows = {
-        "light.kitchen": SimpleNamespace(extended_dict={"entity_id": "light.kitchen"}),
-        "sensor.valid": SimpleNamespace(extended_dict={"entity_id": "sensor.valid"}),
-    }
-    registry = SimpleNamespace(async_get=rows.get)
-    registry_module = SimpleNamespace(async_get=lambda _: registry)
-    monkeypatch.setitem(
-        sys.modules, "homeassistant.helpers.entity_registry", registry_module
-    )
-    monkeypatch.setattr(
-        sys.modules["homeassistant.helpers"], "entity_registry", registry_module
-    )
+    hass: HomeAssistant,
+    hass_admin_user: User,
+    backend: NativeBackend,
+    entity_registry: er.EntityRegistry,
+    single: bool,
+) -> None:
+    first = entity_registry.async_get_or_create("light", "test", "kitchen")
+    second = entity_registry.async_get_or_create("sensor", "test", "valid")
     ids = (
-        [" Light.Kitchen "]
+        [first.entity_id]
         if single
-        else [" Light.Kitchen ", "invalid", "sensor.valid", "light.missing"]
+        else [first.entity_id.upper(), "invalid", second.entity_id, "light.missing"]
     )
-    result = await owner._entity_read(object(), {"entity_ids": ids, "single": single})
-    expected = {" Light.Kitchen ": {"entity_id": "light.kitchen"}}
-    if not single:
-        expected["sensor.valid"] = {"entity_id": "sensor.valid"}
-    assert result["entries"] == expected
-    assert result["errors"] == (
-        {}
-        if single
-        else {"invalid": "Invalid entity ID", "light.missing": "Entity not found"}
+    expected, errors = {}, {}
+    for raw in ids:
+        try:
+            normalized = cv.entity_id(raw)
+        except vol.Invalid as error:
+            errors[raw] = str(error)
+        else:
+            row = entity_registry.async_get(normalized)
+            if row is None:
+                errors[raw] = "Entity not found"
+            else:
+                expected[raw] = row.extended_dict
+    result = await backend.execute(
+        "entities.registry.read",
+        {"entity_ids": ids, "single": single},
+        CallContext(hass_admin_user.id),
     )
+    assert result == {"entries": expected, "errors": errors}
 
 
-async def test_raw_read_after_another_test_preimports_the_serializer(
-    monkeypatch, request
-):
-    raw = importlib.import_module("custom_components.ha_mcp_tools.native_raw_commands")
-    monkeypatch.setattr(raw, "json_bytes", Mock())
-    native = request.getfixturevalue("native")
-    backend, _user = raw_backend(native, ["get_config"])
-    body = {"future": {"retained": [1]}}
-    backend.hass.config = SimpleNamespace(as_dict=lambda: body)
-    engine = Engine(backend, build_initial_catalog(backend))
-
-    result = await engine.call(
-        "ha_call_service", {"ws_command": "get_config"}, CallContext("actor")
-    )
-
+async def test_raw_config_remains_detached_with_core_serializer_already_loaded(
+    hass_admin_user: User,
+    backend: NativeBackend,
+    core_client: HomeAssistantClient,
+) -> None:
+    socket = await pooled_socket(core_client)
+    expected = await core_client.send_websocket_message({"type": "get_config"})
+    with sent_commands(socket) as sent:
+        result = await native_engine(backend).call(
+            "ha_call_service",
+            {"ws_command": "get_config"},
+            CallContext(hass_admin_user.id),
+        )
     assert not result.is_error, result.data
-    assert result.data["result"] == body
-    result.data["result"]["future"]["retained"].append(2)
-    assert body["future"]["retained"] == [1]
+    assert result.data["result"] == expected["result"]
+    sent.assert_not_called()
+    result.data["result"]["components"].append("native.detached_result")
+    again = await core_client.send_websocket_message({"type": "get_config"})
+    assert "native.detached_result" not in again["result"]["components"]
 
 
-async def test_device_listing_keeps_child_devices_and_omits_unserialized_entries(
-    native, monkeypatch
-):
-    visible = {"id": "main", "future": {"retained": True}}
-    child = {"id": "child", "main_device": "main"}
-    registry = SimpleNamespace(
-        devices=[
-            SimpleNamespace(json_repr=json.dumps(visible)),
-            SimpleNamespace(json_repr=None),
-        ],
-        child_devices=[SimpleNamespace(json_repr=json.dumps(child))],
+async def test_device_listing_keeps_real_main_and_child_devices(
+    hass: HomeAssistant,
+    hass_admin_user: User,
+    backend: NativeBackend,
+    core_client: HomeAssistantClient,
+    device_registry: dr.DeviceRegistry,
+) -> None:
+    entry = MockConfigEntry(domain="test")
+    entry.add_to_hass(hass)
+    parent = device_registry.async_get_or_create(
+        config_entry_id=entry.entry_id, identifiers={("test", "parent")}, name="Main"
     )
-    monkeypatch.setitem(
-        sys.modules,
-        "homeassistant.helpers.device_registry",
-        SimpleNamespace(async_get=lambda _hass: registry),
+    child = device_registry.async_get_or_create_child(
+        config_entry_id=entry.entry_id,
+        identifiers={("test", "child")},
+        parent_device_id=parent.id,
     )
-    backend, _ = raw_backend(native, ["config/device_registry/list"])
-    engine = Engine(backend, build_initial_catalog(backend))
-
-    result = await engine.call(
+    expected = await core_client.send_websocket_message(
+        {"type": "config/device_registry/list"}
+    )
+    result = await native_engine(backend).call(
         "ha_call_service",
         {"ws_command": "config/device_registry/list"},
-        CallContext("actor"),
+        CallContext(hass_admin_user.id),
     )
-
     assert not result.is_error, result.data
-    assert result.data["result"] == [visible, child]
+    assert result.data["result"] == expected["result"]
+    assert {row["id"] for row in result.data["result"]} == {parent.id, child.id}
 
 
-def raw_backend(native, commands=()):
-    hass = _call_hass([], _FakeCallServices(known=set()), EventBus())
-    user = authorize(hass)
-    hass.data = {
-        "websocket_api": {command: (None, lambda value: value) for command in commands}
-    }
-    return native.NativeBackend(hass), user
-
-
-async def test_known_registry_command_retains_future_fields_and_detaches_core_data(
-    native, monkeypatch
-):
-    body = {"area_id": "kitchen", "name": "Kitchen", "future": {"values": [1]}}
-    registry = SimpleNamespace(
-        async_list_areas=lambda: [SimpleNamespace(json_fragment=body)]
+async def test_known_registry_command_keeps_core_fields_and_detaches_data(
+    hass_admin_user: User,
+    backend: NativeBackend,
+    core_client: HomeAssistantClient,
+    area_registry: ar.AreaRegistry,
+) -> None:
+    area = area_registry.async_create("Kitchen", aliases={"studio"})
+    expected = await core_client.send_websocket_message(
+        {"type": "config/area_registry/list"}
     )
-    monkeypatch.setitem(
-        sys.modules,
-        "homeassistant.helpers.area_registry",
-        SimpleNamespace(async_get=lambda _hass: registry),
-    )
-    hass = _call_hass([], _FakeCallServices(known=set()), EventBus())
-    authorize(hass)
-    validated = []
-
-    def schema(message):
-        validated.append(dict(message))
-        return message
-
-    hass.data = {"websocket_api": {"config/area_registry/list": (None, schema)}}
-    backend = native.NativeBackend(hass)
-    engine = Engine(backend, build_initial_catalog(backend))
-    result = await engine.call(
+    result = await native_engine(backend).call(
         "ha_call_service",
         {"ws_command": "config/area_registry/list"},
-        CallContext("actor"),
+        CallContext(hass_admin_user.id),
     )
-    assert not result.is_error
-    assert result.data["result"] == [body]
-    assert validated == [{"id": 1, "type": "config/area_registry/list"}]
-    result.data["result"][0]["future"]["values"].append(2)
-    assert body["future"]["values"] == [1]
+    assert not result.is_error, result.data
+    assert result.data["result"] == expected["result"]
+    result.data["result"][0]["aliases"].append("result only")
+    stored = area_registry.async_get_area(area.id)
+    assert stored is not None and stored.aliases == {"studio"}
 
 
-async def test_unknown_command_never_calls_a_registered_extension_handler(native):
-    handler = AsyncMock(side_effect=AssertionError("extension dispatched"))
-
-    def validator(message):
-        return message
-
-    hass = _call_hass([], _FakeCallServices(known=set()), EventBus())
-    authorize(hass)
-    hass.data = {"websocket_api": {"custom/arbitrary": (handler, validator)}}
-    backend = native.NativeBackend(hass)
-    engine = Engine(backend, build_initial_catalog(backend))
-    result = await engine.call(
-        "ha_call_service", {"ws_command": "custom/arbitrary"}, CallContext("actor")
+async def test_a_loaded_core_command_outside_the_boundary_is_not_dispatched(
+    hass: HomeAssistant,
+    hass_admin_user: User,
+    backend: NativeBackend,
+    core_client: HomeAssistantClient,
+) -> None:
+    assert await async_setup_component(
+        hass, "lovelace", {"lovelace": {"mode": "storage"}}
     )
+    assert "lovelace/config" in hass.data["websocket_api"]
+    socket = await pooled_socket(core_client)
+    with sent_commands(socket) as sent:
+        result = await native_engine(backend).call(
+            "ha_call_service",
+            {"ws_command": "lovelace/config"},
+            CallContext(hass_admin_user.id),
+        )
     assert result.is_error and result.status == "not_started"
     assert result.data["error"]["code"] == "UNSUPPORTED_OPERATION"
-    handler.assert_not_awaited()
+    sent.assert_not_called()
 
 
 async def test_core_validator_refuses_unknown_command_fields_before_read(
-    native, monkeypatch
-):
-    import voluptuous as _REAL_VOL
-
-    read = AsyncMock(side_effect=AssertionError("owner read after refusal"))
-    monkeypatch.setitem(
-        sys.modules,
-        "homeassistant.helpers.area_registry",
-        SimpleNamespace(async_get=read),
-    )
-    hass = _call_hass([], _FakeCallServices(known=set()), EventBus())
-    authorize(hass)
-    hass.data = {
-        "websocket_api": {
-            "config/area_registry/list": (
-                None,
-                _REAL_VOL.Schema({"id": int, "type": str}),
-            )
-        }
-    }
-    backend = native.NativeBackend(hass)
-    engine = Engine(backend, build_initial_catalog(backend))
-    result = await engine.call(
+    hass_admin_user: User,
+    backend: NativeBackend,
+    area_registry: ar.AreaRegistry,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    read = Mock(wraps=area_registry.async_list_areas)
+    monkeypatch.setattr(area_registry, "async_list_areas", read)
+    result = await native_engine(backend).call(
         "ha_call_service",
         {"ws_command": "config/area_registry/list", "data": {"unowned": True}},
-        CallContext("actor"),
+        CallContext(hass_admin_user.id),
     )
     assert result.status == "not_started"
     assert result.data["error"]["code"] == "VALIDATION_FAILED"
     read.assert_not_called()
 
 
-async def test_raw_ws_service_descriptions_keep_the_ws_mapping_and_rest_keeps_its_list(
-    native, monkeypatch
-):
-    descriptions = {"light": {"turn_on": {"future": {"values": [1]}}}}
-    rest = [{"domain": "light", "services": descriptions["light"]}]
-    monkeypatch.setitem(
-        sys.modules,
-        "homeassistant.helpers.service",
-        SimpleNamespace(
-            async_get_all_descriptions=AsyncMock(return_value=descriptions)
-        ),
-    )
-    monkeypatch.setitem(
-        sys.modules,
-        "homeassistant.components.api",
-        SimpleNamespace(
-            async_services_json=AsyncMock(return_value=rest),
-            async_events_json=lambda _hass: [],
-        ),
-    )
-    backend, _user = raw_backend(native, ["get_services"])
-    actor = CallContext("actor")
+async def test_raw_ws_and_rest_keep_their_core_service_description_shapes(
+    hass: HomeAssistant,
+    hass_admin_user: User,
+    backend: NativeBackend,
+    core_client: HomeAssistantClient,
+) -> None:
+    async def probe(call: ServiceCall) -> None:
+        return None
+
+    hass.services.async_register("homeassistant", "native_probe", probe)
+    expected_ws = await core_client.send_websocket_message({"type": "get_services"})
+    expected_rest = await core_client.get_services()
+    actor = CallContext(hass_admin_user.id)
     ws_result = await backend.execute(
         "services.websocket_command", {"ws_command": "get_services"}, actor
     )
     rest_result = await backend.execute("code.api.get", {"path": "services"}, actor)
-    assert ws_result["result"] == descriptions
-    assert rest_result == rest
-    ws_result["result"]["light"]["turn_on"]["future"]["values"].append(2)
-    assert descriptions["light"]["turn_on"]["future"]["values"] == [1]
+    assert ws_result["result"] == expected_ws["result"]
+    assert rest_result == expected_rest
+    ws_result["result"]["homeassistant"]["native_probe"]["result_only"] = True
+    again = await core_client.send_websocket_message({"type": "get_services"})
+    assert "result_only" not in again["result"]["homeassistant"]["native_probe"]
 
 
-async def test_raw_config_retains_core_fields_and_ws_honors_the_real_local_only_actor(
-    native,
-):
-    backend, user = raw_backend(native, ["get_config"])
-    user.local_only = True
-    body = {"external_url": "https://ha.example", "future": {"setting": ["value"]}}
-    backend.hass.config = SimpleNamespace(as_dict=lambda: body)
-    actor = CallContext("actor")
+async def test_raw_config_honors_the_actual_local_only_user(
+    hass: HomeAssistant,
+    hass_admin_user: User,
+    backend: NativeBackend,
+    core_client: HomeAssistantClient,
+) -> None:
+    await hass.config.async_update(external_url="https://ha.example")
+    await hass.auth.async_update_user(hass_admin_user, local_only=True)
+    actor = CallContext(hass_admin_user.id)
+    expected = await core_client.send_websocket_message({"type": "get_config"})
     ws_result = await backend.execute(
         "services.websocket_command", {"ws_command": "get_config"}, actor
     )
     rest_result = await backend.execute("code.api.get", {"path": "config"}, actor)
+    assert ws_result["result"] == expected["result"]
     assert "external_url" not in ws_result["result"]
-    assert rest_result == body
-    assert ws_result["result"]["future"] == body["future"]
-    assert body["external_url"] == "https://ha.example"
+    assert rest_result == json.loads(json.dumps(hass.config.as_dict()))
+    assert rest_result["external_url"] == "https://ha.example"
 
 
-async def test_raw_template_uses_core_text_rendering_and_historical_json_decoding(
-    native, monkeypatch
-):
-    template = SimpleNamespace(
-        async_render_will_timeout=AsyncMock(return_value=False),
-        async_render=lambda **arguments: (
-            '["a", 42]'
-            if arguments == {"variables": {"x": 42}, "parse_result": False}
-            else "WRONG"
-        ),
+async def test_raw_template_uses_core_rendering_and_historical_json_decoding(
+    hass_admin_user: User,
+    backend: NativeBackend,
+    core_client: HomeAssistantClient,
+) -> None:
+    source = "{{ ['a', x] | to_json }}"
+    response = await core_client.guarded_request(
+        "POST", "/template", json={"template": source, "variables": {"x": 42}}
     )
-    monkeypatch.setitem(
-        sys.modules,
-        "homeassistant.components.api",
-        SimpleNamespace(_cached_template=lambda source, _hass: template),
-    )
-    backend, _user = raw_backend(native)
+    response.raise_for_status()
+    expected = response.json()
     result = await backend.execute(
         "code.api.template",
-        {"data": {"template": "fixture", "variables": {"x": 42}}},
-        CallContext("actor"),
+        {"data": {"template": source, "variables": {"x": 42}}},
+        CallContext(hass_admin_user.id),
     )
-    assert result == ["a", 42]
+    assert result == expected == ["a", 42]
 
 
-async def test_raw_read_withholds_provider_data_when_the_real_actor_is_revoked(
-    native, monkeypatch
-):
-    from ha_mcp.tool_api import ToolDefinition
+async def test_raw_read_withholds_actual_core_data_after_the_actor_is_revoked(
+    hass: HomeAssistant,
+    hass_admin_user: User,
+    backend: NativeBackend,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert await async_setup_component(hass, "api", {})
 
-    backend, user = raw_backend(native)
+    async def probe(call: ServiceCall) -> None:
+        return None
 
-    async def provider(_hass):
-        user.is_active = False
-        return [{"domain": "private_data"}]
+    hass.services.async_register("homeassistant", "native_private_probe", probe)
+    original = api.async_services_json
 
-    monkeypatch.setitem(
-        sys.modules,
-        "homeassistant.components.api",
-        SimpleNamespace(
-            async_services_json=provider, async_events_json=lambda _hass: []
-        ),
-    )
+    async def revoke_after_read(core: HomeAssistant) -> Any:
+        result = await original(core)
+        assert "native_private_probe" in str(result)
+        await core.auth.async_update_user(hass_admin_user, is_active=False)
+        return result
 
-    async def read(_arguments, actor):
+    monkeypatch.setattr(api, "async_services_json", revoke_after_read)
+
+    async def read(arguments: dict[str, Any], actor: CallContext) -> Any:
         return await backend.execute("code.api.get", {"path": "services"}, actor)
 
     engine = Engine(
         backend,
         [ToolDefinition("ha_list_services", "Read", {}, read, {"readOnlyHint": True})],
     )
-    result = await engine.call("ha_list_services", {}, CallContext("actor"))
+    result = await engine.call("ha_list_services", {}, CallContext(hass_admin_user.id))
     assert result.is_error
-    assert "private_data" not in str(result.data)
+    assert "native_private_probe" not in str(result.data)

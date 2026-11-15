@@ -1,514 +1,435 @@
-"""Todo tools share orchestration and dispatch only through the selected owner."""
+"""Public Native todo tools use real Local To-do storage, services and actors."""
 
 import copy
-import dataclasses
-import datetime as dt
-import sys
-from enum import StrEnum
-from types import SimpleNamespace
+from datetime import datetime
 from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
+from homeassistant.auth.models import User
+from homeassistant.components.local_todo.todo import LocalTodoListEntity
+from homeassistant.components.todo import TodoItem
+from homeassistant.components.todo import entity as todo_entity
+from homeassistant.core import Event, HomeAssistant
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 
+from custom_components.ha_mcp_tools.native_backend import NativeBackend
+from ha_mcp.client.rest_client import HomeAssistantClient
+from ha_mcp.config import get_global_settings
 from ha_mcp.runtime import Engine
-from ha_mcp.runtime.catalog import build_initial_catalog
 from ha_mcp.tool_api import CallContext, ToolFailure
+from ha_mcp.tools.tools_todo import TodoTools
 
-from ._native_backend_module import native as native
-from .test_component_todo_items import _CoreError, _ServiceValidationError
-from .test_component_ws_phase2_async import _call_hass, _FakeCallServices
-from .test_component_ws_search import FakeState
-from .test_native_engine_backend import EventBus, authorize
+from ._native_test_engine import native_engine
+from ._todo_core import shopping_list as shopping_list
+from ._todo_core import todo_calls as todo_calls
+from ._todo_core import todo_items, todo_service, todo_writes
 
-
-class _Status(StrEnum):
-    NEEDS_ACTION = "needs_action"
-    COMPLETED = "completed"
+_NAMES = {"ha_get_todo", "ha_set_todo_item", "ha_remove_todo_item"}
 
 
-@dataclasses.dataclass
-class _Item:
-    summary: str
-    uid: str
-    status: _Status = _Status.NEEDS_ACTION
-    due: dt.date | None = None
-    description: str | None = None
-    future_core_field: str | None = None
-
-
-class _TodoEntity:
-    def __init__(self) -> None:
-        self.entity_id = "todo.shopping"
-        self.available = True
-        self.supported_features = 8
-        self.todo_items = [
-            _Item("Milk", "first", due=dt.date(2026, 10, 23)),
-            _Item("Bread", "second", status=_Status.COMPLETED),
-        ]
-
-
-def _api_items_factory(values: list[tuple]) -> dict:
-    return {
-        key: value.isoformat() if isinstance(value, dt.date) else str(value)
-        for key, value in values
-        if value is not None
-    }
-
-
-def _find(ref, items):
-    return next((item for item in items or () if ref in (item.uid, item.summary)), None)
-
-
-class _TodoServices(_FakeCallServices):
-    def __init__(self, entity):
-        super().__init__(
-            known={
-                ("todo", action)
-                for action in (
-                    "add_item",
-                    "update_item",
-                    "remove_item",
-                    "get_items",
-                    "remove_completed_items",
-                )
-            }
-        )
-        self.entity = entity
-
-    async def async_call(self, domain, service, data, *, target=None, **kwargs):
-        entity = self.entity
-        result = await super().async_call(domain, service, data, **kwargs)
-        if service == "get_items":
-            statuses = data.get("status", [])
-            statuses = [statuses] if isinstance(statuses, str) else statuses
-            return {
-                entity.entity_id: {
-                    "items": [
-                        _api_items_factory(list(vars(item).items()))
-                        for item in entity.todo_items
-                        if not statuses or item.status in statuses
-                    ]
-                }
-            }
-        if "due_date" in data and "due_datetime" in data:
-            raise _ServiceValidationError("only one due field")
-        if service == "add_item":
-            item = _Item(data["item"].strip(), "new")
-            entity.todo_items.append(item)
-        elif service == "update_item":
-            item = _find(data["item"], entity.todo_items)
-            assert item is not None
-            item.summary = data.get("rename", item.summary)
-            item.status = data.get("status", item.status)
-        elif service == "remove_item":
-            refs = data["item"] if isinstance(data["item"], list) else [data["item"]]
-            gone = {item.uid for ref in refs if (item := _find(ref, entity.todo_items))}
-            entity.todo_items = [
-                item for item in entity.todo_items if item.uid not in gone
-            ]
-            return result
-        else:
-            entity.todo_items = [
-                item for item in entity.todo_items if item.status != "completed"
-            ]
-            return result
-        if "description" in data:
-            item.description = data["description"]
-        if "due_datetime" in data:
-            item.due = (
-                dt.datetime.fromisoformat(data["due_datetime"])
-                if data["due_datetime"]
-                else None
-            )
-        elif "due_date" in data:
-            item.due = (
-                dt.date.fromisoformat(data["due_date"]) if data["due_date"] else None
-            )
-        return result
-
-
-def _setup(
-    native: Any,
-    monkeypatch: pytest.MonkeyPatch,
-    backup: Any = None,
-    *,
-    factory_name: str = "api_items_factory",
-) -> tuple:
-    entity = _TodoEntity()
-    monkeypatch.setitem(
-        sys.modules,
-        "homeassistant.components.todo",
-        SimpleNamespace(
-            DATA_COMPONENT="todo.component",
-            TodoListEntity=_TodoEntity,
-            **{factory_name: _api_items_factory},
-        ),
+def _engine(hass: HomeAssistant, backup: Any = None) -> Engine:
+    return native_engine(
+        NativeBackend(hass, todo_backup=backup or AsyncMock(return_value={})), _NAMES
     )
-    bus = EventBus()
-    services = _TodoServices(entity)
-    hass = _call_hass(
-        [
-            FakeState("todo.shopping", "1", friendly_name="Shopping", icon="mdi:cart"),
-            FakeState("sensor.unrelated", "0"),
-        ],
-        services,
-        bus,
-    )
-    hass.data["todo.component"] = SimpleNamespace(
-        get_entity=lambda entity_id: entity if entity_id == "todo.shopping" else None
-    )
-    user = authorize(hass)
-    backend = native.NativeBackend(
-        hass, todo_backup=backup or AsyncMock(return_value={})
-    )
-    todo = __import__(
-        "custom_components.ha_mcp_tools.native_operations.todo", fromlist=["todo_items"]
-    )
-    monkeypatch.setattr(todo, "Context", SimpleNamespace)
-    monkeypatch.setattr(
-        todo.todo_items,
-        "_core",
-        lambda: (
-            SimpleNamespace(
-                component_key="todo.component",
-                domain="todo",
-                list_entity=_TodoEntity,
-                can_move=8,
-                items_factory=_api_items_factory,
-                find=_find,
-                refused=(_ServiceValidationError,),
-                error=_CoreError,
-                date=dt.date.fromisoformat,
-            )
-            if hasattr(sys.modules["homeassistant.components.todo"], factory_name)
-            else None
-        ),
-    )
-    hass.data["websocket_api"] = {
-        "call_service": (object(), copy.deepcopy),
-        "todo/item/move": (object(), copy.deepcopy),
-    }
-    engine = Engine(
-        backend,
-        [
-            definition
-            for definition in build_initial_catalog(backend)
-            if definition.name
-            in {"ha_get_todo", "ha_set_todo_item", "ha_remove_todo_item"}
-        ],
-    )
-    return engine, hass, services, user
 
 
-@pytest.mark.parametrize("factory_name", ["api_items_factory", "_api_items_factory"])
-async def test_native_todo_reads_core_entity_items_and_filter_without_transport(
-    native: Any, monkeypatch: pytest.MonkeyPatch, factory_name: str
+async def test_native_todo_reads_core_items_and_filter_without_transport(
+    hass: HomeAssistant,
+    hass_admin_user: User,
+    shopping_list: str,
+    todo_calls: list[Event[dict[str, Any]]],
 ) -> None:
-    engine, hass, services, _ = _setup(native, monkeypatch, factory_name=factory_name)
-    hass.data["todo.component"].get_entity("todo.shopping").todo_items[
-        0
-    ].future_core_field = "retained"
-    actor = CallContext("actor")
+    hass.states.async_set("sensor.unrelated", "0")
+    expected = await todo_items(hass, shopping_list)
+    engine = _engine(hass)
+    actor = CallContext(hass_admin_user.id)
     lists = await engine.call("ha_get_todo", {}, actor)
-    assert not lists.is_error and lists.data["todo_lists"] == [
-        {
-            "entity_id": "todo.shopping",
-            "friendly_name": "Shopping",
-            "state": "1",
-            "icon": "mdi:cart",
-            "supported_features": None,
-        }
+    assert not lists.is_error, lists.data
+    assert {row["entity_id"] for row in lists.data["todo_lists"]} == {shopping_list}
+    (listed,) = [
+        row for row in lists.data["todo_lists"] if row["entity_id"] == shopping_list
     ]
-    items = await engine.call(
-        "ha_get_todo", {"entity_id": "todo.shopping", "status": "needs_action"}, actor
-    )
-    assert not items.is_error and items.data["items"] == [
-        {
-            "summary": "Milk",
-            "uid": "first",
-            "status": "needs_action",
-            "due": "2026-10-23",
-            "future_core_field": "retained",
-        }
-    ]
-    assert [call["service"] for call in services.calls] == ["get_items"]
-
-
-async def test_native_todo_add_uses_actual_actor_and_stored_row(
-    native: Any, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    backup = AsyncMock()
-    engine, hass, services, _ = _setup(native, monkeypatch, backup)
-
-    def changed() -> None:
-        hass.bus.fire(FakeState("todo.shopping", "2"), services.calls[0]["context"])
-        hass.bus.fire(FakeState("todo.foreign", "9"), SimpleNamespace(user_id="other"))
-
-    services._on_call = changed
+    state = hass.states.get(shopping_list)
+    assert state is not None
+    assert listed["friendly_name"] == state.attributes["friendly_name"]
+    assert listed["supported_features"] == state.attributes["supported_features"]
     result = await engine.call(
-        "ha_set_todo_item",
-        {
-            "entity_id": "todo.shopping",
-            "summary": "Coffee",
-            "description": "Beans",
-            "due_datetime": "2026-10-24T12:00:00",
-        },
-        CallContext("actor"),
+        "ha_get_todo", {"entity_id": shopping_list, "status": "needs_action"}, actor
     )
     assert not result.is_error, result.data
-    assert len(services.calls) == 1
-    call = services.calls[0]
-    assert call["domain"] == "todo" and call["service"] == "add_item"
-    assert call["service_data"] == {
-        "item": "Coffee",
-        "description": "Beans",
-        "due_datetime": "2026-10-24T12:00:00",
-    }
-    assert call["context"].user_id == "actor"
-    assert result.data["todo_item"]["summary"] == "Coffee"
-    assert result.data["todo_item"]["due"] == "2026-10-24T12:00:00"
-    assert hass.bus.listeners == []
+    assert result.data["items"] == [
+        row for row in expected if row["status"] == "needs_action"
+    ]
+    assert todo_writes(todo_calls) == []
+
+
+async def test_native_todo_add_keeps_the_actual_actor_and_persisted_row(
+    hass: HomeAssistant,
+    hass_admin_user: User,
+    shopping_list: str,
+    todo_calls: list[Event[dict[str, Any]]],
+) -> None:
+    backup = AsyncMock(return_value={})
+    result = await _engine(hass, backup).call(
+        "ha_set_todo_item",
+        {
+            "entity_id": shopping_list,
+            "summary": "Coffee",
+            "description": "Beans",
+            "due_datetime": "2026-10-24T12:00:00+00:00",
+        },
+        CallContext(hass_admin_user.id),
+    )
+    assert not result.is_error, result.data
+    rows = await todo_items(hass, shopping_list)
+    stored = next(row for row in rows if row["summary"] == "Coffee")
+    assert result.data["todo_item"] == stored
+    (call,) = todo_writes(todo_calls)
+    assert call.data["service"] == "add_item"
+    assert call.context.user_id == hass_admin_user.id
+    assert stored["description"] == "Beans"
+    assert datetime.fromisoformat(stored["due"]) == datetime.fromisoformat(
+        "2026-10-24T12:00:00+00:00"
+    )
     backup.assert_not_awaited()
 
 
-async def test_todo_missing_core_serializer_refuses_before_mutation(
-    native: Any, monkeypatch: pytest.MonkeyPatch
+async def test_missing_core_serializer_refuses_before_mutation(
+    hass: HomeAssistant,
+    hass_admin_user: User,
+    shopping_list: str,
+    todo_calls: list[Event[dict[str, Any]]],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    engine, _, services, _ = _setup(native, monkeypatch)
-    del sys.modules["homeassistant.components.todo"].api_items_factory
-    result = await engine.call(
-        "ha_set_todo_item",
-        {"entity_id": "todo.shopping", "item": "first", "status": "completed"},
-        CallContext("actor"),
-    )
+    (milk,) = [
+        row for row in await todo_items(hass, shopping_list) if row["summary"] == "Milk"
+    ]
+    with monkeypatch.context() as patcher:
+        patcher.delattr(todo_entity, "api_items_factory")
+        result = await _engine(hass).call(
+            "ha_set_todo_item",
+            {"entity_id": shopping_list, "item": milk["uid"], "status": "completed"},
+            CallContext(hass_admin_user.id),
+        )
     assert result.is_error and result.status == "not_started"
     assert result.data["error"]["code"] == "UNSUPPORTED_OPERATION"
-    assert services.calls == []
+    assert todo_writes(todo_calls) == []
+    assert milk in await todo_items(hass, shopping_list)
 
 
 @pytest.mark.parametrize("remove", [False, True])
-@pytest.mark.parametrize("factory_name", ["api_items_factory", "_api_items_factory"])
 async def test_native_todo_updates_and_deletes_capture_once_before_dispatch(
-    native: Any, monkeypatch: pytest.MonkeyPatch, remove: bool, factory_name: str
+    hass: HomeAssistant,
+    hass_admin_user: User,
+    shopping_list: str,
+    todo_calls: list[Event[dict[str, Any]]],
+    remove: bool,
 ) -> None:
-    captures = []
+    milk = next(
+        row for row in await todo_items(hass, shopping_list) if row["summary"] == "Milk"
+    )
+    captures: list[dict[str, Any]] = []
 
-    async def capture(payload: dict, actor: CallContext) -> dict:
-        assert services.calls == [] and actor.user_id == "actor"
+    async def capture(payload: dict[str, Any], actor: CallContext) -> dict[str, Any]:
+        assert todo_writes(todo_calls) == [] and actor.user_id == hass_admin_user.id
         captures.append(copy.deepcopy(payload))
         return {"warnings": ["Snapshot could not be persisted"]}
 
-    engine, _, services, _ = _setup(
-        native, monkeypatch, capture, factory_name=factory_name
-    )
     tool = "ha_remove_todo_item" if remove else "ha_set_todo_item"
-    result = await engine.call(
+    result = await _engine(hass, capture).call(
         tool,
         {
-            "entity_id": "todo.shopping",
-            "item": "first",
+            "entity_id": shopping_list,
+            "item": milk["uid"],
             **({} if remove else {"status": "completed"}),
         },
-        CallContext("actor"),
+        CallContext(hass_admin_user.id),
     )
     assert not result.is_error, result.data
     assert captures == [
         {
-            "entity_id": "todo.shopping",
-            "item": "first",
+            "entity_id": shopping_list,
+            "item": milk["uid"],
             "source_tool": tool,
-            "current_item": {
-                "summary": "Milk",
-                "uid": "first",
-                "status": "needs_action",
-                "due": "2026-10-23",
-            },
+            "current_item": milk,
         }
     ]
-    assert result.data["warnings"] == ["Snapshot could not be persisted"]
-    assert len(services.calls) == 1
-    assert services.calls[0]["service"] == ("remove_item" if remove else "update_item")
+    assert "Snapshot could not be persisted" in result.data["warnings"]
+    (call,) = todo_writes(todo_calls)
+    assert call.data["service"] == ("remove_item" if remove else "update_item")
+    rows = await todo_items(hass, shopping_list)
+    assert (
+        not any(row["uid"] == milk["uid"] for row in rows)
+        if remove
+        else any(
+            row["uid"] == milk["uid"] and row["status"] == "completed" for row in rows
+        )
+    )
 
 
-@pytest.mark.parametrize(
-    "arguments",
-    [
-        {"entity_id": "todo.shopping", "item": " ", "status": "completed"},
-        {"entity_id": "light.wrong", "summary": "Invalid"},
-    ],
-)
-async def test_native_todo_invalid_mutations_never_capture_or_dispatch(
-    native: Any, monkeypatch: pytest.MonkeyPatch, arguments: dict
+@pytest.mark.parametrize("wrong_domain", [False, True])
+async def test_invalid_mutations_never_capture_or_dispatch(
+    hass: HomeAssistant,
+    hass_admin_user: User,
+    shopping_list: str,
+    todo_calls: list[Event[dict[str, Any]]],
+    wrong_domain: bool,
 ) -> None:
-    backup = AsyncMock()
-    engine, _, services, _ = _setup(native, monkeypatch, backup)
-    result = await engine.call("ha_set_todo_item", arguments, CallContext("actor"))
+    backup = AsyncMock(return_value={})
+    arguments = (
+        {"entity_id": "light.wrong", "summary": "Invalid"}
+        if wrong_domain
+        else {"entity_id": shopping_list, "item": " ", "status": "completed"}
+    )
+    result = await _engine(hass, backup).call(
+        "ha_set_todo_item", arguments, CallContext(hass_admin_user.id)
+    )
     assert result.is_error
-    assert services.calls == []
+    assert todo_writes(todo_calls) == []
     backup.assert_not_awaited()
 
 
 @pytest.mark.parametrize(
-    "arguments",
+    "fields",
     [
-        {"item": "first"},
-        {"summary": "Invalid", "rename": "No"},
-        {
-            "summary": "Date",
-            "due_date": "2026-10-31",
-            "due_datetime": "2026-10-31T12:00:00",
-        },
+        {"due_date": "2026-10-31", "due_datetime": "2026-10-31T12:00:00+00:00"},
+        {"due_date": "not-a-date"},
     ],
 )
-async def test_native_todo_delegates_field_refusal_to_core_without_claiming_dispatch_unknown(
-    native, monkeypatch, arguments
-):
-    engine, hass, services, _ = _setup(native, monkeypatch)
-    entity = hass.data["todo.component"].get_entity("todo.shopping")
-    before = copy.deepcopy(entity.todo_items)
-    services._raises = _ServiceValidationError("Core schema refused the proposal")
-    result = await engine.call(
+async def test_core_refuses_invalid_fields_without_changing_the_list(
+    hass: HomeAssistant,
+    hass_admin_user: User,
+    shopping_list: str,
+    todo_calls: list[Event[dict[str, Any]]],
+    fields: dict[str, str],
+) -> None:
+    before = await todo_items(hass, shopping_list)
+    result = await _engine(hass).call(
         "ha_set_todo_item",
-        {"entity_id": "todo.shopping", **arguments},
-        CallContext("actor"),
+        {"entity_id": shopping_list, "summary": "Date", **fields},
+        CallContext(hass_admin_user.id),
     )
     assert result.is_error and result.status == "not_started", result.data
-    assert result.data["error"]["code"] == "VALIDATION_INVALID_PARAMETER"
-    assert "Core schema refused" in result.data["error"]["message"]
-    assert len(services.calls) == 1
-    assert entity.todo_items == before
+    assert todo_writes(todo_calls) == []
+    assert await todo_items(hass, shopping_list) == before
 
 
-async def test_native_todo_readonly_still_lists_but_never_starts_writes(
-    native: Any, monkeypatch: pytest.MonkeyPatch
+async def test_readonly_still_lists_but_never_starts_writes(
+    hass: HomeAssistant,
+    hass_admin_user: User,
+    shopping_list: str,
+    todo_calls: list[Event[dict[str, Any]]],
 ) -> None:
-    engine, _, services, _ = _setup(native, monkeypatch)
+    engine = _engine(hass)
     engine.read_only = True
-    assert not (await engine.call("ha_get_todo", {}, CallContext("actor"))).is_error
+    actor = CallContext(hass_admin_user.id)
+    assert not (await engine.call("ha_get_todo", {}, actor)).is_error
     with pytest.raises(ToolFailure, match="Writes are disabled"):
         await engine.call(
-            "ha_set_todo_item",
-            {"entity_id": "todo.shopping", "summary": "Milk"},
-            CallContext("actor"),
+            "ha_set_todo_item", {"entity_id": shopping_list, "summary": "Milk"}, actor
         )
-    assert services.calls == []
+    assert todo_writes(todo_calls) == []
 
 
 @pytest.mark.parametrize("revoke", [False, True])
-async def test_native_todo_rechecks_live_policy_and_credentials_after_snapshot(
-    native: Any, monkeypatch: pytest.MonkeyPatch, revoke: bool
+async def test_live_policy_and_credentials_are_rechecked_after_snapshot(
+    hass: HomeAssistant,
+    hass_admin_user: User,
+    shopping_list: str,
+    todo_calls: list[Event[dict[str, Any]]],
+    revoke: bool,
 ) -> None:
-    async def capture(payload: dict, actor: CallContext) -> dict:
+    async def capture(payload: dict[str, Any], actor: CallContext) -> dict[str, Any]:
         if revoke:
-            user.is_admin = False
+            await hass.auth.async_update_user(hass_admin_user, group_ids=[])
         else:
             engine.read_only = True
         return {}
 
-    engine, _, services, user = _setup(native, monkeypatch, capture)
+    engine = _engine(hass, capture)
+    milk = next(
+        row for row in await todo_items(hass, shopping_list) if row["summary"] == "Milk"
+    )
     result = await engine.call(
         "ha_set_todo_item",
-        {"entity_id": "todo.shopping", "item": "first", "status": "completed"},
-        CallContext("actor"),
+        {"entity_id": shopping_list, "item": milk["uid"], "status": "completed"},
+        CallContext(hass_admin_user.id),
     )
-    assert result.is_error and services.calls == []
+    assert result.is_error and todo_writes(todo_calls) == []
+    assert milk in await todo_items(hass, shopping_list)
 
 
-async def test_native_todo_provider_mutation_then_failure_is_uncertain_and_not_replayed(
-    native: Any, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    engine, hass, services, _ = _setup(native, monkeypatch)
-    services._raises = ValueError("Provider changed its data before raising")
-    result = await engine.call(
-        "ha_set_todo_item",
-        {"entity_id": "todo.shopping", "summary": "Milk"},
-        CallContext("actor"),
-    )
-    assert result.is_error and result.status == "outcome_unknown"
-    assert result.data["error"]["code"] == "OUTCOME_UNKNOWN"
-    assert len(services.calls) == 1 and hass.bus.listeners == []
-
-
-async def test_native_todo_change_during_snapshot_is_refused_without_dispatch(
-    native: Any,
+@pytest.mark.parametrize(
+    "failure", [HomeAssistantError, ServiceValidationError, ValueError]
+)
+async def test_provider_failure_after_a_real_effect_is_uncertain_and_not_replayed(
+    hass: HomeAssistant,
+    hass_admin_user: User,
+    shopping_list: str,
+    todo_calls: list[Event[dict[str, Any]]],
     monkeypatch: pytest.MonkeyPatch,
+    failure: type[Exception],
 ) -> None:
-    async def capture(payload: dict, actor: CallContext) -> dict:
-        entity.todo_items[0].summary = "Changed externally"
+    create = LocalTodoListEntity.async_create_todo_item
+    listeners = hass.bus.async_listeners().get("state_changed", 0)
+
+    async def create_then_fail(entity: LocalTodoListEntity, item: TodoItem) -> None:
+        await create(entity, item)
+        raise failure("Provider failed after persisting the item")
+
+    monkeypatch.setattr(LocalTodoListEntity, "async_create_todo_item", create_then_fail)
+    result = await _engine(hass).call(
+        "ha_set_todo_item",
+        {"entity_id": shopping_list, "summary": "Persisted once"},
+        CallContext(hass_admin_user.id),
+    )
+    assert result.is_error and result.status == "outcome_unknown", result.data
+    assert result.data["error"]["code"] == "OUTCOME_UNKNOWN"
+    assert len(todo_writes(todo_calls)) == 1
+    rows = await todo_items(hass, shopping_list)
+    assert len([row for row in rows if row["summary"] == "Persisted once"]) == 1
+    assert hass.bus.async_listeners().get("state_changed", 0) == listeners
+
+
+async def test_change_during_snapshot_is_refused_without_dispatch(
+    hass: HomeAssistant,
+    hass_admin_user: User,
+    shopping_list: str,
+    todo_calls: list[Event[dict[str, Any]]],
+) -> None:
+    milk = next(
+        row for row in await todo_items(hass, shopping_list) if row["summary"] == "Milk"
+    )
+
+    async def capture(payload: dict[str, Any], actor: CallContext) -> dict[str, Any]:
+        await todo_service(
+            hass,
+            shopping_list,
+            "update_item",
+            item=milk["uid"],
+            rename="Changed externally",
+        )
         return {}
 
-    engine, hass, services, _ = _setup(native, monkeypatch, capture)
-    entity = hass.data["todo.component"].get_entity("todo.shopping")
-    result = await engine.call(
+    result = await _engine(hass, capture).call(
         "ha_remove_todo_item",
-        {"entity_id": "todo.shopping", "item": "Milk"},
-        CallContext("actor"),
+        {"entity_id": shopping_list, "item": "Milk"},
+        CallContext(hass_admin_user.id),
     )
-    assert result.is_error and result.status == "not_started"
+    assert result.is_error and result.status == "not_started", result.data
     assert result.data["error"]["code"] == "CONFIG_CONFLICT"
-    assert services.calls == []
+    assert [event.data["service"] for event in todo_writes(todo_calls)] == [
+        "update_item"
+    ]
+    assert any(
+        row["uid"] == milk["uid"] for row in await todo_items(hass, shopping_list)
+    )
 
 
-async def test_native_todo_uid_summary_collision_is_refused_before_snapshot(
-    native: Any,
-    monkeypatch: pytest.MonkeyPatch,
+async def test_uid_summary_collision_is_refused_before_snapshot(
+    hass: HomeAssistant,
+    hass_admin_user: User,
+    shopping_list: str,
+    todo_calls: list[Event[dict[str, Any]]],
+    core_client: HomeAssistantClient,
 ) -> None:
-    backup = AsyncMock()
-    engine, hass, services, _ = _setup(native, monkeypatch, backup)
-    entity = hass.data["todo.component"].get_entity("todo.shopping")
-    entity.todo_items.insert(0, _Item("first", "collision"))
-    result = await engine.call(
-        "ha_remove_todo_item",
-        {"entity_id": "todo.shopping", "item": "Milk"},
-        CallContext("actor"),
+    milk = next(
+        row for row in await todo_items(hass, shopping_list) if row["summary"] == "Milk"
     )
-    assert result.is_error and result.status == "not_started"
+    await todo_service(hass, shopping_list, "add_item", item=milk["uid"])
+    collision = next(
+        row
+        for row in await todo_items(hass, shopping_list)
+        if row["summary"] == milk["uid"]
+    )
+    reply = await core_client.send_websocket_message(
+        {
+            "type": "todo/item/move",
+            "entity_id": shopping_list,
+            "uid": collision["uid"],
+        }
+    )
+    assert reply["success"], reply
+    assert (await todo_items(hass, shopping_list))[0]["uid"] == collision["uid"]
+    writes_before = len(todo_writes(todo_calls))
+    backup = AsyncMock(return_value={})
+    result = await _engine(hass, backup).call(
+        "ha_remove_todo_item",
+        {"entity_id": shopping_list, "item": "Milk"},
+        CallContext(hass_admin_user.id),
+    )
+    assert result.is_error and result.status == "not_started", result.data
     assert result.data["error"]["code"] == "CONFIG_CONFLICT"
-    assert services.calls == []
+    assert len(todo_writes(todo_calls)) == writes_before
     backup.assert_not_awaited()
 
 
-async def test_native_todo_freezes_original_match_when_summary_is_reused_during_snapshot(
-    native: Any,
-    monkeypatch: pytest.MonkeyPatch,
+async def test_original_uid_stays_pinned_when_summary_is_reused_during_snapshot(
+    hass: HomeAssistant,
+    hass_admin_user: User,
+    shopping_list: str,
+    todo_calls: list[Event[dict[str, Any]]],
+    core_client: HomeAssistantClient,
 ) -> None:
-    async def capture(payload: dict, actor: CallContext) -> dict:
-        entity.todo_items.insert(0, _Item("Milk", "new"))
+    milk = next(
+        row for row in await todo_items(hass, shopping_list) if row["summary"] == "Milk"
+    )
+
+    async def capture(payload: dict[str, Any], actor: CallContext) -> dict[str, Any]:
+        await todo_service(hass, shopping_list, "add_item", item="Milk")
+        new = next(
+            row
+            for row in await todo_items(hass, shopping_list)
+            if row["summary"] == "Milk" and row["uid"] != milk["uid"]
+        )
+        reply = await core_client.send_websocket_message(
+            {
+                "type": "todo/item/move",
+                "entity_id": shopping_list,
+                "uid": new["uid"],
+            }
+        )
+        assert reply["success"], reply
+        assert (await todo_items(hass, shopping_list))[0]["uid"] == new["uid"]
         return {}
 
-    engine, hass, services, _ = _setup(native, monkeypatch, capture)
-    entity = hass.data["todo.component"].get_entity("todo.shopping")
-    result = await engine.call(
+    result = await _engine(hass, capture).call(
         "ha_remove_todo_item",
-        {"entity_id": "todo.shopping", "item": "Milk"},
-        CallContext("actor"),
+        {"entity_id": shopping_list, "item": "Milk"},
+        CallContext(hass_admin_user.id),
     )
     assert not result.is_error, result.data
-    assert services.calls[0]["service_data"]["item"] == ["first"]
+    rows = await todo_items(hass, shopping_list)
+    assert not any(row["uid"] == milk["uid"] for row in rows)
+    assert len([row for row in rows if row["summary"] == "Milk"]) == 1
+    assert [event.data["service"] for event in todo_writes(todo_calls)] == [
+        "add_item",
+        "remove_item",
+    ]
 
 
-async def test_legacy_todo_facade_preserves_remote_routes_and_common_backup(
+async def test_legacy_facade_keeps_core_routes_and_updates_the_real_list(
+    hass: HomeAssistant,
+    core_client: HomeAssistantClient,
+    shopping_list: str,
+    todo_calls: list[Event[dict[str, Any]]],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from ha_mcp.tools.tools_todo import TodoTools as LegacyTodoTools
-
-    monkeypatch.setattr(
-        "ha_mcp.config.get_global_settings",
-        lambda: SimpleNamespace(enable_auto_backup=False),
+    monkeypatch.setattr(get_global_settings(), "enable_auto_backup", False)
+    tools = TodoTools(core_client)
+    rows = await todo_items(hass, shopping_list)
+    read = await tools.ha_get_todo(entity_id=shopping_list, status="completed")
+    assert read["items"] == [row for row in rows if row["status"] == "completed"]
+    milk = next(row for row in rows if row["summary"] == "Milk")
+    result = await tools.ha_set_todo_item(
+        entity_id=shopping_list, item=milk["uid"], status="completed"
     )
-    from .test_tools_todo import LIST, _FakeClient
-
-    client = _FakeClient()
-    monkeypatch.setattr(
-        "ha_mcp.tools.component_todo.get_component_caps", AsyncMock(return_value=None)
+    assert result["success"] is True
+    assert any(
+        row["uid"] == milk["uid"] and row["status"] == "completed"
+        for row in await todo_items(hass, shopping_list)
     )
-    tools = LegacyTodoTools(client)
-    read = await tools.ha_get_todo(entity_id=LIST, status="completed")
-    assert {item["uid"] for item in read["items"]} == {"2", "3"}
-    updated = await tools.ha_set_todo_item(entity_id=LIST, item="1", status="completed")
-    assert updated["success"]
-    assert client.services()[-1] == (
-        "update_item",
-        {"item": "1", "status": "completed"},
-    )
+    assert [event.data["service"] for event in todo_writes(todo_calls)] == [
+        "update_item"
+    ]

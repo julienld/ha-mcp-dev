@@ -6,14 +6,16 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from homeassistant.auth.models import User
+from homeassistant.const import EVENT_CALL_SERVICE
+from homeassistant.core import HomeAssistant
+from pytest_homeassistant.common import async_capture_events
 
-from ha_mcp.runtime import Engine
-from ha_mcp.runtime.catalog import build_initial_catalog
+from custom_components.ha_mcp_tools.native_backend import NativeBackend
 from ha_mcp.tool_api import CallContext
 
-from ._native_backend_module import native as native
-from .test_component_ws_phase2_async import _call_hass, _FakeCallServices
-from .test_native_engine_backend import EventBus, authorize
+from ._native_core_backend import backend as backend
+from ._native_test_engine import native_engine
 
 
 @pytest.mark.parametrize(
@@ -57,18 +59,21 @@ from .test_native_engine_backend import EventBus, authorize
     ],
 )
 async def test_native_raw_command_boundary_never_dispatches_a_core_service(
-    native: Any, arguments: dict[str, Any], code: str, message: str
+    hass: HomeAssistant,
+    hass_admin_user: User,
+    backend: NativeBackend,
+    arguments: dict[str, Any],
+    code: str,
+    message: str,
 ) -> None:
-    services = _FakeCallServices(known=set())
-    hass = _call_hass([], services, EventBus())
-    authorize(hass)
-    backend = native.NativeBackend(hass)
-    engine = Engine(backend, build_initial_catalog(backend))
-    result = await engine.call("ha_call_service", arguments, CallContext("actor"))
+    calls = async_capture_events(hass, EVENT_CALL_SERVICE)
+    result = await native_engine(backend).call(
+        "ha_call_service", arguments, CallContext(hass_admin_user.id)
+    )
     assert result.is_error and result.data["error"]["code"] == code
     assert message in result.data["error"]["message"]
     assert result.status == "not_started"
-    assert services.calls == []
+    assert calls == []
 
 
 @pytest.mark.parametrize("native_selected", [True, False])

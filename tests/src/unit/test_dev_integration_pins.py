@@ -30,6 +30,7 @@ _INTEGRATIONS = (
     "stream",
     "knx",
     "local_calendar",
+    "local_todo",
     "remote_calendar",
 )
 
