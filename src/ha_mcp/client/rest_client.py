@@ -38,9 +38,6 @@ from .error_log_journald import (
 from .models import ErrorLogPage
 from .supervisor_client import make_supervisor_httpx_client
 from .template_verdict import (
-    RENDER_NO_VERDICT_WITHOUT_REPORT_ERRORS as RENDER_NO_VERDICT_WITHOUT_REPORT_ERRORS,
-)
-from .template_verdict import (
     _read_render_verdict,
 )
 from .transport_errors import is_ssl_error, redirect_message

@@ -753,18 +753,6 @@ _ALL_COMMANDS = [
     "ha_mcp_tools/call_event",
 ]
 
-_CMD_MSG_EXTRA: dict[str, dict[str, object]] = {
-    "ha_mcp_tools/states": {"entity_ids": []},
-    "ha_mcp_tools/blueprint_get": {"domain": "automation", "path": "x.yaml"},
-    "ha_mcp_tools/device_get": {"device_id": "d1"},
-    "ha_mcp_tools/entity_enrich": {"entity_ids": []},
-    "ha_mcp_tools/entity_lookup": {"unique_id": "x"},
-    "ha_mcp_tools/registries": {"registries": []},
-    "ha_mcp_tools/registry_lookup": {"entity_ids": ["light.x"]},
-    "ha_mcp_tools/call_event": {"event_type": "probe_event"},
-}
-
-
 def _zha_device():
     """A DeviceEntry-ish fake carrying the fields the server transforms read."""
     return FakeDevice(
