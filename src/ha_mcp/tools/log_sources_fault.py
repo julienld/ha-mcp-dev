@@ -45,6 +45,7 @@ from .log_common import (
 from .tools_filesystem import _assert_mcp_tools_available, call_mcp_tools_service
 from .util_helpers import unwrap_service_response
 
+
 def _raise_read_failure(error: str) -> NoReturn:
     """Report a ``read_file`` refusal verbatim, as a structured error."""
     raise_tool_error(

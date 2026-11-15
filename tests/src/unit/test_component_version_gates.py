@@ -1,5 +1,7 @@
 """Development component builds keep PEP 440 ordering at service gates."""
 
+from pathlib import Path
+
 import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.loader import async_get_integration
@@ -20,6 +22,7 @@ async def test_newer_component_build_can_call_file_services(
     suffix: str,
 ) -> None:
     await make_file_service(hass)
+    await hass.async_add_executor_job(Path(hass.config.path("www")).mkdir)
     integration = await async_get_integration(hass, "ha_mcp_tools")
     next_major = int(tools_filesystem.MIN_COMPONENT_VERSION.split(".")[0]) + 1
     monkeypatch.setitem(integration.manifest, "version", f"{next_major}.0.0{suffix}")
@@ -37,6 +40,7 @@ async def test_development_build_of_required_stable_release_is_too_old(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     await make_file_service(hass)
+    await hass.async_add_executor_job(Path(hass.config.path("www")).mkdir)
     integration = await async_get_integration(hass, "ha_mcp_tools")
     monkeypatch.setitem(
         integration.manifest,

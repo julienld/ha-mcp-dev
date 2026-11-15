@@ -16,8 +16,8 @@ import pytest
 from homeassistant.core import HomeAssistant
 
 import custom_components.ha_mcp_tools as component
-from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp import component_contract
+from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp.client.rest_client import HomeAssistantClient
 from ha_mcp.tools import tools_filesystem
 from ha_mcp.tools.util_helpers import unwrap_service_response
