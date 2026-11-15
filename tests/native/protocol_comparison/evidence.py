@@ -83,7 +83,7 @@ def validate_runtime(
     if observed["entry_runtime"] != expected["runtime"]:
         raise ValueError("entry_runtime_mismatch")
     if observed["private_versions"] != {
-        "fastmcp": "4.1.2",
+        "fastmcp": "4.1.6",
         "mcp": "2.3.0",
         "mcp_types": "2.3.0",
     }:

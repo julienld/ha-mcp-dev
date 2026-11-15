@@ -221,7 +221,9 @@ class OverviewResultBuilder:
             entity_data: dict[str, Any] = {
                 "friendly_name": attributes.get("friendly_name", entity_id),
             }
-            if name := entity_names.get(entity_id):
+            if (name := entity_names.get(entity_id)) and name != entity_data[
+                "friendly_name"
+            ]:
                 entity_data["name"] = name
             if include_entity_id:
                 entity_data["entity_id"] = entity_id

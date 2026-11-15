@@ -12,6 +12,7 @@ from .action_constants import (
     _NON_STATE_CHANGING_DOMAINS,
     _SERVICE_TO_STATE,
     _STATE_CHANGING_SERVICES,
+    SERVICE_FAILED_AFTER_DISPATCH_HINT,
 )
 from .action_params import ActionParameters
 from .action_projection import ActionProjection
@@ -22,6 +23,10 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class ServiceCallTools(ActionParameters, ActionProjection, BackendTools):
+    @property
+    def confirmation_timeout(self) -> float:
+        return 10.0
+
     # Only the legacy adapter can return None from its capability probe; it
     # supplies these historical transport hooks for that never-dispatched path.
     _validate_entity_before_wait: Any
@@ -86,7 +91,7 @@ class ServiceCallTools(ActionParameters, ActionProjection, BackendTools):
                 if entity_id
                 else [],
                 "wait": should_wait,
-                "timeout": 10.0,
+                "timeout": self.confirmation_timeout,
                 "return_response": return_response,
                 "expected_state": _SERVICE_TO_STATE.get(service),
                 "include_changed_states": verbose
@@ -95,16 +100,29 @@ class ServiceCallTools(ActionParameters, ActionProjection, BackendTools):
             },
             self.context,
         )
-        if result.get("unknown_outcome"):
+        if result.get("unknown_outcome") or result.get("service_error"):
+            detail = result.get("service_error")
+            message = detail.get("message") if isinstance(detail, dict) else None
             failure = ToolFailure(
                 "SERVICE_CALL_FAILED",
-                "The service write outcome is unknown; it may have taken effect.",
+                f"The service write outcome is unknown; it may have taken effect. {message}"
+                if message
+                else "The service write outcome is unknown; it may have taken effect.",
                 status="outcome_unknown",
             )
             failure.data = create_service_outcome_unknown_error(
                 failure,
-                context={"domain": domain, "service": service, "entity_id": entity_id},
+                context={
+                    "domain": domain,
+                    "service": service,
+                    "entity_id": entity_id,
+                    **({"service_error": detail} if detail is not None else {}),
+                },
             )
+            if detail is not None:
+                failure.data["error"].setdefault("suggestions", []).append(
+                    SERVICE_FAILED_AFTER_DISPATCH_HINT
+                )
             raise failure
         return self._build_component_call_response(
             result,

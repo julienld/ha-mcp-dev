@@ -63,6 +63,7 @@ async def _named_helpers(client: Any, arguments: dict[str, Any]) -> dict[str, An
     from ha_mcp.tools.config_helpers.registry import (
         _find_collision_in_flow_helpers,
         _find_collision_in_simple_helpers,
+        _NameCheckSkipped,
     )
 
     helper_type, name = arguments["helper_type"], arguments["name"]
@@ -74,7 +75,10 @@ async def _named_helpers(client: Any, arguments: dict[str, Any]) -> dict[str, An
         if helper_type in SIMPLE_HELPER_TYPES
         else _find_collision_in_flow_helpers
     )
-    existing = await find(client, helper_type, name)
+    try:
+        existing = await find(client, helper_type, name)
+    except _NameCheckSkipped:
+        return {"ids": [], "normalized": False, "check_skipped": True}
     return {"ids": [existing] if existing is not None else [], "normalized": False}
 
 

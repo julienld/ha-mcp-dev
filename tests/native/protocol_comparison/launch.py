@@ -38,8 +38,8 @@ from protocol_comparison.launcher_support import (
 )
 from protocol_comparison.protocol_fixture.provenance import file_digest
 
-BASELINE = "3690af6e0f62ccec6c7fa70f748494ba2605f419"
-DEFAULT_IMAGE = "ghcr.io/home-assistant/home-assistant:2026.10.4"
+BASELINE = "db14d375ef6e61c675f1c99c883c35b99d4c12d3"
+DEFAULT_IMAGE = "ghcr.io/home-assistant/home-assistant:2026.11.1"
 LABEL = "ha-mcp.protocol-comparison"
 ROLES = {"baseline": "legacy", "candidate": "native"}
 OVERLAYS = (

@@ -38,7 +38,7 @@ def proof_world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamesp
         module.__file__ = str(source)
         modules[name] = module
     for name, version in {
-        "fastmcp": "4.1.2",
+        "fastmcp": "4.1.6",
         "mcp": "2.3.0",
         "mcp_types": "2.3.0",
     }.items():
@@ -61,7 +61,7 @@ def proof_world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamesp
         "wheel_name": wheel.name,
     }
     (tmp_path / "protocol-build.json").write_text(json.dumps(receipt), encoding="utf-8")
-    for name, module in {
+    for name, module_value in {
         **modules,
         "custom_components": SimpleNamespace(
             ha_mcp_tools=modules["custom_components.ha_mcp_tools"]
@@ -71,7 +71,7 @@ def proof_world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamesp
         "homeassistant.const": SimpleNamespace(__version__="2026.10.4"),
         "homeassistant.core": SimpleNamespace(SupportsResponse=object),
     }.items():
-        monkeypatch.setitem(sys.modules, name, module)
+        monkeypatch.setitem(sys.modules, name, module_value)
     spec = importlib.util.spec_from_file_location(
         f"{__package__}.protocol_fixture._runtime_proof_test",
         Path(__file__).parent / "protocol_fixture/runtime.py",

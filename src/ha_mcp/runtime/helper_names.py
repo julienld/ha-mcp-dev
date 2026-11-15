@@ -15,6 +15,12 @@ _NEAR_DUPLICATES_UNCHECKED = (
     "helper numbered (..._2). " + COMPONENT_INSTALL_HINT
 )
 
+NAME_CHECK_SKIPPED_WARNING = (
+    "No duplicate check ran: Home Assistant did not answer the helper list, so a "
+    "helper with this name may already exist, and Home Assistant numbers a new "
+    "one with the same name (..._2)."
+)
+
 
 async def _check_name_collision(
     client: Any,
@@ -47,6 +53,8 @@ async def _check_name_collision(
         unchecked = (
             None if named.get("normalized", True) else _NEAR_DUPLICATES_UNCHECKED
         )
+        if named.get("check_skipped"):
+            unchecked = NAME_CHECK_SKIPPED_WARNING
         existing_id = named["ids"][0] if named["ids"] else None
         slug = named.get("slug")
         not_stored = existing_id in (named.get("not_stored") or [])

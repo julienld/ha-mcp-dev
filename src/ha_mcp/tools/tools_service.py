@@ -212,8 +212,15 @@ def _build_service_suggestions(
     ]
 
 
+CONFIRMATION_TIMEOUT_S = 10.0
+
+
 class ServiceTools(LegacyBackendTools, SharedServiceCallTools):
     """Service call and device operation tools for Home Assistant."""
+
+    @property
+    def confirmation_timeout(self) -> float:
+        return CONFIRMATION_TIMEOUT_S
 
     def __init__(self, client: HomeAssistantClient, device_tools: Any) -> None:
         super().__init__(client)
@@ -429,9 +436,12 @@ class ServiceTools(LegacyBackendTools, SharedServiceCallTools):
         domain: str,
         service: str,
         entity_id: str | None,
+        hint: str | None = None,
     ) -> NoReturn:
         """Raise a structured ToolError for an unexpected ha_call_service failure."""
         suggestions = _build_service_suggestions(domain, service, entity_id)
+        if hint:
+            suggestions.insert(0, hint)
         if entity_id:
             suggestions.append(
                 f"For universal control: ha_call_service('homeassistant', 'toggle', entity_id='{entity_id}')"
@@ -610,6 +620,11 @@ class ServiceTools(LegacyBackendTools, SharedServiceCallTools):
         # An unusable acknowledgement proves neither acceptance nor non-execution.
         if not isinstance(result, dict) or result.get("dispatched") is not True:
             return _AmbiguousDispatch(ValueError("Malformed component service result"))
+        if any(
+            result.get(key) is not None and not isinstance(result[key], dict)
+            for key in ("response_error", "service_error")
+        ):
+            return _AmbiguousDispatch(ValueError("Malformed component service outcome"))
         return result
 
     async def _maybe_component_call_service(
@@ -626,44 +641,25 @@ class ServiceTools(LegacyBackendTools, SharedServiceCallTools):
         fields: list[str] | None,
         attribute_keys: list[str] | None,
     ) -> dict[str, Any] | None:
-        """Route a confirmable single call through the component; ``None`` → do legacy.
+        """Use the component for response calls or single-target confirmation.
 
-        The component route is taken ONLY when confirming a single entity
-        (``should_wait``). The capability's entire value is the real confirmed
-        pre->post transition; for a non-confirmed call (``wait=False``, no / multi
-        entity, or a non-state-changing domain) the component returns
-        ``transitions=[]`` → ``result:[]``, silently dropping the changed-states body
-        the legacy REST POST returns (e.g. a scene's member states). For those the
-        legacy single POST costs the same one round-trip and is strictly richer, so
-        this returns ``None`` and the caller stays on legacy.
-
-        Returns a FINAL ``ha_call_service`` response when the component served the
-        call: the mapped transition, or — on a post-send timeout / transport drop
-        (the ambiguous sentinel) — the same dispatched-but-unconfirmed ``partial`` the
-        legacy timeout path builds, NEVER re-POSTed (D9 at-most-once). Returns ``None``
-        when the component was not used or provably never dispatched, so the caller
-        runs the legacy REST path as a safe first fire.
-
-        ``verbose`` routes to legacy too: it promises the FULL propagation chain
-        (every downstream changed state), which the component path cannot deliver — it
-        returns only the confirmation targets' ``new_state``s — so the richer legacy
-        POST serves it instead.
+        Response calls retain Core's changed states and distinguish a rejected
+        response from a failed service. Other calls use REST when confirmation
+        is unnecessary, verbose, or targets multiple entities. Only a refusal
+        proven to precede dispatch permits that REST fallback; an ambiguous
+        component failure raises an unknown-outcome error without replay.
         """
-        # A comma-separated entity_id ("light.a,light.b") is a valid multi-target the
-        # compaction path expands, but the component confirms one LITERAL entity_id: it
-        # would wait for the nonexistent literal "light.a,light.b" and report a false
-        # ``partial`` with an empty result even though HA changed both real entities.
-        # Treat a comma as the multi-target signal → legacy REST POST (parity with the
-        # verbose / non-confirmed early-outs above, which the component cannot serve).
-        if not should_wait or verbose or (entity_id and "," in entity_id):
+        confirm = should_wait and not (entity_id and "," in entity_id)
+        if not return_response and (not confirm or verbose):
             return None
+        should_wait = bool(confirm)
         component_result = await self._call_service_via_component(
             domain=domain,
             service=service,
             service_data=service_data,
-            entity_ids=[entity_id] if entity_id else [],
-            wait=True,
-            timeout=10.0,
+            entity_ids=[entity_id] if should_wait and entity_id else [],
+            wait=should_wait,
+            timeout=CONFIRMATION_TIMEOUT_S,
             return_response=return_response,
         )
         if isinstance(component_result, _AmbiguousDispatch):
@@ -679,6 +675,18 @@ class ServiceTools(LegacyBackendTools, SharedServiceCallTools):
             )
         if component_result is None:
             return None
+        if (detail := component_result.get("service_error")) is not None:
+            from ha_mcp.errors import HomeAssistantServiceAPIOutcomeUnknown
+
+            from .service_response import SERVICE_FAILED_AFTER_DISPATCH_HINT
+
+            self._raise_unexpected_call_service_error(
+                HomeAssistantServiceAPIOutcomeUnknown(str(detail.get("message"))),
+                domain=domain,
+                service=service,
+                entity_id=entity_id,
+                hint=SERVICE_FAILED_AFTER_DISPATCH_HINT,
+            )
         response: dict[str, Any] = self._build_component_call_response(
             component_result,
             domain=domain,
@@ -715,9 +723,24 @@ class ServiceTools(LegacyBackendTools, SharedServiceCallTools):
         *,
         return_response: bool,
     ) -> Any:
-        return await self._client.call_service(
-            domain, service, service_data, return_response=return_response
-        )
+        try:
+            return await self._client.call_service(
+                domain, service, service_data, return_response=return_response
+            )
+        except HomeAssistantAPIError as error:
+            if return_response:
+                from .service_response import response_call_failed_hint
+
+                hint = await response_call_failed_hint(self._client, True)
+                target = service_data.get("entity_id")
+                self._raise_unexpected_call_service_error(
+                    error,
+                    domain=domain,
+                    service=service,
+                    entity_id=target if isinstance(target, str) else None,
+                    hint=hint,
+                )
+            raise
 
     def _map_service_error(self, error: Exception, **kwargs: Any) -> Any:
         if isinstance(error, HomeAssistantConnectionError):

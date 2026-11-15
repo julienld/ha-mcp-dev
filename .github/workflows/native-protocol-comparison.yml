@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   protocol:
-    name: U2 legacy and native (600 reads, amd64)
+    name: Frozen upstream legacy and native (600 reads, amd64)
     runs-on: ubuntu-24.04
     timeout-minutes: 55
     env:
@@ -22,7 +22,7 @@ jobs:
           persist-credentials: false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: 3690af6e0f62ccec6c7fa70f748494ba2605f419
+          ref: db14d375ef6e61c675f1c99c883c35b99d4c12d3
           path: baseline
           submodules: true
           persist-credentials: false

@@ -25,6 +25,20 @@ records its hash. The offline locked CLI regression checks actual baseline
 imports without installing the candidate or changing baseline application files;
 it does not establish container startup or a paired 600-read result.
 
+## Current reference — 2026-11-15
+
+The next campaign uses upstream `db14d375ef6e61c675f1c99c883c35b99d4c12d3`,
+frozen by commit, with private FastMCP **4.1.6**, MCP **2.3.0** and mcp-types
+**2.3.0**, matching the candidate's SDK pins. Both roles use the same immutable
+Core **2026.11.1** image, Python and architecture. The source/build/runtime
+identity and SDK-equality gates remain required before measurements.
+
+U2 `3690af6e0f62ccec6c7fa70f748494ba2605f419`, its FastMCP 4.1.2 attempts and
+all earlier reports remain historical evidence. They are not relabelled with
+the new reference. Use fresh output/state paths for the next campaign; no new
+paired or performance result is established by changing this reference.
+The dated historical receipts below keep their original versions and outcomes.
+
 ## Executable launcher
 
 `launch.py` now performs the entire bring-up/comparison/cleanup. The continuity
@@ -33,22 +47,22 @@ sources are [`tests/continuity/README.md`](../../continuity/README.md) and
 (the repository has no `tests/native/continuity/` directory).
 
 Use **three separate checkouts**: this harness, baseline at exactly
-`3690af6e0f62ccec6c7fa70f748494ba2605f419` (U2), and the committed candidate.
+`db14d375ef6e61c675f1c99c883c35b99d4c12d3`, and the committed candidate.
 Initialize their pinned submodules. Both application checkouts must be disposable:
 the launcher overlays only test helpers, never `src`, `custom_components`,
 `pyproject.toml` or `uv.lock`. It checks their Git identities before staging,
 after building, and after comparison. It neither commits nor changes branches.
 
 ```powershell
-uv run --locked -s tests/native/protocol_comparison/launch.py run --baseline-source <U2-checkout> --candidate-source <candidate-checkout> --candidate-revision <full-sha> --output <new-report-directory> --state <private-cleanup-state.json>
+uv run --locked -s tests/native/protocol_comparison/launch.py run --baseline-source <frozen-upstream-checkout> --candidate-source <candidate-checkout> --candidate-revision <full-sha> --output <new-report-directory> --state <private-cleanup-state.json>
 ```
 
 `--candidate-revision` defaults to `GITHUB_SHA` in Actions and is required outside
 Actions. Baseline is not a floating/ref input. `--core-image` defaults to the
-continuity-compatible Core `2026.10.4`; the launcher pulls it once and starts both
+current stable Core `2026.11.1`; the launcher pulls it once and starts both
 roles from that **same immutable image ID**. It verifies each container's actual
 Docker `.Image`, privilege flag and published bindings. Runtime checks additionally
-require equal Core/Python/architecture and private FastMCP **4.1.2**, MCP **2.3.0**
+require equal Core/Python/architecture and private FastMCP **4.1.6**, MCP **2.3.0**
 and mcp-types **2.3.0** before the measured calls.
 
 The launcher reuses continuity's `_build_embedded_server_wheel`,
@@ -56,7 +70,7 @@ The launcher reuses continuity's `_build_embedded_server_wheel`,
 `stage_native_runtime` and `_build_ha_testcontainer`, with
 `tests/qualification_artifacts.py` for the native paired artifacts. Each role
 imports the same overlaid helpers inside its **own source checkout and process**;
-legacy builds U2's own wheel/component, and native builds the candidate's own
+legacy builds the frozen upstream wheel/component, and native builds the candidate's own
 paired release-profile artifacts. It seeds a minimal fresh config for these
 contracts, rather than copying the broad suite's recorder, HACS or known tokens.
 No shared continuity source file needs modification.
@@ -208,7 +222,7 @@ evidence of an incomplete/failed qualification, even if some timings look good.
 - Explicit MCP **2026-07-28** `server/discover`, paginated `tools/list`, and
   `tools/call`. Modern `_meta`, `Mcp-Protocol-Version`, `Mcp-Method`, and `Mcp-Name`
   follow the private SDK 2.3.0 source. The client never automatically downgrades.
-- Both runtime receipts require private FastMCP **4.1.2**, MCP **2.3.0**, and
+- Both runtime receipts require private FastMCP **4.1.6**, MCP **2.3.0**, and
   mcp-types **2.3.0**. Core's global MCP 1.x distribution is not used as the client.
 - Invalid version: HTTP 400 with `UNSUPPORTED_PROTOCOL_VERSION` (-32022).
   Separate bounded legacy probe: 2025-11-25 initialize, list and state call, for
@@ -227,16 +241,16 @@ evidence of an incomplete/failed qualification, even if some timings look good.
   establish byte identity, while source origin and container image ID remain
   builder attestations. The launcher records actual container image IDs; build logs remain private and are deleted during cleanup.
 
-## Local harness verification
+## Harness verification on the development worker
 
-Run the launcher regressions in the existing Windows venv; the isolated CLI
+Run the launcher regressions on the development worker; the isolated CLI
 preflight checks the actual worker imports without Docker, builds or credentials:
 
 ```powershell
-.venv/Scripts/python.exe -m pytest tests/native/protocol_comparison/test_launch.py --timeout-method=thread -q
-.venv/Scripts/ruff.exe check tests/native/protocol_comparison/launch.py tests/native/protocol_comparison/launcher_support.py tests/native/protocol_comparison/test_launch.py
-uv run --locked -s tests/native/protocol_comparison/launch.py --help
-uv run --locked -s tests/native/protocol_comparison/launch.py preflight --source <source-with-continuity-test-overlays>
+dev-agent --profile ha-mcp run --project . -- uv run pytest tests/native/protocol_comparison/test_launch.py -n0 -q
+dev-agent --profile ha-mcp run --project . -- uv run ruff check tests/native/protocol_comparison/launch.py tests/native/protocol_comparison/launcher_support.py tests/native/protocol_comparison/test_launch.py
+dev-agent --profile ha-mcp run --project . -- uv run --locked -s tests/native/protocol_comparison/launch.py --help
+dev-agent --profile ha-mcp run --project . -- uv run --locked -s tests/native/protocol_comparison/launch.py preflight --source .
 ```
 
 For the current harness checkout, `--source .` is sufficient. For U2, first apply
@@ -256,7 +270,7 @@ The image ID supplied to these offline workers was the earlier fork's ID;
 it is an input, **not a fresh local image observation**. These direct-worker
 probes do not exercise controller cleanup; its scoped lifecycle is covered
 separately by the launcher regression tests.
-The fork must still prove same-image Core 2026.10.4, private SDK 4.1.2/2.3.0,
+The next comparison must prove same-image Core 2026.11.1, private SDK 4.1.6/2.3.0,
 runtime byte identity, Native execution without HA loopback, cleanup and the
 full protocol workload. No dispatch was performed by this correction.
 

@@ -1,5 +1,10 @@
 """Shared service confirmation hints and policies, independent of transports."""
 
+SERVICE_FAILED_AFTER_DISPATCH_HINT = (
+    "The service may have changed something before it failed: check its effect "
+    "before calling it again."
+)
+
 _STATE_CHANGING_SERVICES = {
     "turn_on",
     "turn_off",

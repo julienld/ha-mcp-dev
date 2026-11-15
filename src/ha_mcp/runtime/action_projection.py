@@ -16,7 +16,36 @@ from .errors import raise_failure
 from .projection import compact_service_result, project_entity_record
 
 
+def note_rejected_response(
+    response: dict[str, Any], error: dict[str, Any] | None
+) -> None:
+    """A returned handler result was refused after the service already ran."""
+    if error is None:
+        return
+    response["service_response"] = None
+    response["response_error"] = error
+    response.setdefault("warnings", []).append(
+        "The service ran, but Home Assistant rejected the response it returned "
+        f"({error.get('message')}). Do not call it again to get a response."
+    )
+
+
 class ActionProjection:
+    @staticmethod
+    def _response_outcome(
+        response: dict[str, Any], component_result: dict[str, Any]
+    ) -> None:
+        response["service_response"] = component_result.get("service_response")
+        rejected = component_result.get("response_error")
+        if isinstance(rejected, dict):
+            note_rejected_response(response, rejected)
+        elif "service_response" not in component_result and component_result.get(
+            "partial"
+        ):
+            response.setdefault("warnings", []).append(
+                _COMPONENT_RESPONSE_UNCONFIRMED_WARNING
+            )
+
     @staticmethod
     def _split_return_response_envelope(
         result: Any, *, return_response: bool
@@ -268,8 +297,12 @@ class ActionProjection:
             if isinstance(transition, dict)
             and isinstance(transition.get("new_state"), dict)
         ]
-        if "changed_states" in component_result:
-            new_states = component_result["changed_states"]
+        changed = component_result.get("changed_states")
+        if isinstance(changed, list):
+            records = [state for state in changed if isinstance(state, dict)]
+            new_states = records + [
+                state for state in new_states if state not in records
+            ]
         projected_result, projection_warnings = self._project_service_result(
             new_states,
             entity_id=entity_id,
@@ -291,22 +324,7 @@ class ActionProjection:
         if component_result.get("warnings"):
             response.setdefault("warnings", []).extend(component_result["warnings"])
         if return_response:
-            # Emit the key whenever it was requested, even for a null response —
-            # the legacy path does the same (``_split_return_response_envelope``),
-            # and gating on ``is not None`` made the two paths answer the same
-            # call with different shapes. The component only sets the key for a
-            # non-null response, so a null one arrives as an absent key here.
-            response["service_response"] = component_result.get("service_response")
-            # ...which makes an absent key ambiguous: genuinely-null response, or
-            # one the component produced and dropped with the confirmation on its
-            # dispatched-unconfirmed path. Only the latter is possible when
-            # ``partial``, so warn there rather than on every null.
-            if "service_response" not in component_result and component_result.get(
-                "partial"
-            ):
-                response.setdefault("warnings", []).append(
-                    _COMPONENT_RESPONSE_UNCONFIRMED_WARNING
-                )
+            self._response_outcome(response, component_result)
         if should_wait:
             if component_result.get("partial"):
                 # Reached only when _raise_for_missing_or_unavailable_target above

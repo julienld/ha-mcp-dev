@@ -36,7 +36,7 @@ async def execute_service_operation(
             payload["error"]["code"], payload["error"]["message"], data=payload
         ) from exc
     except Exception as exc:
-        from ha_mcp.errors import is_service_outcome_unknown
+        from ha_mcp.errors import HomeAssistantError, is_service_outcome_unknown
         from ha_mcp.tools.helpers import exception_to_structured_error
 
         payload = exception_to_structured_error(
@@ -48,6 +48,23 @@ async def execute_service_operation(
             },
             raise_error=False,
         )
+        if arguments.get("return_response") and is_service_outcome_unknown(exc):
+            from ha_mcp.tools.service_response import (
+                RESPONSE_CALL_FAILED_HINT,
+                response_call_failed_hint,
+            )
+
+            try:
+                hint = await response_call_failed_hint(client, True)
+            except (ConnectionError, TimeoutError, HomeAssistantError) as hint_error:
+                import logging
+
+                logging.getLogger(__name__).debug(
+                    "Could not enrich the service failure: %s", hint_error
+                )
+                hint = RESPONSE_CALL_FAILED_HINT
+            if hint is not None:
+                payload["error"].setdefault("suggestions", []).insert(0, hint)
         raise ToolFailure(
             payload["error"]["code"],
             payload["error"]["message"],
@@ -60,7 +77,9 @@ async def execute_service_operation(
 async def _call_and_observe(tools: Any, arguments: dict[str, Any]) -> dict[str, Any]:
     from ha_mcp.tools.tools_service import _AmbiguousDispatch
 
-    if arguments.get("wait") and not arguments.get("include_changed_states"):
+    if arguments.get("return_response") or (
+        arguments.get("wait") and not arguments.get("include_changed_states")
+    ):
         component = await tools._call_service_via_component(
             **{
                 name: arguments[name]

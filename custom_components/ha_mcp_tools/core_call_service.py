@@ -6,7 +6,8 @@ import logging
 from collections.abc import Mapping
 from typing import Any
 
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.const import EVENT_STATE_CHANGED
+from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
 
 from .const import DOMAIN
 from .core_operation_schemas import CALL_SERVICE_DEFAULT_TIMEOUT
@@ -130,6 +131,10 @@ async def call_service(
         evt, captured, unsub = _register_transition_waiter(
             hass, set(confirmable_entity_ids), expected_by_entity
         )
+    changed: list[Any] = []
+    unsub_changed = (
+        _track_changed_states(hass, context, changed) if return_response else None
+    )
 
     # 5. Dispatch exactly once. 6. Immediate-match + bounded wait. 7. Build the diff.
     # Everything after ``dispatched = True`` is inside this ONE try so no post-dispatch
@@ -139,20 +144,21 @@ async def call_service(
     dispatched = False
     result: dict[str, Any]
     try:
-        response = await hass.services.async_call(
+        response, response_error = await _dispatch(
+            hass,
             domain,
             service,
             dict(service_data),
-            blocking=True,
-            return_response=return_response,
-            context=context,
+            return_response,
+            context,
         )
         dispatched = True
+        failed = bool(response_error and response_error.pop("failed", False))
         # ``evt`` is None when nothing was worth waiting on (should_confirm was
         # True but every target was excluded as unconfirmable) — there is then
         # nothing that could ever confirm, so skip the wait outright rather than
         # awaiting an event that was never registered to fire.
-        if should_confirm and evt is not None:
+        if should_confirm and evt is not None and not failed:
             await _await_confirmation(
                 hass, confirmable_entity_ids, expected_by_entity, captured, evt, timeout
             )
@@ -168,6 +174,10 @@ async def call_service(
             return_response=return_response,
             response=response,
         )
+        if response_error is not None:
+            result["service_error" if failed else "response_error"] = response_error
+        if return_response:
+            result["changed_states"] = changed
     except Exception:
         # An async_call failure may follow an effect: re-raise for an unknown outcome.
         # A failure after async_call returned preserves its known acceptance:
@@ -184,7 +194,63 @@ async def call_service(
     finally:
         if unsub is not None:
             unsub()
+        if unsub_changed is not None:
+            unsub_changed()
     return result
+
+
+def _track_changed_states(hass: HomeAssistant, context: Any, changed: list[Any]) -> Any:
+    """Collect Core states written under this call's actual context."""
+
+    @callback
+    def record(event: Event[EventStateChangedData]) -> None:
+        if event.context == context and (state := event.data["new_state"]):
+            changed.append(_state_as_dict(state))
+
+    return hass.bus.async_listen(EVENT_STATE_CHANGED, record)
+
+
+async def _dispatch(
+    hass: HomeAssistant,
+    domain: str,
+    service: str,
+    data: dict[str, Any],
+    return_response: bool,
+    context: Any,
+) -> tuple[Any, dict[str, Any] | None]:
+    """Keep post-execution response refusals distinct from a never-started call."""
+    try:
+        response = await hass.services.async_call(
+            domain,
+            service,
+            data,
+            blocking=True,
+            return_response=return_response,
+            context=context,
+        )
+    except Exception as error:
+        key = (
+            getattr(error, "translation_domain", None),
+            getattr(error, "translation_key", None),
+        )
+        origin = _service_error_origin(error)
+        detail: dict[str, Any] = {"translation_key": key[1], "message": str(error)}
+        if origin == "call" and key == ("homeassistant", "service_reponse_invalid"):
+            return None, detail
+        if origin != "handler" or not return_response:
+            raise
+        detail["failed"] = True
+        return None, detail
+    return response, None
+
+
+def _service_error_origin(error: BaseException) -> str:
+    call = error.__traceback__.tb_next if error.__traceback__ else None
+    if call is None or call.tb_next is None:
+        return "call"
+    if call.tb_next.tb_frame.f_code.co_name == "_execute_service":
+        return "handler"
+    return "before"
 
 
 def _confirmable_entity_ids(entity_ids: list[str], pre: Mapping[str, Any]) -> list[str]:

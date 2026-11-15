@@ -6,10 +6,17 @@ from typing import Any
 
 from ha_mcp.backends.legacy_flows import legacy_helper_flow
 from ha_mcp.runtime.helper_names import (
+    NAME_CHECK_SKIPPED_WARNING as NAME_CHECK_SKIPPED_WARNING,
+)
+from ha_mcp.runtime.helper_names import (
     _check_name_collision as _shared_check_name_collision,
 )
 
-from ...client.rest_client import HomeAssistantAPIError, HomeAssistantAuthError
+from ...client.rest_client import (
+    HomeAssistantAPIError,
+    HomeAssistantAuthError,
+    HomeAssistantConnectionError,
+)
 from ...errors import ErrorCode, create_auth_error, create_error_response
 from ...utils.registry_update_lock import registry_update_lock
 from ..component_registry_lookup import fetch_entities_for_config_entry_via_component
@@ -19,6 +26,7 @@ from ..helpers import exception_to_structured_error, raise_tool_error
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "NAME_CHECK_SKIPPED_WARNING",
     "_check_name_collision",
     "_enrich_helpers_with_current_registry",
     "_flatten_helper_list_result",
@@ -350,6 +358,10 @@ async def validate_registry_ids(
         )
 
 
+class _NameCheckSkipped(Exception):
+    """Core did not answer the pre-create name lookup."""
+
+
 async def _find_collision_in_flow_helpers(
     client: Any, helper_type: str, name: str
 ) -> str | None:
@@ -358,10 +370,20 @@ async def _find_collision_in_flow_helpers(
         result = await client.send_websocket_message(
             {"type": "config_entries/get", "domain": helper_type}
         )
-    except HomeAssistantAPIError, ConnectionError, TimeoutError:
+    except (
+        HomeAssistantAPIError,
+        HomeAssistantConnectionError,
+        ConnectionError,
+        TimeoutError,
+    ) as exc:
         # Connectivity issue — fail open so a transient outage doesn't block legit creates;
         # HA will auto-suffix duplicates on its own.
-        return None
+        if isinstance(exc.__cause__, HomeAssistantAuthError):
+            raise
+        logger.warning(
+            "config_entries/get failed; skipped the %s name check: %r", helper_type, exc
+        )
+        raise _NameCheckSkipped from exc
     entries = result.get("result", []) if isinstance(result, dict) else result
     if not isinstance(entries, list):
         return None
@@ -418,10 +440,18 @@ async def _find_collision_in_simple_helpers(
     Core's ``{type}/list``."""
     try:
         result = await client.send_websocket_message({"type": f"{helper_type}/list"})
-    except HomeAssistantAPIError, ConnectionError, TimeoutError:
+    except (
+        HomeAssistantAPIError,
+        HomeAssistantConnectionError,
+        ConnectionError,
+        TimeoutError,
+    ) as exc:
         # Connectivity issue — fail open so a transient outage doesn't block legit creates;
         # HA will auto-suffix duplicates on its own.
-        return None
+        if isinstance(exc.__cause__, HomeAssistantAuthError):
+            raise
+        logger.warning("%s/list failed; skipped the name check: %r", helper_type, exc)
+        raise _NameCheckSkipped from exc
     for item in _flatten_helper_list_result(result):
         if not isinstance(item, dict):
             continue

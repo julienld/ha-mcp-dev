@@ -10,6 +10,26 @@ changes. The 6 November compatibility pass below restores the installation
 floor and automatic entity-history contracts; historical audit entries remain
 evidence of their original candidate, rather than current behavior.
 
+## Main contracts integrated on 15 November 2026
+
+The current integration target is Main
+`db14d375ef6e61c675f1c99c883c35b99d4c12d3`. The protocol comparison freezes that
+upstream source and requires the same private FastMCP 4.1.6 and MCP/mcp-types
+2.3.0 as Native. Earlier U2 runs retain their original source and SDK receipts.
+
+A service whose handler ran but whose response Core rejected is reported with
+`response_error`, a null `service_response`, and a warning against repeating the
+call. A handler failure after dispatch preserves the uncertain write outcome;
+an error frame alone never authorizes a second dispatch. Response calls retain
+Core's changed states and the original calling actor. A temporary helper-name
+lookup outage is disclosed when creation proceeds; authentication refusal still
+stops creation.
+
+The component and routing tests inherited from Main use real Core. Existing
+Native tests that still use simulated Core remain a qualification gap, with no
+new exemptions. Automation reads retain Native's default `compatible` view;
+`config_format="stored"` returns Core's persisted keys verbatim.
+
 ## Main contracts integrated on 14 November 2026
 
 The integration target is Main `5447a7eb35853b8cdc20dfe380186bedb7529363`.
