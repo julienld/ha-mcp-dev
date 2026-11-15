@@ -765,13 +765,6 @@ _CMD_MSG_EXTRA: dict[str, dict[str, object]] = {
 }
 
 
-class _FakeEnum:
-    """StrEnum-ish stand-in: ``.value`` is the wire string."""
-
-    def __init__(self, value):
-        self.value = value
-
-
 def _zha_device():
     """A DeviceEntry-ish fake carrying the fields the server transforms read."""
     return FakeDevice(
@@ -840,7 +833,6 @@ __all__ = [
     "UTC",
     "_ALL_COMMANDS",
     "_FakeConnection",
-    "_FakeEnum",
     "_FakeWSApi",
     "_IterOnlyDeviceCollection",
     "_PARITY_CORPUS",
