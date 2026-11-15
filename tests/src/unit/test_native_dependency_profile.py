@@ -6,7 +6,7 @@ from pathlib import Path
 
 from packaging.requirements import Requirement
 
-from .test_native_release import release_builder as release_builder
+from ._native_release_fixtures import release_builder as release_builder
 
 
 def project(tmp_path):

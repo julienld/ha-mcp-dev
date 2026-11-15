@@ -8,10 +8,13 @@ import os
 import shutil
 import subprocess
 import sys
+import tomllib
 import zipfile
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
+
+from packaging.version import Version
 
 
 def validate_runtime_target(
@@ -47,8 +50,19 @@ def build_candidate_artifacts(repository: Path, output: Path) -> Path:
     revision = subprocess.check_output(
         ["git", "rev-parse", "HEAD"], cwd=repository, text=True
     ).strip()
-    # Unique per revision, without creating a tag or publishing any asset.
-    version = f"9.0.0.dev{int(revision[:12], 16)}"
+    project = tomllib.loads(
+        subprocess.check_output(
+            ["git", "show", f"{revision}:pyproject.toml"], cwd=repository, text=True
+        )
+    )
+    release = Version(project["project"]["version"])
+    # External qualification clients run the source release and correctly
+    # reject an older component. Use a unique next-patch development build
+    # from the same immutable revision, without publishing a release or tag.
+    version = (
+        f"{release.major}.{release.minor}.{release.micro + 1}"
+        f".dev{int(revision[:12], 16)}"
+    )
     github = os.environ.get("GITHUB_REPOSITORY")
     if not github:
         remote = subprocess.check_output(

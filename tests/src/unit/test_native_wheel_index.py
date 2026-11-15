@@ -6,7 +6,7 @@ import zipfile
 
 import pytest
 
-from .test_native_release import release_builder as release_builder
+from ._native_release_fixtures import release_builder as release_builder
 
 _VERSION = "9.0.0.dev3"
 _DIST = "ha_mcp-9.0.0.dev3.dist-info"

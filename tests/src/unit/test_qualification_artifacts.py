@@ -6,6 +6,7 @@ import zipfile
 from pathlib import Path
 
 import pytest
+from packaging.version import Version
 
 from tests.qualification_artifacts import (
     stage_candidate_component,
@@ -13,20 +14,29 @@ from tests.qualification_artifacts import (
 )
 from tests.src.haos_candidate import _configure_entry
 
-from .test_native_release import release_builder as release_builder
-from .test_native_release import source as source
+from ._native_release_fixtures import release_builder as release_builder
+from ._native_release_fixtures import source as source
 
 
-def test_qualification_build_survives_a_new_core_floor_without_becoming_publishable(
-    source, release_builder, monkeypatch, tmp_path
+@pytest.mark.parametrize("source_version", ["9.2.0", "10.4.2"])
+def test_qualification_build_survives_new_server_and_core_floors(
+    source, release_builder, monkeypatch, tmp_path, source_version
 ):
     from tests import qualification_artifacts
 
+    project = source / "pyproject.toml"
+    project.write_text(
+        project.read_text().replace(
+            'version = "8.7.0"', f'version = "{source_version}"'
+        )
+    )
     monkeypatch.setenv("GITHUB_REPOSITORY", "example/qualification-fork")
     monkeypatch.setattr(
         qualification_artifacts.subprocess,
         "check_output",
-        lambda *args, **kwargs: "a" * 40,
+        lambda args, **kwargs: (
+            project.read_text() if args[:2] == ["git", "show"] else "a" * 40
+        ),
     )
     monkeypatch.setattr(
         release_builder.core_window,
@@ -60,6 +70,8 @@ def test_qualification_build_survives_a_new_core_floor_without_becoming_publisha
     proof = qualification_artifacts.verify_candidate_artifacts(output)
     assert proof["qualification_only"] is True
     assert proof["repository"] == "example/qualification-fork"
+    assert Version(proof["library_version"]) > Version(source_version)
+    assert Version(proof["component_protocol_version"]) >= Version(source_version)
 
 
 @pytest.fixture

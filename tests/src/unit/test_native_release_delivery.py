@@ -11,8 +11,8 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 from packaging.requirements import Requirement
 
-from .test_native_release import release_builder as release_builder
-from .test_native_release import source as source
+from ._native_release_fixtures import release_builder as release_builder
+from ._native_release_fixtures import source as source
 
 
 @pytest.fixture
@@ -127,6 +127,7 @@ class Github:
             }
             self.after_create()
         elif method == "POST" and args[1].startswith("https://uploads.github.com/"):
+            assert self.release is not None
             path = Path(args[args.index("--input") + 1])
             url = urlsplit(args[1])
             assert url.path.endswith(f"/releases/{self.release['id']}/assets")
@@ -136,6 +137,7 @@ class Github:
             self.release["assets"].append({"id": len(self.payloads), "name": path.name})
             self.after_upload()
         elif method == "PATCH":
+            assert self.release is not None
             assert args[1].endswith(f"/releases/{self.release['id']}")
             assert fields == {"draft": "false"}
             self.release["draft"] = False
