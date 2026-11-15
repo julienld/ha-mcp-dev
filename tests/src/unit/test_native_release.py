@@ -1,5 +1,6 @@
 """Candidate archives must select and identify the exact paired distribution."""
 
+import ast
 import importlib.util
 import io
 import json
@@ -54,6 +55,9 @@ ha-mcp = "ha_mcp:main"
             {"name": "HA-MCP", "homeassistant": "2026.10.0", "render_readme": True}
         )
     )
+    contract = root / "src/ha_mcp/component_contract.py"
+    contract.parent.mkdir(parents=True)
+    contract.write_text('MIN_COMPONENT_VERSION = "8.7.0"\n')
     (root / "LICENSE").write_text("fixture license\n")
     (root / "README.md").write_text("upstream readme\n")
     (component / "manifest.json").write_text(
@@ -91,6 +95,10 @@ ha-mcp = "ha_mcp:main"
         )
         with zipfile.ZipFile(output / f"{basename}-py3-none-any.whl", "w") as wheel:
             wheel.writestr("ha_mcp/__init__.py", "# fixture library\n")
+            wheel.writestr(
+                "ha_mcp/component_contract.py",
+                (cwd / "src/ha_mcp/component_contract.py").read_text(),
+            )
             wheel.writestr(
                 f"{basename}.dist-info/METADATA",
                 f"Metadata-Version: 2.3\nName: {name}\nVersion: {version}\n"
@@ -359,6 +367,21 @@ def test_native_profile_accepts_canonical_release_versions_without_recomputing_t
         source, output, version, tag, "julienld/ha-mcp-native", prepare_hacs=True
     )
     assert proof["library_version"] == proof["component_version"] == version
+    with zipfile.ZipFile(output / "ha_mcp_tools.zip") as archive:
+        manifest = json.loads(archive.read("manifest.json"))
+    with zipfile.ZipFile(output / f"ha_mcp-{version}-py3-none-any.whl") as wheel:
+        contract = ast.parse(wheel.read("ha_mcp/component_contract.py"))
+    floors = [
+        node.value.value
+        for node in contract.body
+        if isinstance(node, ast.Assign)
+        and isinstance(node.value, ast.Constant)
+        and any(
+            isinstance(target, ast.Name) and target.id == "MIN_COMPONENT_VERSION"
+            for target in node.targets
+        )
+    ]
+    assert floors == [manifest["version"]]
     assert proof["tag"] == tag
     assert (output / f"ha_mcp-{version}-py3-none-any.whl").is_file()
     if ".dev" not in version:

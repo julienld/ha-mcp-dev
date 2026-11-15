@@ -129,6 +129,16 @@ def stamp_library(project: Path, version: str) -> None:
     if replacements != 1:
         raise ValueError("Project version was not stamped exactly once")
     project.write_text(source, encoding="utf-8", newline="\n")
+    contract = project.parent / "src/ha_mcp/component_contract.py"
+    stamped, replacements = re.subn(
+        r'^MIN_COMPONENT_VERSION = "[^"]+"$',
+        f'MIN_COMPONENT_VERSION = "{version}"',
+        contract.read_text(encoding="utf-8"),
+        flags=re.MULTILINE,
+    )
+    if replacements != 1:
+        raise ValueError("Component service floor was not stamped exactly once")
+    contract.write_text(stamped, encoding="utf-8", newline="\n")
 
 
 def build_standalone(staging: Path, output: Path, version: str) -> dict:
@@ -226,6 +236,16 @@ def select_native_dependencies(project: Path) -> list[str]:
         1,
     )
     project.write_text(source, encoding="utf-8", newline="\n")
+    contract = project.parent / "src/ha_mcp/component_contract.py"
+    stamped, replacements = re.subn(
+        r'^MIN_COMPONENT_VERSION = "[^"]+"$',
+        f'MIN_COMPONENT_VERSION = "{version}"',
+        contract.read_text(encoding="utf-8"),
+        flags=re.MULTILINE,
+    )
+    if replacements != 1:
+        raise ValueError("Component service floor was not stamped exactly once")
+    contract.write_text(stamped, encoding="utf-8", newline="\n")
     return native
 
 

@@ -125,6 +125,9 @@ Stable, development and candidate builds use `scripts/native_release.py` to buil
 component archive and library wheel from one immutable Git revision, including
 the pinned skills submodule. The script stamps the staged artifacts and their
 exact dependency URL; it does not change the working tree's release versions.
+The staged library's component-service floor is stamped to its exact artifact
+version too, including a development suffix, so the paired component passes
+its own service gate. Source declarations stay unchanged.
 The HACS native wheel has no active dependency edges. Its complete original
 dependency list is available through the optional `standalone` extra; the
 component manifest lists native host requirements individually. Core can then
