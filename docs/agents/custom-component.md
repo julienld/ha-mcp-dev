@@ -33,7 +33,8 @@ tool logic; an uncertain mutation must never fall back to another transport.
 ## Version cycle
 
 In the source tree, `manifest.json`'s `version`, its `ha-mcp==` requirement,
-`COMPONENT_VERSION` in `const.py` and `pyproject.toml`'s version stay paired.
+`COMPONENT_VERSION` in `const.py`, `MIN_COMPONENT_VERSION` in
+`src/ha_mcp/component_contract.py` and `pyproject.toml`'s version stay paired.
 Never edit those versions by hand: semantic-release stamps them in each release
 commit, and the PR **Component Version Gate** rejects manual drift.
 
@@ -103,29 +104,22 @@ If a release already exists, preserve it and use the original-artifact recovery
 above for a partial upload. Never rebuild missing assets under an existing
 release identity. No release action is authorized merely by this procedure.
 
-When a change adds a component service or argument that the server depends
-on, raise `MIN_COMPONENT_VERSION` in `src/ha_mcp/tools/tools_filesystem.py`,
-in the same PR, to the release that will carry it: the number
-`scripts/dev_version.sh` prints without its `.devN` suffix (it computes the
-next release from `master` on any branch, so count the PR's own commit type:
-a `feat:` on a `master` that only has fixes pending raises the minor).
+`MIN_COMPONENT_VERSION` is the component version every call to the File & YAML
+Tools entry's services needs: the release's own. That covers the file and YAML
+tools, their backups, the fault log read (`ha_get_logs`) and the settings UI's
+file handlers. An external server (app (add-on), Docker, pip) refuses them on a
+component older than itself and says to update it, so every stable release
+asks its users for the matching component.
 
-The floor applies to every filesystem tool, so an optional feature must not
-raise it: users who don't need the feature would be forced to update. Such a
-feature gates on its own signal and prompts for the update only when it is used,
-as `ha_write_file(edits=...)` does by finding `edit_file` in the service registry
-(`_assert_file_edits_supported`). Prefer the registry over a version here,
-because a version is wrong in both directions: an unreleased build (master, E2E,
-the dev environment) reports the previous release's number while already
-carrying the service, and a dev pre-release reports the next release's number
-(see above), including one cut before the service existed.
-
-Every development pre-release cut while that release is pending reports the
-same plain number, so the floor cannot tell a pre-release that has the new
-service from an earlier one that lacks it. Only an external server (app,
-Docker, pip) is affected; the in-process server runs the build its component
-release pins. This gap is accepted: pre-release users update the component
-from HACS.
+Between releases the number cannot tell builds apart: an unreleased build
+(master, E2E, the dev environment) reports the last release's number while
+already carrying new code, and every development pre-release cut while a
+release is pending reports the same plain number. A change that needs a
+service or argument added since the last release therefore gates on its own
+signal, as `ha_write_file(edits=...)` does by finding `edit_file` in the
+service registry (`_assert_file_edits_supported`). Only an external server is
+affected; the in-process server runs the build its component release pins.
+This gap is accepted: pre-release users update the component from HACS.
 
 Stable, development and candidate builds use `scripts/native_release.py` to build a paired
 component archive and library wheel from one immutable Git revision, including
@@ -371,7 +365,7 @@ entry's `hass.data` caches so the next setup reads storage again.
 
 Privileged filesystem and YAML services remain tools-entry-only. The
 `ha_mcp_tools/info` command answers for either entry, so the server gates
-those services on the additive `tools_services` handshake field—not the
+those services on Home Assistant's live service registry, rather than the
 general capability list.
 Native File/YAML tools require the live tools entry and use the same local file
 owners, permissions and opt-ins as those services; direct calls do not bypass

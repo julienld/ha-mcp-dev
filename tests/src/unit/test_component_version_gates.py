@@ -1,50 +1,50 @@
 """Development component builds keep PEP 440 ordering at service gates."""
 
 import pytest
+from homeassistant.core import HomeAssistant
+from homeassistant.loader import async_get_integration
 
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
-from ha_mcp.tools.component_api import ComponentCaps
-from ha_mcp.tools.tools_filesystem import (
-    _COMPONENT_VERSION_CACHE,
-    MIN_COMPONENT_VERSION,
-    _assert_caps_version_ok,
-    _fetch_caller_token,
-)
-from ha_mcp.tools.yaml_extra_keys import assert_extra_yaml_keys_supported
+from ha_mcp.client.rest_client import HomeAssistantClient
+from ha_mcp.tools import tools_filesystem
+from ha_mcp.tools.util_helpers import unwrap_service_response
 
-from .test_caller_token_auth import _make_client_with_token
-from .test_caller_token_auth import (
-    _reset_token_cache_between_tests as _reset_token_cache_between_tests,
-)
+from ._file_services import make_file_service
 
 
-@pytest.mark.parametrize(
-    "version", ["9.0.0.dev189467019982193", "9.0.0-beta", "v9.0.0"]
-)
-async def test_candidate_bootstrap_keeps_build_identity_and_enables_features(
-    version: str,
+@pytest.mark.parametrize("suffix", [".dev189467019982193", "b1", ""])
+async def test_newer_component_build_can_call_file_services(
+    hass: HomeAssistant,
+    core_client: HomeAssistantClient,
+    monkeypatch: pytest.MonkeyPatch,
+    suffix: str,
 ) -> None:
-    client = _make_client_with_token("gate-token", version=version)
+    await make_file_service(hass)
+    integration = await async_get_integration(hass, "ha_mcp_tools")
+    next_major = int(tools_filesystem.MIN_COMPONENT_VERSION.split(".")[0]) + 1
+    monkeypatch.setitem(integration.manifest, "version", f"{next_major}.0.0{suffix}")
 
-    await assert_extra_yaml_keys_supported(client, ["alert2"])
-
-    assert _COMPONENT_VERSION_CACHE[client] == version
-
-
-async def test_development_build_of_required_stable_release_is_too_old() -> None:
-    client = _make_client_with_token(
-        "gate-token", version=f"{MIN_COMPONENT_VERSION}.dev1"
+    result = await tools_filesystem.call_mcp_tools_service(
+        core_client, "list_files", {"path": "www"}
     )
-    with pytest.raises(ToolError, match="too old"):
-        await _fetch_caller_token(client)
+
+    assert unwrap_service_response(result)["success"] is True
 
 
-def test_caps_gate_also_refuses_development_build_of_its_stable_floor() -> None:
-    caps = ComponentCaps(
-        schema_version=1,
-        component_version=f"{MIN_COMPONENT_VERSION}.dev1",
-        capabilities=frozenset(),
-        limits={},
+async def test_development_build_of_required_stable_release_is_too_old(
+    hass: HomeAssistant,
+    core_client: HomeAssistantClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    await make_file_service(hass)
+    integration = await async_get_integration(hass, "ha_mcp_tools")
+    monkeypatch.setitem(
+        integration.manifest,
+        "version",
+        f"{tools_filesystem.MIN_COMPONENT_VERSION}.dev1",
     )
+
     with pytest.raises(ToolError, match="too old"):
-        _assert_caps_version_ok(caps)
+        await tools_filesystem.call_mcp_tools_service(
+            core_client, "list_files", {"path": "www"}
+        )
