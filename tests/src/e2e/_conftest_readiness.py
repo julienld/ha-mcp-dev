@@ -4,13 +4,17 @@ import json
 import logging
 import time
 from collections.abc import Generator
-from typing import Any
+from typing import Any, TypedDict
 
 import pytest
 import requests
 from testcontainers.core.container import DockerContainer
 
 logger = logging.getLogger(__name__)
+
+
+class _RequestTLSOptions(TypedDict, total=False):
+    verify: bool
 
 
 # Module-level collection of readiness-gate timings, per process. Workers
@@ -234,12 +238,13 @@ def _snapshot_config_entries(
     instrumentation, not a hard requirement.
     """
 
+    tls_options: _RequestTLSOptions = {"verify": False} if not verify_ssl else {}
     try:
         resp = requests.get(
             f"{base_url}/api/config/config_entries/entry",
             timeout=timeout,
             headers=headers,
-            **({"verify": False} if not verify_ssl else {}),
+            **tls_options,
         )
         if resp.status_code != 200:
             logger.debug(f"snapshot_config_entries: HTTP {resp.status_code}")
@@ -372,13 +377,14 @@ def _wait_for_core_state_running(
 
     start_time = time.monotonic()
     last_state = "<no response>"
+    tls_options: _RequestTLSOptions = {"verify": False} if not verify_ssl else {}
     while time.monotonic() - start_time < timeout:
         try:
             response = requests.get(
                 f"{base_url}/api/core/state",
                 timeout=2,
                 headers=headers,
-                **({"verify": False} if not verify_ssl else {}),
+                **tls_options,
             )
             if response.status_code == 200:
                 # Parse before stamping last_state — a JSONDecodeError on

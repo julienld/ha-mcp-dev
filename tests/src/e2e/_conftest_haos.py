@@ -12,9 +12,15 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
+from typing import TypedDict
 
 import pytest
 import requests
+
+
+class _UrllibTLSOptions(TypedDict, total=False):
+    context: ssl.SSLContext
+
 
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))  # tests/src/ for haos_runtime
@@ -581,7 +587,7 @@ def _dump_haos_session_logs(
             )
         )
     # Only the disposable TLS scenario opts out for its staged self-signed cert.
-    tls_options = (
+    tls_options: _UrllibTLSOptions = (
         {"context": ssl._create_unverified_context()} if not verify_ssl else {}
     )
     # Narrow except: any non-network error (NameError, KeyError

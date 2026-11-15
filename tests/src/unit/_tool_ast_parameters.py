@@ -5,7 +5,7 @@ import runpy
 from pathlib import Path
 
 
-def _is_tool_decorated(node: ast.AST) -> bool:
+def _is_tool_decorated(node: ast.AsyncFunctionDef | ast.FunctionDef) -> bool:
     for dec in node.decorator_list:
         target = dec.func if isinstance(dec, ast.Call) else dec
         if isinstance(target, ast.Attribute) and target.attr == "tool":
@@ -25,7 +25,7 @@ def decorated_tool_param_names(module_path: Path, tool_name: str) -> set[str]:
     if resolved is not None:
         tree.body.append(resolved)
 
-    def _names_match(node: ast.AST) -> bool:
+    def _names_match(node: ast.AsyncFunctionDef | ast.FunctionDef) -> bool:
         # @tool(name="ha_...") explicit name kwarg.
         for dec in node.decorator_list:
             if isinstance(dec, ast.Call):
