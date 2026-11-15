@@ -23,6 +23,7 @@ def release_builder(monkeypatch):
     path = Path(__file__).resolve().parents[3] / "scripts/native_release.py"
     monkeypatch.syspath_prepend(str(path.parent))
     spec = importlib.util.spec_from_file_location("native_release_builder", path)
+    assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     monkeypatch.setattr(
@@ -422,7 +423,9 @@ def test_coupled_profiles_keep_cli_graph_and_native_wheel_separate(
         metadata = BytesParser().parsebytes(
             archive.read(f"{basename}.dist-info/METADATA")
         )
-        assert {str(Requirement(r)) for r in metadata.get_all("Requires-Dist")} == {
+        requirements = metadata.get_all("Requires-Dist")
+        assert requirements is not None
+        assert {str(Requirement(r)) for r in requirements} == {
             str(Requirement(r))
             for r in tomllib.loads(original.decode())["project"]["dependencies"]
         }
@@ -431,9 +434,9 @@ def test_coupled_profiles_keep_cli_graph_and_native_wheel_separate(
             ".dev" in version
         )
     with tarfile.open(output / "standalone" / f"{basename}.tar.gz") as archive:
-        project = tomllib.loads(
-            archive.extractfile(f"{basename}/pyproject.toml").read().decode()
-        )["project"]
+        project_file = archive.extractfile(f"{basename}/pyproject.toml")
+        assert project_file is not None
+        project = tomllib.loads(project_file.read().decode())["project"]
         assert project["dependencies"] == standalone["dependencies"]
         assert project["name"] == name and project["version"] == version
     with zipfile.ZipFile(output / f"ha_mcp-{version}-py3-none-any.whl") as archive:
@@ -442,7 +445,7 @@ def test_coupled_profiles_keep_cli_graph_and_native_wheel_separate(
         )
         assert not any(
             requirement.marker is None or requirement.marker.evaluate({"extra": ""})
-            for value in metadata.get_all("Requires-Dist")
+            for value in metadata.get_all("Requires-Dist") or []
             for requirement in [Requirement(value)]
         )
     assert set(standalone["files"]) == {
