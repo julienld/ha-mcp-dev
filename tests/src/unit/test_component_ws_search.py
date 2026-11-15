@@ -753,6 +753,7 @@ _ALL_COMMANDS = [
     "ha_mcp_tools/call_event",
 ]
 
+
 def _zha_device():
     """A DeviceEntry-ish fake carrying the fields the server transforms read."""
     return FakeDevice(
