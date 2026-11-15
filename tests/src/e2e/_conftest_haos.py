@@ -17,7 +17,6 @@ from typing import TypedDict
 import pytest
 import requests
 
-
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))  # tests/src/ for haos_runtime
 from haos_runtime import (
