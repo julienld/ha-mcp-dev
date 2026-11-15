@@ -18,10 +18,6 @@ import pytest
 import requests
 
 
-class _UrllibTLSOptions(TypedDict, total=False):
-    context: ssl.SSLContext
-
-
 # Add src to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))  # tests/src/ for haos_runtime
 from haos_runtime import (
@@ -61,6 +57,10 @@ from ._conftest_embedded import (
 from ._conftest_testcontainer import _reset_ha_in_process_caches
 
 logger = logging.getLogger(__name__)
+
+
+class _UrllibTLSOptions(TypedDict, total=False):
+    context: ssl.SSLContext
 
 
 # The haos_embedded lane's bring-up runs a runtime pip install of the whole
