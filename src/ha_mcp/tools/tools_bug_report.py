@@ -620,5 +620,3 @@ __all__ = [
 ]
 
 format_websockets_dependency_value = _format_websockets_dependency_value
-_websockets_dependency_state = websockets_dependency_state
-_detect_mcp_transport = detect_mcp_transport

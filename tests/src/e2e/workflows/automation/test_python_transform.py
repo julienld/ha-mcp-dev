@@ -365,7 +365,7 @@ async def test_config_hash_stable_across_reads(mcp_client, ha_client):
 
 @pytest.mark.asyncio
 async def test_legacy_keys_read_back_as_core_stores_them(mcp_client, ha_client):
-    """Opt into stored keys while keeping the default compatible read view.
+    """Default to stored keys and retain the explicit compatible read view.
 
     Both view hashes support transforms. Core owns write validation and key
     conversion; stored reads expose its body rather than the normalized view.
@@ -387,7 +387,7 @@ async def test_legacy_keys_read_back_as_core_stores_them(mcp_client, ha_client):
     entity_id = create_result["entity_id"]
 
     compatible = await mcp.call_tool_success(
-        "ha_config_get_automation", {"identifier": entity_id}
+        "ha_config_get_automation", {"identifier": entity_id, "config_format": "compatible"}
     )
     assert compatible["config"]["triggers"] == [
         {"trigger": "time", "at": "17:00:00"}
@@ -395,7 +395,7 @@ async def test_legacy_keys_read_back_as_core_stores_them(mcp_client, ha_client):
 
     read1 = await mcp.call_tool_success(
         "ha_config_get_automation",
-        {"entity_id": entity_id, "config_format": "stored"},
+        {"entity_id": entity_id},
     )
     read2 = await mcp.call_tool_success(
         "ha_config_get_automation",

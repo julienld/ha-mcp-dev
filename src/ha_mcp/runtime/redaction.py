@@ -646,6 +646,3 @@ def _collect_matching_paths(
     elif isinstance(value, list):
         for idx, item in enumerate(value):
             _collect_matching_paths(item, f"{path}[{idx}]", keys, match)
-
-
-_clear_known_secret_values = clear_known_secret_values

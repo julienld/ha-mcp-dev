@@ -154,7 +154,7 @@ class ZoneWriteTools(ZoneReadTools, HelperStorageTools):
                     ],
                 )
             )
-        raise_failure(
+        return raise_failure(
             create_error_response(
                 ErrorCode.RESOURCE_NOT_FOUND,
                 f"Zone not found: {zone_id}",

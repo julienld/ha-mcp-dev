@@ -577,6 +577,7 @@ _require_created_resource_id = legacy_errors_sync(_pure_require_created_resource
 
 __all__ = [
     "LEGACY_WORKER_BASE_URL",
+    "HA_CONFIG_YAML_MARKERS",
     "MAX_CONTENT_SIZE",
     "ResourceTools",
     "_ALLOWED_DATA_URI_PREFIXES",

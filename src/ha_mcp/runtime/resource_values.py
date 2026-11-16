@@ -529,6 +529,3 @@ __all__ = ["MAX_CONTENT_SIZE", "_RESOURCE_TYPE", "resource_list_result"]
 def content_sha256(content: str) -> str:
     """SHA-256 hex digest over the UTF-8 bytes of decoded resource content."""
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
-
-
-_summarize_resources = summarize_resources

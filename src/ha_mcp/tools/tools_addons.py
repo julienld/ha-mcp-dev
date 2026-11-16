@@ -2296,5 +2296,3 @@ __all__ = [
     "list_available_addons",
     "register_addon_tools",
 ]
-
-_build_addon_http_client = build_addon_http_client
