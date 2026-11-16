@@ -32,6 +32,12 @@ async def todo_items(
 ) -> list[dict[str, Any]]:
     result = await backend.execute("todo.items", {"entity_id": entity}, actor)
     if not result.get("success"):
+        if (result.get("error") or {}).get("code") == "not_found":
+            await _require_available(backend, actor, entity)
+            raise BackupRestoreError(
+                "The todo list is not loaded, so nothing was restored",
+                reason="entity_unavailable",
+            )
         raise ToolFailure(
             "RESOURCE_NOT_FOUND", "Todo list is unavailable", status="not_started"
         )
@@ -43,6 +49,7 @@ async def current_todo(
     backend: Backend, actor: CallContext, entity_id: str, config: Any
 ) -> dict[str, Any] | None:
     entity, uid = todo_identity(entity_id, config)
+    await _require_available(backend, actor, entity)
     current = next(
         (
             item
@@ -211,6 +218,15 @@ async def restore_todo(
 async def _require_available(backend: Backend, actor: CallContext, entity: str) -> None:
     states = await backend.execute("states.read", {"entity_ids": [entity]}, actor)
     state = states["states"].get(entity)
+    if state is None:
+        entries = await backend.execute("entities.registry.list", {}, actor)
+        exists = any(row.get("entity_id") == entity for row in entries)
+        raise BackupRestoreError(
+            "The todo list is not loaded, so nothing was restored"
+            if exists
+            else "The todo list no longer exists, so nothing was restored",
+            reason="entity_unavailable" if exists else "entity_not_found",
+        )
     if state is not None and state.get("state") == "unavailable":
         raise BackupRestoreError(
             "The todo list is unavailable, so nothing was restored",
