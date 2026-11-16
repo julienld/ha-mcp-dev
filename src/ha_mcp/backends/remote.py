@@ -156,12 +156,22 @@ class RemoteBackend:
                     status="not_started",
                 )
             if self._flows is None:
-                self._flows = RemoteFlows(self.client)
+                owner = getattr(self.client, "_ha_mcp_remote_flows", None)
+                if not isinstance(owner, RemoteFlows):
+                    owner = RemoteFlows(self.client)
+                    self.client._ha_mcp_remote_flows = owner
+                self._flows = owner
             return await self._flows.execute(operation, arguments, context)
         return await read_flow_operation(self.client, operation, arguments)
 
     async def stop(self) -> None:
+        from .remote_flow_ops import RemoteFlows
+
         self._closing = True
+        if self._flows is None:
+            owner = getattr(self.client, "_ha_mcp_remote_flows", None)
+            if isinstance(owner, RemoteFlows):
+                self._flows = owner
         results = await await_owned_io(
             asyncio.gather(
                 *(

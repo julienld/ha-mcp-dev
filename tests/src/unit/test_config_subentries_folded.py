@@ -395,6 +395,26 @@ async def test_a_subentry_menu_is_answered_with_menu_choice(
     }
 
 
+async def test_another_client_cannot_continue_an_owned_subentry_flow(
+    parent: MockConfigEntry,
+    client: HomeAssistantClient,
+    second_client: HomeAssistantClient,
+) -> None:
+    shown = await _set_subentry(client, parent, "staged", config={"name": "Local Model"})
+    denied = await rejected_call_body(
+        _set_subentry(
+            second_client, parent, "staged", flow_id=shown["flow_id"],
+            config={"model": "gemma3:27b"},
+        )
+    )
+    assert denied["error"]["code"] == "FLOW_NOT_OWNED"
+    created = await _set_subentry(
+        client, parent, "staged", flow_id=shown["flow_id"],
+        config={"model": "gemma3:27b"},
+    )
+    assert parent.subentries[created["subentry_id"]].title == "Local Model"
+
+
 async def test_a_rejected_subentry_submit_shows_the_form_and_keeps_the_flow(
     hass: HomeAssistant, parent: MockConfigEntry, client: HomeAssistantClient
 ) -> None:
