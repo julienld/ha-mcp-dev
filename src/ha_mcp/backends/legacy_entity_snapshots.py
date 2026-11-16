@@ -50,6 +50,8 @@ async def fetch_entity_registry(client: Any, identity: str) -> dict[str, Any] | 
     if row is None:
         if "." not in identity:
             registered = await _read(client, "config/entity_registry/list")
+            if not isinstance(registered, list):
+                raise HomeAssistantError("Entity registry list did not return entries")
             if any(entry.get("id") == identity for entry in registered):
                 raise BackupRestoreError(
                     "The entity was renamed during registry lookup; no restore was sent",

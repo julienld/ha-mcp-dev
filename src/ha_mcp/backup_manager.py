@@ -2261,6 +2261,7 @@ def register_default_handlers(mgr: BackupManager, _client: Any) -> None:
         fetch_entity_registry,
         restore_entity_registry,
     )
+    from .backup_entities import fetch_entity, restore_entity
 
     mgr.register(DomainHandler("automation", _fetch_automation, _restore_automation))
     mgr.register(DomainHandler("script", _fetch_script, _restore_script))
@@ -2283,8 +2284,6 @@ def register_default_handlers(mgr: BackupManager, _client: Any) -> None:
         DomainHandler("area_or_floor", _fetch_area_or_floor, _restore_area_or_floor)
     )
     mgr.register(DomainHandler("todo_item", _fetch_todo_item, _restore_todo_item))
-    from .backup_entities import fetch_entity, restore_entity
-
     mgr.register(DomainHandler("entity", fetch_entity, restore_entity))
     mgr.register(
         DomainHandler("entity_registry", fetch_entity_registry, restore_entity_registry)
