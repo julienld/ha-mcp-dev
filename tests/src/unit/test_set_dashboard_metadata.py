@@ -37,14 +37,20 @@ _STRATEGY = {"strategy": {"type": "map"}}
 
 @pytest.mark.usefixtures("lovelace")
 async def test_native_dashboard_creation_does_not_invent_a_missing_title(
-    hass: HomeAssistant, hass_admin_user: User,
+    hass: HomeAssistant,
+    hass_admin_user: User,
 ) -> None:
     backend = NativeBackend(hass)
     try:
         result = await native_engine(backend).call(
             "ha_config_set_dashboard",
-            {"url_path": "new-map", "icon": "", "require_admin": True,
-             "show_in_sidebar": False, "MandatoryBPS": False},
+            {
+                "url_path": "new-map",
+                "icon": "",
+                "require_admin": True,
+                "show_in_sidebar": False,
+                "MandatoryBPS": False,
+            },
             CallContext(hass_admin_user.id),
         )
         assert result.is_error, result.data

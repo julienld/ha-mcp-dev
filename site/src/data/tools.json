@@ -436,8 +436,8 @@
         },
         "config_format": {
           "type": "Literal['compatible', 'stored']",
-          "description": "compatible preserves the historical normalized view; stored returns Core persisted keys verbatim. Hashes can be used for safe updates in either view.",
-          "default": "compatible"
+          "description": "stored (default) returns Core persisted keys verbatim; compatible opts into the historical normalized view. Hashes can be used for safe updates in either view.",
+          "default": "stored"
         }
       },
       "required": [

@@ -14,8 +14,8 @@ from ha_mcp.tools.coercion import coerce_to_list, parse_json_param
 from ha_mcp.utils.config_hash import compute_config_hash
 
 from .blueprint_substitute import TakenControl, take_control_config
-from .config_reads import _missing_config
 from .config_normalize import _normalize_config_for_roundtrip
+from .config_reads import _missing_config
 from .config_removals import AutomationRemovalTools
 from .config_write_context import ConfigWriteContext
 from .config_write_errors import reject_enabled_in_config, reject_sequence_misroute
@@ -330,7 +330,8 @@ class AutomationConfigMethods(AutomationRemovalTools, ConfigWriteContext):
         )
         if (
             current_hash != config_hash
-            and compute_config_hash(_normalize_config_for_roundtrip(raw_config)) == config_hash
+            and compute_config_hash(_normalize_config_for_roundtrip(raw_config))
+            == config_hash
         ):
             current_config = _normalize_config_for_roundtrip(raw_config)
             current_hash = config_hash

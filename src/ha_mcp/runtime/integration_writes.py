@@ -35,8 +35,11 @@ def _reject_set_integration_mode_conflicts(
     config: dict[str, Any] | None,
     *,
     flow_args: list[str],
+    separate_mode: bool = False,
 ) -> None:
     """Reject ha_set_integration argument combinations that name two modes or none."""
+    if separate_mode:
+        return
     if domain is not None and entry_id is not None:
         raise_failure(
             create_error_response(
@@ -481,17 +484,17 @@ class IntegrationWriteTools(BackendTools):
                     "menu_choice": menu_choice,
                     "abort": abort or None,
                 }
-                if all(
-                    value is None
-                    for value in (log_level, ws_command, ws_data, subentry_type, subentry_id)
-                ) and not reconfigure:
-                    _reject_set_integration_mode_conflicts(
-                        entry_id,
-                        domain,
-                        enabled,
-                        config,
-                        flow_args=[name for name, value in flow_args.items() if value],
-                    )
+                _reject_set_integration_mode_conflicts(
+                    entry_id,
+                    domain,
+                    enabled,
+                    config,
+                    flow_args=[name for name, value in flow_args.items() if value],
+                    separate_mode=reconfigure or any(
+                        value is not None
+                        for value in (log_level, ws_command, ws_data, subentry_type, subentry_id)
+                    ),
+                )
                 if (
                     entry_id is not None
                     and not abort
