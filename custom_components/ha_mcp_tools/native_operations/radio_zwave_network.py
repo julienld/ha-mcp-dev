@@ -59,19 +59,26 @@ async def network_action(
                 long_running=True,
                 note="An inclusion is already running; no new inclusion was dispatched.",
             )
-        result = await session.effect(
-            lambda: controller.async_begin_inclusion(
-                INCLUSION_STRATEGY_NOT_SMART_START[payload["inclusion_strategy"]],
-                force_security=payload.get("force_security"),
-                provisioning=payload.get("planned_provisioning_entry")
-                or payload.get("qr_provisioning_information")
-                or payload.get("qr_code_string"),
-                dsk=payload.get("dsk"),
+        previously_dispatched = session.dispatched
+        try:
+            result = await session.effect(
+                lambda: controller.async_begin_inclusion(
+                    INCLUSION_STRATEGY_NOT_SMART_START[payload["inclusion_strategy"]],
+                    force_security=payload.get("force_security"),
+                    provisioning=payload.get("planned_provisioning_entry")
+                    or payload.get("qr_provisioning_information")
+                    or payload.get("qr_code_string"),
+                    dsk=payload.get("dsk"),
+                )
             )
-        )
+        except ValueError as error:
+            if not _inclusion_argument_error(error):
+                raise
+            session.dispatched = previously_dispatched
+            raise ToolFailure("VALIDATION_INVALID_PARAMETER", str(error), status="not_started") from error
         return ok("zwave", action, mode="add_node", result=result, long_running=True)
     if action == "remove_device":
-        payload = session.validate("zwave_js/remove_node", {"entry_id": entry.entry_id})
+        payload = session.validate("zwave_js/remove_node", {"entry_id": entry.entry_id, "strategy": args.get("strategy")})
         result = await session.effect(
             lambda: controller.async_begin_exclusion(payload.get("strategy"))
         )
@@ -98,7 +105,7 @@ async def _smart_start(
             "entry_id": entry.entry_id,
             **{
                 key: args.get(key)
-                for key in ("qr_provisioning_information", "device_name", "area_id")
+                for key in ("qr_provisioning_information", "device_name", "area_id", "protocol")
             },
         },
     )
@@ -179,21 +186,45 @@ async def _provision_device(
     return str(await session.sync_effect(create))
 
 
+def _inclusion_argument_error(error: ValueError) -> bool:
+    """The library's own argument guards precede its command-layer await.
+
+    A ValueError originating in that command layer remains an unknown outcome.
+    Reuse the library guards without copying their conditions or error messages.
+    """
+    from zwave_js_server.model.controller import Controller
+
+    origin = error.__traceback__
+    while origin is not None and origin.tb_next is not None:
+        origin = origin.tb_next
+    return origin is not None and origin.tb_frame.f_code is Controller.async_begin_inclusion.__code__
+
+
 async def _reset(session: RadioSession, entry: Any, driver: Any) -> dict[str, Any]:
     zwave_helpers = loaded_integration_module(session.hass, "zwave_js.helpers")
-    DRIVER_READY_EVENT_TIMEOUT = zwave_helpers.DRIVER_READY_EVENT_TIMEOUT
     async_get_version_info = zwave_helpers.async_get_version_info
 
     session.validate("zwave_js/hard_reset_controller", {"entry_id": entry.entry_id})
-    ready = asyncio.Event()
-    unsubscribe = driver.once("driver ready", lambda _event: ready.set())
+    previous_runtime, previous_client = entry.runtime_data, entry.runtime_data.client
+    previous_controller = driver.controller
+    waiter = asyncio.create_task(zwave_helpers.async_wait_for_driver_ready_event(entry, driver)())
+
+    async def reset_and_reconcile() -> None:
+        await driver.async_hard_reset()
+        await waiter
+        runtime, client = entry.runtime_data, entry.runtime_data.client
+        current_driver = client.driver
+        session.rebind_owners([
+            (previous_runtime, runtime, lambda: entry.runtime_data),
+            (previous_client, client, lambda: entry.runtime_data.client),
+            (driver, current_driver, lambda: entry.runtime_data.client.driver),
+            (previous_controller, current_driver.controller, lambda: entry.runtime_data.client.driver.controller),
+        ])
+
     try:
-        await session.effect(driver.async_hard_reset)
-        try:
-            await asyncio.wait_for(ready.wait(), timeout=DRIVER_READY_EVENT_TIMEOUT)
-        except TimeoutError:
-            # The reset was already issued; no replay or speculative rebase.
-            raise RuntimeError("Controller did not become ready after reset") from None
+        # Enter Core's waiter so cancellation runs its subscription cleanup.
+        await asyncio.sleep(0)
+        await session.effect(reset_and_reconcile)
         info = await session.read(
             lambda: async_get_version_info(session.hass, entry.data["url"])
         )
@@ -206,7 +237,9 @@ async def _reset(session: RadioSession, entry: Any, driver: Any) -> dict[str, An
             lambda: session.hass.config_entries.async_schedule_reload(entry.entry_id)
         )
     finally:
-        unsubscribe()
+        if not waiter.done():
+            waiter.cancel()
+        await asyncio.gather(waiter, return_exceptions=True)
     return ok(
         "zwave",
         "hard_reset",

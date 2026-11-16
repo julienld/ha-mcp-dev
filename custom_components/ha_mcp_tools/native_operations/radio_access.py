@@ -31,6 +31,15 @@ def unavailable(domain: str) -> ToolFailure:
 
 
 @dataclass
+class _OwnerPin:
+    getter: Callable[[], Any]
+    expected: Any
+
+    def __call__(self) -> bool:
+        return self.getter() is self.expected
+
+
+@dataclass
 class RadioSession:
     hass: HomeAssistant
     actor: CallContext
@@ -42,8 +51,35 @@ class RadioSession:
     def retain(
         self, getter: Callable[[], Any], expected: Any, *, target: bool = False
     ) -> Any:
-        (self.target_pins if target else self.pins).append(lambda: getter() is expected)
+        (self.target_pins if target else self.pins).append(_OwnerPin(getter, expected))
         return expected
+
+    def rebind_owners(
+        self, replacements: list[tuple[Any, Any, Callable[[], Any]]]
+    ) -> None:
+        """Reconcile only reset-owned runtime pins after Core confirms its reload."""
+        changed: list[tuple[_OwnerPin, Any, Callable[[], Any]]] = []
+        for pin in self.pins:
+            replacement = next(
+                ((after, getter) for before, after, getter in replacements
+                 if isinstance(pin, _OwnerPin) and pin.expected is before),
+                None,
+            )
+            if replacement is None:
+                valid = pin()
+            else:
+                after, getter = replacement
+                valid = getter() is after
+                if isinstance(pin, _OwnerPin):
+                    changed.append((pin, after, getter))
+            if not valid:
+                raise ToolFailure(
+                    "CONFIG_CONFLICT", "Reset runtime ownership could not be reconciled",
+                    status="not_started",
+                )
+        for pin, after, getter in changed:
+            pin.expected, pin.getter = after, getter
+        self.verify()
 
     def freeze(self, getter: Callable[[], Any]) -> None:
         before = copy.deepcopy(getter())

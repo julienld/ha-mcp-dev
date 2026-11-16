@@ -123,6 +123,8 @@ def server(nodes: list[dict[str, Any]]) -> Iterator[MagicMock]:
         client.server_logging_enabled = False
 
         async def answer(message: dict[str, Any], *_: Any, **__: Any) -> Any:
+            if message["command"] == "driver.hard_reset":
+                client.driver.emit("driver ready", {"event": "driver ready", "source": "driver"})
             return SERVER_ANSWERS.get(message["command"], {})
 
         client.async_send_command.side_effect = answer
@@ -378,7 +380,7 @@ async def test_add_with_smart_start_provisions_the_node(
     out = await radio_path.ha_manage_radio(
         radio="zwave",
         action="add",
-        params={"smart_start": True, "qr_provisioning_information": provisioning, "protocol": Protocols.ZWAVE},
+        params={"smart_start": True, "qr_provisioning_information": provisioning, "protocol": Protocols.ZWAVE_LONG_RANGE},
     )
 
     assert out["mode"] == "smart_start"
@@ -389,7 +391,7 @@ async def test_add_with_smart_start_provisions_the_node(
     ]
     assert provisioned == [dsk]
     (sent,) = [message["entry"] for message in sent_to_server(server) if message["command"] == "controller.provision_smart_start_node"]
-    assert sent["protocol"] == Protocols.ZWAVE
+    assert sent["protocol"] == Protocols.ZWAVE_LONG_RANGE
 
 
 async def test_exclusion_forwards_the_requested_unprovision_strategy(
@@ -439,15 +441,25 @@ async def test_native_reset_accepts_cores_driver_ready_entry_reload(
         await hass.async_block_till_done()
         return server.version
     monkeypatch.setattr(zwave_helpers, "get_server_version", version_from_server)
-    async def answer(message: dict[str, Any], *_: Any, **__: Any) -> Any:
-        if message["command"] == "driver.hard_reset":
-            server.driver.emit("driver ready", {"event": "driver ready", "source": "driver"})
-        return SERVER_ANSWERS.get(message["command"], {})
-    server.async_send_command.side_effect = answer
     result = await asyncio.wait_for(native_radio.ha_manage_radio(radio="zwave", action="hard_reset", confirm=True), 5)
     assert result["success"] is True
     await hass.async_block_till_done()
     assert entry.runtime_data is not before
+    assert sum(message["command"] == "driver.hard_reset" for message in sent_to_server(server)) == 1
+
+
+async def test_native_reset_keeps_the_concurrent_entry_options_guard(
+    native_radio: RadioFacade, server: MagicMock, hass: HomeAssistant,
+    entry: MockConfigEntry, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def version_from_server(*_: Any, **__: Any) -> VersionInfo:
+        await hass.async_block_till_done()
+        hass.config_entries.async_update_entry(entry, options={"other_actor": True})
+        return server.version
+    monkeypatch.setattr(zwave_helpers, "get_server_version", version_from_server)
+    with pytest.raises(ToolFailure) as caught:
+        await asyncio.wait_for(native_radio.ha_manage_radio(radio="zwave", action="hard_reset", confirm=True), 5)
+    assert caught.value.code == "OUTCOME_UNKNOWN"
     assert sum(message["command"] == "driver.hard_reset" for message in sent_to_server(server)) == 1
 
 
@@ -643,15 +655,6 @@ async def test_hard_reset_resets_the_controller(
 ) -> None:
     """The controller is reset; Core answers once the reset controller is back,
     which the server announces with ``driver ready``."""
-
-    async def answer(message: dict[str, Any], *_: Any, **__: Any) -> Any:
-        if message["command"] == "driver.hard_reset":
-            server.driver.emit(
-                "driver ready", {"event": "driver ready", "source": "driver"}
-            )
-        return SERVER_ANSWERS.get(message["command"], {})
-
-    server.async_send_command.side_effect = answer
 
     out = await radio.ha_manage_radio(radio="zwave", action="hard_reset", confirm=True)
 

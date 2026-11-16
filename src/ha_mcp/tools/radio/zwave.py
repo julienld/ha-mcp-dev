@@ -116,6 +116,7 @@ async def _handle_zwave_inclusion(
                 qr_provisioning_information=args.get("qr_provisioning_information"),
                 device_name=args.get("device_name"),
                 area_id=args.get("area_id"),
+                protocol=args.get("protocol"),
                 context={"entry_id": entry_id},
             )
             return ok(
@@ -164,6 +165,7 @@ async def _handle_zwave_inclusion(
             client,
             "zwave_js/remove_node",
             entry_id=entry_id,
+            strategy=args.get("strategy"),
             context={"entry_id": entry_id},
         )
         return ok(
