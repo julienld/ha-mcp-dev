@@ -11,6 +11,7 @@ import pytest
 from .test_paired_wheel import _DIGEST, _SPEC
 from .test_paired_wheel import paired as paired
 from .test_paired_wheel_managed_install import managed as managed
+from ._embedded_server_core import package_step
 
 
 def _prepare_payload(site, index_path):
@@ -201,14 +202,14 @@ async def test_uv_payload_reuse_reads_and_hashes_in_the_managers_executor(
     _prepare_payload(tmp_path / "installed", index_path)
     monkeypatch.setattr(wheel_payload, "INDEX_PATH", index_path)
     receipt["archive_info"] = {}
-    original = wheel_payload._file_matches
+    original = hashlib.sha256
     hashed_on = []
 
     def observed(*args):
         hashed_on.append(threading.get_ident())
         return original(*args)
 
-    monkeypatch.setattr(wheel_payload, "_file_matches", observed)
-    assert await manager._async_ensure_managed_package() == "9.0.0.dev1"
+    monkeypatch.setattr(wheel_payload, "hashlib", SimpleNamespace(sha256=observed))
+    await package_step(manager)
     assert env.calls == [] and len(hashed_on) == 4
     assert all(thread != threading.get_ident() for thread in [*threads, *hashed_on])

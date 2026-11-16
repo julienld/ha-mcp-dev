@@ -8,9 +8,9 @@ import pytest
 from homeassistant.core import HomeAssistant
 
 from custom_components.ha_mcp_tools import embedded_server as es
-from custom_components.ha_mcp_tools.const import DATA_LAST_PIP_SPEC, DATA_REINSTALL_REQUESTED
+from custom_components.ha_mcp_tools.const import DATA_LAST_PIP_SPEC, DATA_REINSTALL_REQUESTED, OPT_PIP_SPEC
 
-from ._embedded_server_core import PackageIndex, new_manager, pin
+from ._embedded_server_core import PackageIndex, new_manager, pin, package_step
 from ._embedded_server_core import package_index as package_index
 from .test_paired_wheel import _DIGEST, _SPEC, _URL
 
@@ -25,7 +25,6 @@ async def managed(hass: HomeAssistant, package_index: PackageIndex, tmp_path, mo
 
     pin(hass, _SPEC)
     manager, entry = await new_manager(hass, data={DATA_LAST_PIP_SPEC: _SPEC})
-    manager._pip_spec = manager._paired_spec = _SPEC
     env = package_index
     env.dists["ha-mcp"] = "9.0.0.dev1"
     monkeypatch.setattr(es, "native_bound_version", lambda: "9.0.0.dev1")
@@ -50,8 +49,8 @@ async def test_exact_hashed_manifest_wheel_does_not_reinstall_on_native_to_legac
     managed,
 ):
     manager, env, _entry, _receipt, threads = managed
-    version = await manager._async_ensure_managed_package()
-    assert version == "9.0.0.dev1" and env.calls == []
+    await package_step(manager)
+    assert env.calls == []
     assert threads and all(thread != threading.get_ident() for thread in threads)
 
 
@@ -70,7 +69,10 @@ async def test_requested_or_unproven_package_change_still_requires_Core_restart(
 ):
     manager, env, entry, receipt, _threads = managed
     if reason == "override":
-        manager._pip_spec_override = _SPEC
+        hass.config_entries.async_update_entry(
+            entry, options={**entry.options, OPT_PIP_SPEC: _SPEC}
+        )
+        manager = es.EmbeddedServerManager(hass, entry)
     elif reason == "explicit_reinstall":
         hass.config_entries.async_update_entry(
             entry, data={**entry.data, DATA_REINSTALL_REQUESTED: True}
@@ -82,5 +84,5 @@ async def test_requested_or_unproven_package_change_still_requires_Core_restart(
     else:
         monkeypatch.setattr(es, "native_bound_version", lambda: "9.0.0.dev2")
     with pytest.raises(es.EmbeddedServerError, match="restart Home Assistant"):
-        await manager._async_ensure_managed_package()
+        await manager.async_start()
     assert env.calls == []
