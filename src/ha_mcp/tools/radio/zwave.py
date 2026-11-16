@@ -131,6 +131,7 @@ async def _handle_zwave_inclusion(
             "zwave_js/add_node",
             entry_id=entry_id,
             inclusion_strategy=inclusion_strategy(args),
+            force_security=args.get("force_security"),
             qr_provisioning_information=args.get("qr_provisioning_information"),
             qr_code_string=args.get("qr_code_string"),
             planned_provisioning_entry=args.get("planned_provisioning_entry"),

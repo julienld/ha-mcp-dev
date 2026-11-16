@@ -357,6 +357,27 @@ async def test_native_qr_only_inclusion_uses_cores_secure_strategy(
         await backend.stop()
 
 
+async def test_force_security_with_s2_credential_is_rejected_before_inclusion(
+    radio_path: RadioTools | RadioFacade,
+    server: MagicMock,
+) -> None:
+    with pytest.raises((ToolError, ToolFailure)) as caught:
+        await radio_path.ha_manage_radio(
+            radio="zwave",
+            action="add",
+            params={"qr_code_string": QR_CODE, "force_security": True},
+        )
+
+    assert "forceSecurity" in str(caught.value)
+    if isinstance(caught.value, ToolFailure):
+        assert caught.value.code == "VALIDATION_INVALID_PARAMETER"
+        assert caught.value.status == "not_started"
+    assert not any(
+        message["command"] == "controller.begin_inclusion"
+        for message in sent_to_server(server)
+    )
+
+
 async def test_add_with_smart_start_needs_the_provisioning_information(
     radio: RadioTools, entry: MockConfigEntry
 ) -> None:

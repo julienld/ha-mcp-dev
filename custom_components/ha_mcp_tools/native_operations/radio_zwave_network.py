@@ -39,6 +39,7 @@ async def network_action(
                 **{
                     key: args.get(key)
                     for key in (
+                        "force_security",
                         "qr_provisioning_information",
                         "qr_code_string",
                         "planned_provisioning_entry",
