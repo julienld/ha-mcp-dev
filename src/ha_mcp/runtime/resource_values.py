@@ -325,7 +325,7 @@ def _decode_legacy_worker_url(url: str) -> str | None:
         return None
 
 
-def _summarize_resources(
+def summarize_resources(
     resources: list[Any],
     keep_start: int,
     keep_stop: int,
@@ -486,7 +486,7 @@ def resource_list_result(
     resource_mode: str | None,
     include_hash: bool = False,
 ) -> dict[str, Any]:
-    by_type_counts, inline_count, decoded_by_index = _summarize_resources(
+    by_type_counts, inline_count, decoded_by_index = summarize_resources(
         resources, offset, offset + limit
     )
 
@@ -529,3 +529,5 @@ __all__ = ["MAX_CONTENT_SIZE", "_RESOURCE_TYPE", "resource_list_result"]
 def content_sha256(content: str) -> str:
     """SHA-256 hex digest over the UTF-8 bytes of decoded resource content."""
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
+
+_summarize_resources = summarize_resources

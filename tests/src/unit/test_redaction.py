@@ -7,7 +7,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from ha_mcp import redaction as legacy_redaction
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp.client.rest_client import HomeAssistantAPIError
 from ha_mcp.redaction import (
@@ -15,7 +14,6 @@ from ha_mcp.redaction import (
     REDACTED_KNOWN,
     REDACTED_SET,
     RedactSecretsMiddleware,
-    _clear_known_secret_values,
     collect_addon_secret_values,
     is_password_flow_field,
     is_sentinel,
@@ -30,7 +28,6 @@ from ha_mcp.redaction import (
     sentinel_for,
     sentinel_option_keys,
 )
-from ha_mcp.runtime.flows.settings import FlowSettings, bind_flow_settings
 from ha_mcp.tools.component_config_entries import ComponentEntries
 from ha_mcp.tools.config_entry_flow import _reject_redaction_sentinels
 from ha_mcp.tools.integration_schema import (
@@ -38,14 +35,7 @@ from ha_mcp.tools.integration_schema import (
     redact_options_by_form,
 )
 
-
-@pytest.fixture(autouse=True)
-def _clean_registry():
-    """Isolate the module-level known-secrets set per test."""
-    _clear_known_secret_values()
-    with bind_flow_settings(FlowSettings(legacy_redaction.redaction_enabled)):
-        yield
-    _clear_known_secret_values()
+from ._redaction_registry import clean_registry as clean_registry
 
 
 @pytest.fixture
@@ -808,11 +798,9 @@ class TestComponentPathEndToEndRedaction:
     """Component-served reads through the real formatting paths (issue 2157)."""
 
     def _tools(self, monkeypatch):
-        from ha_mcp.runtime import integration_entries, integration_list
         from ha_mcp.tools import tools_integrations as ti
 
-        for owner in (integration_entries, integration_list):
-            monkeypatch.setattr(owner, "get_logger_levels", AsyncMock(return_value={}))
+        monkeypatch.setattr(ti, "get_logger_levels", AsyncMock(return_value={}))
         client = MagicMock()
         client.start_options_flow = AsyncMock(
             return_value={

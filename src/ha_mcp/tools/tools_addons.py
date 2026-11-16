@@ -1037,7 +1037,7 @@ def _tls_verification_failure_suggestions() -> list[str]:
     ]
 
 
-def _build_addon_http_client(
+def build_addon_http_client(
     client: HomeAssistantClient, timeout: int, slug: str
 ) -> httpx.AsyncClient:
     """Build the proxy's HTTP client, honoring the HA verify setting.
@@ -1506,7 +1506,7 @@ async def _call_addon_api(
     else:
         request_content = None
 
-    addon_http_client = _build_addon_http_client(client, timeout, slug)
+    addon_http_client = build_addon_http_client(client, timeout, slug)
     try:
         async with addon_http_client as http_client:
             response = await http_client.request(
@@ -2296,3 +2296,5 @@ __all__ = [
     "list_available_addons",
     "register_addon_tools",
 ]
+
+_build_addon_http_client = build_addon_http_client

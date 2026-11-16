@@ -57,3 +57,5 @@ __all__ = [
     "_summarize_resources",
     "content_sha256",
 ]
+
+from ..runtime.resource_values import summarize_resources as summarize_resources

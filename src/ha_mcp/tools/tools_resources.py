@@ -602,3 +602,5 @@ def _stored_content_hash(result: Any) -> str | None:
     url = item.get("url") if isinstance(item, dict) else None
     decoded = _decode_inline_content(url) if isinstance(url, str) else None
     return content_sha256(decoded[0]) if decoded else None
+
+HA_CONFIG_YAML_MARKERS = _HA_CONFIG_YAML_MARKERS
