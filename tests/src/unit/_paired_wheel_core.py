@@ -53,7 +53,9 @@ def paired(monkeypatch, tmp_path):
 
 
 @pytest.fixture
-async def managed(hass: HomeAssistant, package_index: PackageIndex, tmp_path, monkeypatch):
+async def managed(
+    hass: HomeAssistant, package_index: PackageIndex, tmp_path, monkeypatch
+):
 
     from custom_components.ha_mcp_tools import paired_wheel
 
@@ -80,5 +82,3 @@ async def managed(hass: HomeAssistant, package_index: PackageIndex, tmp_path, mo
     monkeypatch.setattr(paired_wheel.importlib.metadata, "distribution", distribution)
 
     return manager, env, entry, receipt, threads
-
-

@@ -8,12 +8,12 @@ from types import SimpleNamespace
 
 import pytest
 
+from ._embedded_server_core import package_step
 from ._paired_wheel_core import WHEEL_DIGEST as _DIGEST
 from ._paired_wheel_core import WHEEL_SPEC as _SPEC
-from ._paired_wheel_core import paired as paired
 from ._paired_wheel_core import managed as managed
 from ._paired_wheel_core import package_index as package_index
-from ._embedded_server_core import package_step
+from ._paired_wheel_core import paired as paired
 
 
 def _prepare_payload(site, index_path):
