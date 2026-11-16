@@ -154,7 +154,10 @@ async def exercise_dashboards(checks: Any, base: str) -> None:
     await _exercise_restore(checks, panel, target, original, first["config_hash"])
 
     empty = "native-empty-dashboard"
-    await checks.call("ha_config_set_dashboard", {**common, "url_path": empty})
+    await checks.call(
+        "ha_config_set_dashboard",
+        {**common, "url_path": empty, "title": "Native empty dashboard"},
+    )
     await checks.call(
         "ha_config_set_dashboard",
         {**common, "url_path": empty, "config": {"views": []}},
