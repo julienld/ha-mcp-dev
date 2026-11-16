@@ -30,15 +30,18 @@ async def _read(client: Any, command: str, **arguments: Any) -> Any:
     return response.get("result")
 
 
+async def _registry_entries(client: Any) -> list[dict[str, Any]]:
+    rows = await _read(client, "config/entity_registry/list")
+    if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+        raise HomeAssistantError("Entity registry list did not return entries")
+    return rows
+
+
 async def fetch_entity_registry(client: Any, identity: str) -> dict[str, Any] | None:
     target = identity
     if "." not in identity:
-        rows = await _read(client, "config/entity_registry/list")
-        if not isinstance(rows, list):
-            raise HomeAssistantError("Entity registry list did not return entries")
-        matches = [
-            row for row in rows if isinstance(row, dict) and row.get("id") == identity
-        ]
+        rows = await _registry_entries(client)
+        matches = [row for row in rows if row.get("id") == identity]
         if len(matches) > 1:
             raise HomeAssistantError(
                 "Entity registry returned ambiguous durable identities"
@@ -49,9 +52,7 @@ async def fetch_entity_registry(client: Any, identity: str) -> dict[str, Any] | 
     row = await _read(client, "config/entity_registry/get", entity_id=target)
     if row is None:
         if "." not in identity:
-            registered = await _read(client, "config/entity_registry/list")
-            if not isinstance(registered, list):
-                raise HomeAssistantError("Entity registry list did not return entries")
+            registered = await _registry_entries(client)
             if any(entry.get("id") == identity for entry in registered):
                 raise BackupRestoreError(
                     "The entity was renamed during registry lookup; no restore was sent",

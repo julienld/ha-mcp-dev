@@ -1015,8 +1015,12 @@ class BackupManager(SnapshotFilesMixin):
                         raise
                     _raise_with_restore_outcome(
                         error,
-                        {"restored_from": name, "safety_backup": None,
-                         "apply_status": "not_applied", "step": "lock_lookup"},
+                        {
+                            "restored_from": name,
+                            "safety_backup": None,
+                            "apply_status": "not_applied",
+                            "step": "lock_lookup",
+                        },
                     )
             return await self._restore_snapshot_data(
                 name, data, take_safety_backup=take_safety_backup

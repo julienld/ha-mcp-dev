@@ -165,6 +165,8 @@ async def restore_locks(
         found = {}  # the restore looks the entry up again and reports a failure
     entry = found.get("entry")
     if require_lookup and entry is None:
+        if not isinstance(saved, str):
+            raise _manager().InvalidBackupSnapshotError("Entity snapshot names no entity_id")
         raise _entry_deleted(saved, found)
     ids: frozenset[str] = frozenset()
     if entry is not None and isinstance(saved, str):
