@@ -14,8 +14,8 @@ from ha_mcp.tools.coercion import coerce_to_list, parse_json_param
 from ha_mcp.utils.config_hash import compute_config_hash
 
 from .blueprint_substitute import TakenControl, take_control_config
-from .config_normalize import _normalize_config_for_roundtrip
 from .config_reads import _missing_config
+from .config_normalize import _normalize_config_for_roundtrip
 from .config_removals import AutomationRemovalTools
 from .config_write_context import ConfigWriteContext
 from .config_write_errors import reject_enabled_in_config, reject_sequence_misroute
@@ -74,11 +74,8 @@ def _detect_conflicting_root_keys(config: Any) -> list[str]:
     """Warn when a config carries BOTH a singular alias and its canonical plural
     root key with *different* values.
 
-    ``_normalize_automation_config`` keeps the canonical plural and silently drops
-    the singular alias, so a caller that set, say, ``config['trigger']`` on a
-    config that already has ``triggers`` would have that change discarded. The
-    config is malformed (a caller should send one form), but surfacing the
-    conflict beats dropping data silently.
+    Core validates the submitted body. Name the ambiguity without claiming
+    that the tool rewrites either alias before dispatch.
     """
     if not isinstance(config, dict):
         return []
@@ -95,7 +92,7 @@ def _detect_conflicting_root_keys(config: Any) -> list[str]:
         ):
             warnings.append(
                 f"Config contains both '{singular}' and '{plural}' with different "
-                f"values; using the canonical '{plural}' and ignoring '{singular}'."
+                "values; provide only one form to avoid ambiguous edits."
             )
     return warnings
 
@@ -280,9 +277,9 @@ class AutomationConfigMethods(AutomationRemovalTools, ConfigWriteContext):
     async def _get_automation_config_internal(
         self, identifier: str
     ) -> tuple[dict[str, Any], str]:
-        """Fetch and normalize automation config without logging or category injection.
+        """Fetch the stored automation body without logging or category injection.
 
-        Returns (normalized_config, config_hash) tuple.
+        Returns (stored_config, config_hash) tuple.
         Used by readback and the historical ha_config_get_automation facade.
 
         Raises a structured ``RESOURCE_NOT_FOUND`` ToolError via
@@ -290,15 +287,15 @@ class AutomationConfigMethods(AutomationRemovalTools, ConfigWriteContext):
         Other ``HomeAssistantAPIError`` instances propagate unchanged to
         caller exception handlers (``exception_to_structured_error`` route).
         """
-        _, normalized_config, config_hash_value = await self._read_automation_snapshot(
+        _, stored_config, config_hash_value = await self._read_automation_snapshot(
             identifier
         )
-        return normalized_config, config_hash_value
+        return stored_config, config_hash_value
 
     async def _read_automation_snapshot(
         self, identifier: str
     ) -> tuple[dict[str, Any], dict[str, Any], str]:
-        """Keep the raw CAS image alongside its normalized caller-facing config."""
+        """Keep independent copies of Core's stored body for CAS and caller edits."""
         try:
             config_result = await self._read_automation_config(identifier)
         except HomeAssistantAPIError as e:
@@ -306,9 +303,9 @@ class AutomationConfigMethods(AutomationRemovalTools, ConfigWriteContext):
                 await self._raise_automation_not_found(identifier)
             raise
         raw_config = copy.deepcopy(config_result)
-        normalized_config = _normalize_config_for_roundtrip(config_result)
-        config_hash_value = compute_config_hash(normalized_config)
-        return raw_config, normalized_config, config_hash_value
+        stored_config = copy.deepcopy(config_result)
+        config_hash_value = compute_config_hash(stored_config)
+        return raw_config, stored_config, config_hash_value
 
     async def _fetch_and_verify_hash(
         self, identifier: str, config_hash: str, action: str
@@ -333,9 +330,9 @@ class AutomationConfigMethods(AutomationRemovalTools, ConfigWriteContext):
         )
         if (
             current_hash != config_hash
-            and compute_config_hash(raw_config) == config_hash
+            and compute_config_hash(_normalize_config_for_roundtrip(raw_config)) == config_hash
         ):
-            current_config = copy.deepcopy(raw_config)
+            current_config = _normalize_config_for_roundtrip(raw_config)
             current_hash = config_hash
         if current_hash != config_hash:
             raise_failure(

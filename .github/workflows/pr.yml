@@ -632,7 +632,7 @@ jobs:
     # The required "Unit Tests" check. The suite runs as a matrix, whose runners
     # report as "Unit Tests (1/2)" and "Unit Tests (2/2)", so this job carries
     # the name branch protection requires and passes only when every runner did.
-    name: Unit Tests (${{ matrix.shard }})
+    name: Unit Tests
     needs: unit-tests
     if: always()
     runs-on: ubuntu-latest

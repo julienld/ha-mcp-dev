@@ -71,9 +71,7 @@ def _validate_enabled_constraint(
             if _domain == "script":
                 message = (
                     "Cannot registry-disable script entities with "
-                    "ha_set_entity(enabled=False). This removes the entity from the "
-                    "state machine and hides it from the UI until it is re-enabled "
-                    "and scripts are reloaded. Use ha_config_set_script("
+                    "ha_set_entity(enabled=False). Use ha_config_set_script("
                     f"script_id='{blocked[0]}', run='stop') only to stop a "
                     "currently running execution; it does not disable the script. "
                     "Home Assistant has no script runtime enable/disable service."
@@ -86,9 +84,7 @@ def _validate_enabled_constraint(
             else:
                 message = (
                     f"Cannot registry-disable {_domain} entities with "
-                    "ha_set_entity(enabled=False). This removes the entity from the "
-                    "state machine and hides it from the UI until it is re-enabled "
-                    f"AND the {_domain}s are reloaded. Use "
+                    "ha_set_entity(enabled=False). Use "
                     f"ha_config_set_automation(entity_id='{blocked[0]}', "
                     "enabled=False) instead to disable it without removing it."
                 )

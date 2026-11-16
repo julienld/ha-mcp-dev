@@ -476,6 +476,22 @@ class IntegrationWriteTools(BackendTools):
                 _reject_reconfigure_conflicts(
                     reconfigure, reconfigure_guards, domain, enabled
                 )
+                flow_args = {
+                    "flow_id": flow_id,
+                    "menu_choice": menu_choice,
+                    "abort": abort or None,
+                }
+                if all(
+                    value is None
+                    for value in (log_level, ws_command, ws_data, subentry_type, subentry_id)
+                ) and not reconfigure:
+                    _reject_set_integration_mode_conflicts(
+                        entry_id,
+                        domain,
+                        enabled,
+                        config,
+                        flow_args=[name for name, value in flow_args.items() if value],
+                    )
                 if (
                     entry_id is not None
                     and not abort
@@ -484,11 +500,6 @@ class IntegrationWriteTools(BackendTools):
                 ):
                     entry_id = validate_identifier_not_empty(entry_id, "entry_id")
                     await session._backup(entry_id)
-                flow_args = {
-                    "flow_id": flow_id,
-                    "menu_choice": menu_choice,
-                    "abort": abort or None,
-                }
                 if ws_command is not None or ws_data is not None:
                     reject_ws_command_conflicts(
                         entry_id,
@@ -569,14 +580,6 @@ class IntegrationWriteTools(BackendTools):
                         ),
                         session,
                     )
-
-                _reject_set_integration_mode_conflicts(
-                    entry_id,
-                    domain,
-                    enabled,
-                    config,
-                    flow_args=[name for name, value in flow_args.items() if value],
-                )
 
                 if domain is not None:
                     validate_identifier_not_empty(

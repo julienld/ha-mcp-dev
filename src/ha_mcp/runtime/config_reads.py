@@ -58,7 +58,7 @@ class AutomationReadTools(ConfigReadTools):
         )
         if not result["found"]:
             _missing_config("automation", identifier, result["available_ids"])
-        config = _normalize_config_for_roundtrip(result["config"])
+        config = dict(result["config"])
         return config, compute_config_hash(config)
 
     async def _resolve_automation_entity_id(
@@ -82,9 +82,9 @@ class AutomationReadTools(ConfigReadTools):
         config_format: Annotated[
             Literal["compatible", "stored"],
             Field(
-                description="compatible preserves the historical normalized view; stored returns Core persisted keys verbatim. Hashes can be used for safe updates in either view."
+                description="stored (default) returns Core persisted keys verbatim; compatible opts into the historical normalized view. Hashes can be used for safe updates in either view."
             ),
-        ] = "compatible",
+        ] = "stored",
     ) -> dict[str, Any]:
         """
         Get Home Assistant automation configuration.
@@ -122,7 +122,7 @@ class AutomationReadTools(ConfigReadTools):
             self._map_read_error(e, identifier)
 
     async def _read_automation(
-        self, identifier: str, *, config_format: str = "compatible"
+        self, identifier: str, *, config_format: str = "stored"
     ) -> dict[str, Any]:
         data = await self.backend.execute(
             "config.automation.read",

@@ -10,9 +10,26 @@ changes. The 6 November compatibility pass below restores the installation
 floor and automatic entity-history contracts; historical audit entries remain
 evidence of their original candidate, rather than current behavior.
 
+## Main contracts integrated on 16 November 2026
+
+Main `efe985c3bba739064ac6902b23b3d7a8dfb32d28` is the current integration
+target. Automation reads now default to Core's stored body and hash without
+rewriting root keys or action aliases. `config_format="compatible"` explicitly
+selects the earlier normalized view; hashes from either view remain usable for
+guarded updates, while the raw before-image remains independent of a transform.
+Dashboard creation forwards the supplied metadata and lets Core refuse a missing
+title rather than inventing one.
+
+Removing a config subentry without naming its helper type still selects only
+that child and captures its composite recovery identity. Simple-helper creation
+rejects a supplied blank name. A QR-only Z-Wave inclusion selects Core's secure
+S2 strategy; an explicit strategy is retained. Legacy flow ownership survives
+successive tool instances using the same client and is closed by backend
+shutdown. Native admission and uncertain-write/no-replay rules remain in force.
+
 ## Main contracts integrated on 15 November 2026
 
-The current integration target is Main
+The 15 November integration target was Main
 `db14d375ef6e61c675f1c99c883c35b99d4c12d3`. The protocol comparison freezes that
 upstream source and requires the same private FastMCP 4.1.6 and MCP/mcp-types
 2.3.0 as Native. Earlier U2 runs retain their original source and SDK receipts.
@@ -27,7 +44,7 @@ stops creation.
 
 The component and routing tests inherited from Main use real Core. Existing
 Native tests that still use simulated Core remain a qualification gap, with no
-new exemptions. Automation reads retain Native's default `compatible` view;
+new exemptions. At that checkpoint automation reads retained the default `compatible` view;
 `config_format="stored"` returns Core's persisted keys verbatim.
 
 ## Main contracts integrated on 14 November 2026
@@ -200,13 +217,12 @@ Core operations into both runtimes:
 
 - Automation tools accept both `identifier` and `entity_id`. Conflicting targets
   are refused, and visibility checks inspect both names before approval.
-- Automation reads keep the historical normalized view by default.
-  `config_format="stored"` returns the persisted Core keys verbatim. Hashes from
+- Automation reads return the persisted Core keys verbatim by default.
+  `config_format="compatible"` selects the historical normalized view. Hashes from
   either view are accepted without replacing the invocation-local raw CAS image.
   Writes reach Core as supplied; Core owns validation and storage conversions.
-- A dashboard create without `title` still derives its display name from
-  `url_path`. This explicit wrapper policy preserves the previous optional-title
-  contract; Core still validates the full create request.
+- Dashboard creation forwards supplied metadata and lets Core validate the
+  create request, including its required title.
 - Inline resources support bounded exact edits and content hashes. Native edits
   run under the existing owner lock before safety capture and dispatch.
 - Event replies include Core context and listener counts. YAML key discovery
