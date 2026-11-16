@@ -17,6 +17,8 @@ from ._error_log_core import log_file as log_file
 from ._error_log_routes_core import ErrorLogRoute
 from ._error_log_routes_core import journald_route as journald_route
 from ._error_log_routes_core import supervised_journal_route as supervised_journal_route
+from ._gateway import gateway as gateway
+from ._gateway import gateway_client as gateway_client
 from ._journal_gatewayd import gatewayd as gatewayd
 from ._journal_gatewayd import hassio_path_client as hassio_path_client
 from ._journal_gatewayd import in_app_client as in_app_client
@@ -47,7 +49,6 @@ async def test_first_short_journal_window_keeps_unreturned_records_pageable(
         page = await call_logs(
             journald_route.client,
             source="error_log",
-            format="raw",
             limit=2,
             offset=offset,
         )
