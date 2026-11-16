@@ -12,8 +12,13 @@ evidence of their original candidate, rather than current behavior.
 
 ## Main contracts integrated on 16 November 2026
 
-Main `efe985c3bba739064ac6902b23b3d7a8dfb32d28` is the current integration
-target. Automation reads now default to Core's stored body and hash without
+The current integration target is Main `47c34e6e8635d8d2d4aa280edc0eb5d25ef1e3c1`.
+Its locale and development-app metadata follow the Core contract integration
+from `efe985c3bba739064ac6902b23b3d7a8dfb32d28`. The executable-code and packaged
+HTTP witness retains candidate `09c689af0ccf04075150252b6c835e0b371fadf0`; the later
+metadata sync does not claim new live evidence.
+
+Automation reads now default to Core's stored body and hash without
 rewriting root keys or action aliases. `config_format="compatible"` explicitly
 selects the earlier normalized view; hashes from either view remain usable for
 guarded updates, while the raw before-image remains independent of a transform.
