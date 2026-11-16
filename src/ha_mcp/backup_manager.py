@@ -993,6 +993,13 @@ class BackupManager(SnapshotFilesMixin):
                     return await self._restore_snapshot_data(
                         name, data, take_safety_backup=take_safety_backup
                     )
+            if data["domain"] == "entity_registry":
+                from .backup_entities import restore_locks
+
+                async with restore_locks(self._client, data["config"]):
+                    return await self._restore_snapshot_data(
+                        name, data, take_safety_backup=take_safety_backup
+                    )
             return await self._restore_snapshot_data(
                 name, data, take_safety_backup=take_safety_backup
             )
