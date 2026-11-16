@@ -248,19 +248,10 @@ def mirrored_tool(port: int) -> llm_api.HaMcpTool:
     )
 
 
-def use_sdk_v2(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
-    """Home Assistant's shared ``mcp`` on the 2.x line, for the next session.
+def private_transport() -> ModuleType:
+    """Return the component's private client transport without replacing Core's SDK."""
+    from ha_mcp._vendor.mcp.client import streamable_http
 
-    The 2.x SDK is ha-mcp's vendored copy: the component finds the SDK by the
-    ``mcp.*`` names, so those names are pointed at it. Returns its transport
-    module.
-    """
-    import ha_mcp._vendor.mcp as sdk
-    from ha_mcp._vendor.mcp.client import session, streamable_http
-
-    monkeypatch.setitem(sys.modules, "mcp", sdk)
-    monkeypatch.setitem(sys.modules, "mcp.client.session", session)
-    monkeypatch.setitem(sys.modules, "mcp.client.streamable_http", streamable_http)
     return streamable_http
 
 

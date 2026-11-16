@@ -1,10 +1,4 @@
-"""The loopback session on every MCP SDK line Home Assistant can ship (#1745).
-
-The component uses Home Assistant's shared ``mcp``: the 1.x line from the
-manifest's floor, the 2.x line (ha-mcp's vendored copy stands in for it), and
-a transport that still has only the pre-rename client name. Each line runs the
-real SDK client against the real loopback server.
-"""
+"""The private loopback client keeps its posture and leaves Core's SDK intact."""
 
 from __future__ import annotations
 
@@ -30,7 +24,7 @@ from ._llm_api_server import (
     payload,
     serve,
     unused_port,
-    use_sdk_v2,
+    private_transport,
 )
 
 pytestmark = pytest.mark.usefixtures("socket_enabled")
@@ -69,13 +63,6 @@ def _watch_http_clients(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]
     return built
 
 
-@pytest.fixture(params=["v1", "v2"])
-def sdk(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
-    """The loopback session runs once per SDK line."""
-    if request.param == "v2":
-        use_sdk_v2(monkeypatch)
-
-
 class TestLoopbackClient:
     async def test_the_sdk_gets_its_own_client_with_a_generous_timeout(
         self, hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
@@ -83,7 +70,7 @@ class TestLoopbackClient:
         """Home Assistant's shared client carries httpx's 5-second default, and
         the SDK adds no timeout of its own to a client it is handed, so that
         became the real ceiling of every tool call."""
-        transport = importlib.import_module("mcp.client.streamable_http")
+        transport = importlib.import_module("ha_mcp._vendor.mcp.client.streamable_http")
         handed = _watch_transport_clients(monkeypatch, transport)
         built = _watch_http_clients(monkeypatch)
 
@@ -122,13 +109,11 @@ class TestLoopbackClient:
         assert [tool.name for tool in instance.tools] == ["ha_search"]
 
 
-class TestPreRenameSdk:
-    async def test_a_transport_with_only_the_deprecated_name_keeps_the_same_posture(
+class TestSharedTransportIsolation:
+    async def test_a_shared_transport_rename_cannot_change_the_private_posture(
         self, hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A third-party pin can force the shared mcp below 1.24, where only
-        ``streamablehttp_client`` exists. It builds its own client, so the
-        component hands it a factory that keeps the loopback posture."""
+        """A changed shared transport must not redirect the private client."""
         built = _watch_http_clients(monkeypatch)
         current = importlib.import_module("mcp.client.streamable_http")
         pre_rename = ModuleType("mcp.client.streamable_http")
@@ -151,13 +136,13 @@ class TestPreRenameSdk:
         assert client["timeout"] is not None
 
 
-class TestSdkV2:
-    """Home Assistant's shared SDK may be on the 2.x line."""
+class TestPrivateSdk:
+    """The component uses its own client while Core provides the real peer."""
 
     async def test_the_transport_is_given_an_httpx2_client(
         self, hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        transport = use_sdk_v2(monkeypatch)
+        transport = private_transport()
         handed = _watch_transport_clients(monkeypatch, transport)
 
         async with serve() as srv:
@@ -172,7 +157,7 @@ class TestSdkV2:
     async def test_an_unreachable_server_is_a_transport_failure(
         self, hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        use_sdk_v2(monkeypatch)
+        private_transport()
 
         with pytest.raises(HomeAssistantError, match="Could not reach"):
             await api_instance(hass, unused_port(), EXPOSURE_FULL)
@@ -181,7 +166,7 @@ class TestSdkV2:
         self, hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """2.x raises ``MCPError`` where 1.x raised ``McpError``."""
-        use_sdk_v2(monkeypatch)
+        private_transport()
         error = McpError(types.ErrorData(code=-32000, message="boom"))
 
         async with serve(list_error=error) as srv:
@@ -192,7 +177,7 @@ class TestSdkV2:
         self, hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """2.x names the field ``input_schema``; 1.x names it ``inputSchema``."""
-        use_sdk_v2(monkeypatch)
+        private_transport()
 
         async with serve() as srv:
             instance = await api_instance(hass, srv.port, EXPOSURE_FULL)
@@ -203,7 +188,7 @@ class TestSdkV2:
     async def test_a_call_result_keeps_the_camel_case_keys(
         self, hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        use_sdk_v2(monkeypatch)
+        private_transport()
         result = types.CallToolResult(
             content=[types.TextContent(type="text", text="ok")],
             structuredContent={"success": True},
@@ -218,8 +203,8 @@ class TestSdkV2:
         assert "is_error" not in dumped
 
 
-class TestResultKeysMatchAcrossSdkLines:
-    """Agents get the same result keys whichever SDK Home Assistant has."""
+class TestPrivateResultAndCoreProvider:
+    """Forward wire fields without replacing the shared provider used by Core."""
 
     @staticmethod
     def _answer() -> types.CallToolResult:
@@ -232,19 +217,18 @@ class TestResultKeysMatchAcrossSdkLines:
             }
         )
 
-    async def test_forwarded_results_have_identical_keys(
-        self, hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
+    async def test_forwarding_preserves_wire_keys_and_the_shared_sdk(
+        self, hass: HomeAssistant
     ) -> None:
+        shared = importlib.import_module("mcp")
+        shared_session = importlib.import_module("mcp.client.session")
         async with serve([ServedTool(result=self._answer())]) as srv:
-            on_v1 = payload(await call(hass, mirrored_tool(srv.port), {}))
-            with monkeypatch.context() as patch:
-                use_sdk_v2(patch)
-                on_v2 = payload(await call(hass, mirrored_tool(srv.port), {}))
+            result = payload(await call(hass, mirrored_tool(srv.port), {}))
 
-        assert on_v1 == on_v2
-        assert set(on_v1) == {"content", "structuredContent", "isError", "meta"}
+        assert set(result) == {"content", "structuredContent", "isError", "meta"}
+        assert sys.modules["mcp"] is shared
+        assert sys.modules["mcp.client.session"] is shared_session
 
-    @pytest.mark.usefixtures("sdk")
     async def test_tool_payload_and_metadata_values_are_not_renamed(
         self, hass: HomeAssistant
     ) -> None:
@@ -266,7 +250,6 @@ class TestResultKeysMatchAcrossSdkLines:
         assert dumped["meta"] == {"nested": {"_meta": "y"}}
         assert dumped["content"][0]["meta"] == {"_meta": "x"}
 
-    @pytest.mark.usefixtures("sdk")
     async def test_transport_errors_are_read_without_importing_on_the_loop(
         self, hass: HomeAssistant, monkeypatch: pytest.MonkeyPatch
     ) -> None:

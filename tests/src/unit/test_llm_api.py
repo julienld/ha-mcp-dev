@@ -430,7 +430,7 @@ async def test_a_build_without_the_mcp_sdk_skips_the_feature_with_a_warning(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """The SDK arrives with the runtime-installed server package."""
-    monkeypatch.setitem(sys.modules, "mcp.client.session", None)
+    monkeypatch.setitem(sys.modules, "ha_mcp._vendor.mcp.client.session", None)
 
     with caplog.at_level(logging.WARNING):
         await _register(hass, _add_entry(hass))
