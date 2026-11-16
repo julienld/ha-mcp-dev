@@ -25,6 +25,13 @@ from custom_components.ha_mcp_tools import (
     server_credentials,
 )
 from custom_components.ha_mcp_tools.const import (
+    DATA_NATIVE_OWNER_ID,
+    OPT_ENABLE_NATIVE_LLM_IMPORT,
+    OPT_NATIVE_HTTP_LIMIT,
+    OPT_NATIVE_IMPORT_APIS,
+    OPT_NATIVE_STREAM_SECONDS,
+    OPT_RUNTIME_MODE,
+    RUNTIME_LEGACY,
     BIND_HOST_ALL,
     BIND_HOST_LOOPBACK,
     CONF_ENTRY_TYPE,
@@ -296,6 +303,11 @@ async def test_form_prefills_every_field_from_saved_options(
     every other field pre-fills through the schema default.
     """
     saved = {
+        OPT_RUNTIME_MODE: RUNTIME_LEGACY,
+        OPT_NATIVE_HTTP_LIMIT: 17,
+        OPT_NATIVE_STREAM_SECONDS: 123,
+        OPT_ENABLE_NATIVE_LLM_IMPORT: True,
+        OPT_NATIVE_IMPORT_APIS: ["conversation.test"],
         OPT_SERVER_PORT: 12345,
         OPT_BIND_HOST: BIND_HOST_LOOPBACK,
         OPT_WEBHOOK_AUTH: WEBHOOK_AUTH_HA,
@@ -339,6 +351,7 @@ async def test_form_prefills_every_field_from_saved_options(
         OPT_OAUTH_ALLOW_ANY_CALLBACK: False,
     }
     never_prefilled = (
+        DATA_NATIVE_OWNER_ID,
         OPT_ADMIN_TOKEN_REPLACEMENT,
         server_credentials.ADMIN_USERNAME,
         server_credentials.ADMIN_PASSWORD,
