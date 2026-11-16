@@ -16,6 +16,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from homeassistant.auth.models import User
+from homeassistant.components.zwave_js import helpers as zwave_helpers
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.setup import async_setup_component
@@ -395,7 +396,7 @@ async def test_exclusion_forwards_the_requested_unprovision_strategy(
     radio_path: RadioTools | RadioFacade, server: MagicMock,
 ) -> None:
     await radio_path.ha_manage_radio(
-        radio="zwave", action="remove_device", params={"strategy": ExclusionStrategy.UNPROVISION},
+        radio="zwave", action="remove_device", params={"strategy": ExclusionStrategy.UNPROVISION}, confirm=True,
     )
     (sent,) = [message for message in sent_to_server(server) if message["command"] == "controller.begin_exclusion"]
     assert sent["options"]["strategy"] == ExclusionStrategy.UNPROVISION
@@ -431,8 +432,13 @@ async def test_native_value_error_from_the_command_layer_retains_unknown_outcome
 
 async def test_native_reset_accepts_cores_driver_ready_entry_reload(
     native_radio: RadioFacade, server: MagicMock, hass: HomeAssistant, entry: MockConfigEntry,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     before = entry.runtime_data
+    async def version_from_server(*_: Any, **__: Any) -> VersionInfo:
+        await hass.async_block_till_done()
+        return server.version
+    monkeypatch.setattr(zwave_helpers, "get_server_version", version_from_server)
     async def answer(message: dict[str, Any], *_: Any, **__: Any) -> Any:
         if message["command"] == "driver.hard_reset":
             server.driver.emit("driver ready", {"event": "driver ready", "source": "driver"})
