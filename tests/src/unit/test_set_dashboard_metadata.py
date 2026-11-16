@@ -64,8 +64,10 @@ async def test_native_dashboard_creation_does_not_invent_a_missing_title(
             CallContext(hass_admin_user.id),
         )
         assert result.is_error, result.data
-        assert result.data["error"]["code"] == "VALIDATION_INVALID_PARAMETER"
+        assert result.data["error"]["code"] == "VALIDATION_FAILED"
         assert "title" in result.data["error"]["message"]
+        assert result.status == "not_started"
+        assert "new-map" not in hass.data[LOVELACE_DATA].dashboards
     finally:
         await backend.stop()
 
