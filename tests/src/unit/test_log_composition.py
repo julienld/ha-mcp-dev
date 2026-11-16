@@ -21,7 +21,8 @@ from ._tool_errors import error_of
 
 @pytest.mark.parametrize("offset", ["--5", "²"])
 async def test_invalid_offset_is_a_classified_validation_error(
-    core_client: HomeAssistantClient, offset: str,
+    core_client: HomeAssistantClient,
+    offset: str,
 ) -> None:
     with pytest.raises(ToolError) as error:
         await LogsFacade(LogTools(core_client).get_logs).ha_get_logs(
@@ -39,7 +40,11 @@ async def test_first_short_journal_window_keeps_unreturned_records_pageable(
     offset = 0
     for _ in range(6):
         page = await call_logs(
-            journald_route.client, source="error_log", format="raw", limit=2, offset=offset
+            journald_route.client,
+            source="error_log",
+            format="raw",
+            limit=2,
+            offset=offset,
         )
         shown.extend(page["log"].splitlines())
         if not page["has_more"]:
@@ -61,10 +66,12 @@ async def test_missing_supervisor_cursor_is_not_reported_as_complete_history() -
 
 
 async def test_core_empty_message_still_starts_a_record(
-    log_file: Path, core_client: HomeAssistantClient,
+    log_file: Path,
+    core_client: HomeAssistantClient,
 ) -> None:
     result = await error_log(
-        log_file, core_client,
+        log_file,
+        core_client,
         "2026-10-25 10:00:00.000 INFO (MainThread) [test] previous\n"
         "2026-10-25 10:00:01.000 ERROR (MainThread) [test] \n"
         "Traceback (most recent call last):\nValueError: details\n",

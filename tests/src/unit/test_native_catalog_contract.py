@@ -78,7 +78,7 @@ def _upstream_string_extension(
             or branches[0]["type"] != "string"
         ):
             return False
-    alternatives = [{"type": "string"}]
+    alternatives: list[dict[str, Any]] = [{"type": "string"}]
     if targets[key]:
         alternatives.append({"items": {"type": "string"}, "type": "array"})
     alternatives.append({"type": "null"})
@@ -256,7 +256,7 @@ def test_current_interfaces_match_the_independent_upstream_source_receipt() -> N
 @pytest.mark.parametrize("mutation", [None, "default", "type", "other_parameter"])
 def test_archive_database_exception_is_limited_to_its_reviewed_schema_path(mutation):
     name = "other_parameter" if mutation == "other_parameter" else "restore_database"
-    new = {"default": None, "anyOf": [{"type": "boolean"}, {"type": "null"}]}
+    new: dict[str, Any] = {"default": None, "anyOf": [{"type": "boolean"}, {"type": "null"}]}
     if mutation == "default":
         new["default"] = True
     elif mutation == "type":
@@ -283,7 +283,7 @@ def test_upstream_todo_status_extension_keeps_prior_values_without_waiving_other
         ],
         "default": None,
     }
-    new = {
+    new: dict[str, Any] = {
         "anyOf": [
             {"type": "string"},
             {"items": {"type": "string"}, "type": "array"},
@@ -521,7 +521,7 @@ def test_added_cursor_alternative_must_retain_integer_bounds_and_default(
 def test_optional_schema_extensions_keep_existing_call_restrictions():
     import copy
 
-    before = {
+    before: dict[str, Any] = {
         "type": "object",
         "properties": {
             "identifier": {"type": "string"},

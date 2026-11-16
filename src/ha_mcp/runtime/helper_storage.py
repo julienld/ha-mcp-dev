@@ -116,6 +116,14 @@ class HelperStorageTools(BackendTools):
         MandatoryBPS: bool,
         fields: dict[str, Any],
     ) -> dict[str, Any]:
+        if name is not None and not name.strip():
+            raise_failure(
+                create_error_response(
+                    ErrorCode.VALIDATION_INVALID_PARAMETER,
+                    "name cannot be blank.",
+                    context=_simple_helper_error_context(helper_type),
+                )
+            )
         item_icon, registry_icon = _icon_targets(helper_type, "create", icon)
         body = with_create_defaults(helper_type, fields)
         if name is not None:

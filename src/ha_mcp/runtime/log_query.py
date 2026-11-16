@@ -16,7 +16,7 @@ def _validate_log_offset(source: str, offset: int | str) -> int | str:
         text = offset.strip()
         if not text:
             return 0
-        if not text.lstrip("-").isdigit():
+        if not text.removeprefix("-").isascii() or not text.removeprefix("-").isdigit():
             return _validate_cursor_offset(source, text)
         offset = int(text)
     if offset < 0:

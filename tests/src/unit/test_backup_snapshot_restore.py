@@ -142,11 +142,12 @@ class TestWhatIsRestored:
 
         async def manage_backups(**arguments: Any) -> dict[str, Any]:
             return await restore_backup(
-                core_client, arguments["backup_id"],
+                core_client,
+                arguments["backup_id"],
                 restore_database=arguments["restore_database"],
             )
 
-        given = {} if requested is None else {"restore_database": requested}
+        given: dict[str, Any] = {} if requested is None else {"restore_database": requested}
         result = await BackupFacade(manage_backups).ha_manage_backup(
             scope="snapshot", action="restore", backup_id=target, **given
         )

@@ -34,6 +34,7 @@ from pytest_homeassistant.common import (
 )
 
 from custom_components.ha_mcp_tools.native_backend import NativeBackend
+from ha_mcp.backends.remote import RemoteBackend
 from ha_mcp.client.rest_client import (
     HomeAssistantClient,
     HomeAssistantConnectionError,
@@ -428,11 +429,17 @@ async def test_another_client_cannot_continue_an_owned_subentry_flow(
 
 
 async def test_backend_shutdown_aborts_flows_opened_by_another_tool_instance(
-    hass: HomeAssistant, parent: MockConfigEntry, client: HomeAssistantClient,
+    hass: HomeAssistant,
+    parent: MockConfigEntry,
+    client: HomeAssistantClient,
 ) -> None:
-    shown = await _set_subentry(client, parent, "staged", config={"name": "Local Model"})
+    shown = await _set_subentry(
+        client, parent, "staged", config={"name": "Local Model"}
+    )
     assert shown["flow_id"] in open_flow_ids(hass)
-    await IntegrationTools(client).backend.stop()
+    backend = IntegrationTools(client).backend
+    assert isinstance(backend, RemoteBackend)
+    await backend.stop()
     assert shown["flow_id"] not in open_flow_ids(hass)
 
 

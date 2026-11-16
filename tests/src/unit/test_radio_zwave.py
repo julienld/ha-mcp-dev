@@ -34,8 +34,8 @@ from custom_components.ha_mcp_tools.native_backend import NativeBackend
 from custom_components.ha_mcp_tools.native_operations.radio_manager import NativeRadios
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp.client.rest_client import HomeAssistantClient
-from ha_mcp.tool_api import CallContext
 from ha_mcp.runtime.radio_tools import RadioFacade
+from ha_mcp.tool_api import CallContext
 from ha_mcp.tools.tools_radio import RadioTools
 
 from ._command_faults import received
@@ -308,7 +308,9 @@ async def test_native_qr_only_inclusion_uses_cores_secure_strategy(
     entry: MockConfigEntry,
 ) -> None:
     backend = NativeBackend(hass)
-    radio = RadioFacade(NativeRadios(hass, CallContext(hass_admin_user.id), backend.authorize))
+    radio = RadioFacade(
+        NativeRadios(hass, CallContext(hass_admin_user.id), backend.authorize)
+    )
     try:
         result = await radio.ha_manage_radio(
             radio="zwave", action="add", params={"qr_code_string": QR_CODE}
