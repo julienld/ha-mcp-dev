@@ -229,7 +229,7 @@ async def _reset(session: RadioSession, entry: Any, driver: Any) -> dict[str, An
 
     async def reset_and_reconcile() -> None:
         await driver.async_hard_reset()
-        await waiter
+        await asyncio.gather(waiter)
         runtime, client = entry.runtime_data, entry.runtime_data.client
         current_driver = client.driver
         registration = session.hass.data["websocket_api"][command]
