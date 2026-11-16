@@ -40,6 +40,7 @@ def deleted_entity_error(entity_id: str, found: dict[str, Any]) -> BackupRestore
     error = BackupRestoreError(
         f"{entity_id} is no longer in the entity registry",
         reason="entry_deleted",
+        warnings=[f"{entity_id} is no longer in the entity registry"],
         suggestions=suggestions,
     )
     return error

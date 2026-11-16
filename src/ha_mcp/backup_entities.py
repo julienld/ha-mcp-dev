@@ -148,7 +148,9 @@ _HELD: ContextVar[frozenset[str] | None] = ContextVar("held_entity_locks", defau
 
 
 @asynccontextmanager
-async def restore_locks(client: Any, config: Any) -> AsyncIterator[None]:
+async def restore_locks(
+    client: Any, config: Any, *, require_lookup: bool = False
+) -> AsyncIterator[None]:
     """Hold the entity locks from before a restore's safety backup through its
     write, as a flow helper's restore holds its config-entry guard. When the
     lookup finds no entry or fails with a transient error, nothing is locked,
@@ -158,8 +160,12 @@ async def restore_locks(client: Any, config: Any) -> AsyncIterator[None]:
     try:
         found = await _lookup(client, entry_id) if isinstance(entry_id, str) else {}
     except _manager()._CAPTURE_TRANSIENT_ERRORS:
+        if require_lookup:
+            raise
         found = {}  # the restore looks the entry up again and reports a failure
     entry = found.get("entry")
+    if require_lookup and entry is None:
+        raise _entry_deleted(saved, found)
     ids: frozenset[str] = frozenset()
     if entry is not None and isinstance(saved, str):
         ids = frozenset((entry["entity_id"], saved))

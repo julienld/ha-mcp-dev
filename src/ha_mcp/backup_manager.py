@@ -996,9 +996,27 @@ class BackupManager(SnapshotFilesMixin):
             if data["domain"] == "entity_registry":
                 from .backup_entities import restore_locks
 
-                async with restore_locks(self._client, data["config"]):
-                    return await self._restore_snapshot_data(
-                        name, data, take_safety_backup=take_safety_backup
+                try:
+                    async with restore_locks(
+                        self._client, data["config"], require_lookup=True
+                    ):
+                        return await self._restore_snapshot_data(
+                            name, data, take_safety_backup=take_safety_backup
+                        )
+                except BackupRestoreError as error:
+                    error.outcome = {
+                        "restored_from": name,
+                        "safety_backup": None,
+                        **error.outcome,
+                    }
+                    raise
+                except HomeAssistantError as error:
+                    if getattr(error, "restore_outcome", None) is not None:
+                        raise
+                    _raise_with_restore_outcome(
+                        error,
+                        {"restored_from": name, "safety_backup": None,
+                         "apply_status": "not_applied", "step": "lock_lookup"},
                     )
             return await self._restore_snapshot_data(
                 name, data, take_safety_backup=take_safety_backup

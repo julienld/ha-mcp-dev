@@ -161,8 +161,9 @@ async def validate_registry_restore(
             row.get("entity_id") == saved["entity_id"] for row in [*registered, *states]
         ):
             raise BackupRestoreError(
-                "The saved entity ID is occupied; it will not be overwritten",
+                f"The saved entity ID {saved['entity_id']} is occupied; it will not be overwritten",
                 reason="entity_id_collision",
+                conflicting_entity_id=saved["entity_id"],
             )
     if (
         saved.get("area_id")
