@@ -14,11 +14,8 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-from homeassistant.core import HomeAssistant
 from homeassistant.auth.models import User
-from custom_components.ha_mcp_tools.native_backend import NativeBackend
-from ha_mcp.tool_api import CallContext
-from ._native_test_engine import native_engine
+from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.setup import async_setup_component
 from pytest_homeassistant.common import MockConfigEntry
@@ -33,8 +30,12 @@ from zwave_js_server.const import (
 from zwave_js_server.model.driver import Driver
 from zwave_js_server.model.version import VersionInfo
 
+from custom_components.ha_mcp_tools.native_backend import NativeBackend
+from custom_components.ha_mcp_tools.native_operations.radio_manager import NativeRadios
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp.client.rest_client import HomeAssistantClient
+from ha_mcp.tool_api import CallContext
+from ha_mcp.runtime.radio_tools import RadioFacade
 from ha_mcp.tools.tools_radio import RadioTools
 
 from ._command_faults import received
@@ -301,23 +302,25 @@ async def test_add_with_only_a_qr_code_starts_inclusion(
 
 
 async def test_native_qr_only_inclusion_uses_cores_secure_strategy(
-    hass: HomeAssistant, hass_admin_user: User, server: MagicMock, entry: MockConfigEntry,
+    hass: HomeAssistant,
+    hass_admin_user: User,
+    server: MagicMock,
+    entry: MockConfigEntry,
 ) -> None:
-    engine = native_engine(NativeBackend(hass), {"ha_manage_radio"})
+    backend = NativeBackend(hass)
+    radio = RadioFacade(NativeRadios(hass, CallContext(hass_admin_user.id), backend.authorize))
     try:
-        result = await engine.call(
-            "ha_manage_radio",
-            {"radio": "zwave", "action": "add", "params": {"qr_code_string": QR_CODE}},
-            CallContext(hass_admin_user.id),
+        result = await radio.ha_manage_radio(
+            radio="zwave", action="add", params={"qr_code_string": QR_CODE}
         )
-        assert not result.is_error, result.data
+        assert result["mode"] == "add_node"
         assert any(
             message["command"] == "controller.begin_inclusion"
             and message["options"]["strategy"] == InclusionStrategy.SECURITY_S2
             for message in sent_to_server(server)
         )
     finally:
-        await engine.stop()
+        await backend.stop()
 
 
 async def test_add_with_smart_start_needs_the_provisioning_information(

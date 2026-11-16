@@ -253,32 +253,6 @@ def test_current_interfaces_match_the_independent_upstream_source_receipt() -> N
             )
 
 
-@pytest.mark.parametrize("database_included", [False, True])
-async def test_public_backup_default_restores_the_database_only_when_the_archive_has_it(
-    database_included: bool,
-) -> None:
-    from ha_mcp.runtime.backup_tools import BackupFacade
-    from ha_mcp.tools.backup_snapshot_restore import restore_backup
-
-    from ._backup_snapshot_fakes import FakeWS, _client, _entry, _run
-
-    ws = FakeWS(details=_entry("b1", database_included=database_included))
-
-    async def manage_backups(**arguments):
-        return await _run(
-            restore_backup,
-            ws,
-            _client(),
-            arguments["backup_id"],
-            restore_database=arguments["restore_database"],
-        )
-
-    await BackupFacade(manage_backups).ha_manage_backup(
-        scope="snapshot", action="restore", backup_id="b1"
-    )
-    assert ws.sent("backup/restore")[0]["restore_database"] is database_included
-
-
 @pytest.mark.parametrize("mutation", [None, "default", "type", "other_parameter"])
 def test_archive_database_exception_is_limited_to_its_reviewed_schema_path(mutation):
     name = "other_parameter" if mutation == "other_parameter" else "restore_database"

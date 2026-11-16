@@ -155,23 +155,25 @@ class RemoteBackend:
                     "Remote backend is stopping.",
                     status="not_started",
                 )
-            if self._flows is None:
-                owner = getattr(self.client, "_ha_mcp_remote_flows", None)
-                if not isinstance(owner, RemoteFlows):
-                    owner = RemoteFlows(self.client)
-                    self.client._ha_mcp_remote_flows = owner
-                self._flows = owner
-            return await self._flows.execute(operation, arguments, context)
+            return await self._flow_owner(create=True).execute(operation, arguments, context)
         return await read_flow_operation(self.client, operation, arguments)
 
-    async def stop(self) -> None:
+    def _flow_owner(self, *, create: bool) -> Any:
+        """Legacy tool instances sharing one client retain the same flow owner."""
         from .remote_flow_ops import RemoteFlows
 
+        owner = self._flows or getattr(self.client, "_ha_mcp_remote_flows", None)
+        if not isinstance(owner, RemoteFlows):
+            if not create:
+                return None
+            owner = RemoteFlows(self.client)
+            self.client._ha_mcp_remote_flows = owner
+        self._flows = owner
+        return owner
+
+    async def stop(self) -> None:
         self._closing = True
-        if self._flows is None:
-            owner = getattr(self.client, "_ha_mcp_remote_flows", None)
-            if isinstance(owner, RemoteFlows):
-                self._flows = owner
+        self._flow_owner(create=False)
         results = await await_owned_io(
             asyncio.gather(
                 *(

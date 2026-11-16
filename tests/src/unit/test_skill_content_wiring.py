@@ -120,12 +120,7 @@ def _shared_source_resolver():
         return module
 
     extractor = load("skill_content_tool_extractor", "extract_tools.py")
-    shared = load("skill_content_shared_extractor", "extract_tools_shared.py")
-    return shared.SharedToolExtractor(
-        extractor._import_source,
-        extractor._module_scope,
-        extractor._extract_tool_from_node,
-    )
+    return extractor.shared_tool_extractor()
 
 
 def _tool_source_tree(module_path: Path, tool_name: str) -> ast.Module:
