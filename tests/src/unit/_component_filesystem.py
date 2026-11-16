@@ -15,6 +15,7 @@ import pytest
 from homeassistant.core import HomeAssistant
 
 import custom_components.ha_mcp_tools as comp
+from custom_components.ha_mcp_tools import file_io, file_ops, file_paths
 
 # The keys the component's three stores persist under in ``.storage``.
 CALLER_TOKEN_STORE = "ha_mcp_tools_auth"
@@ -47,8 +48,9 @@ def refused(result: Mapping[str, Any]) -> bool:
 
 def use_volume_roots(monkeypatch: pytest.MonkeyPatch, *roots: Path) -> None:
     """Treat ``roots`` as the HAOS sibling volumes, mounted into Core."""
-    monkeypatch.setattr(comp, "ALLOWED_VOLUME_ROOTS", tuple(str(r) for r in roots))
-    monkeypatch.setattr(comp, "on_mounted_volume", lambda target, volume: True)
+    monkeypatch.setattr(file_paths, "ALLOWED_VOLUME_ROOTS", tuple(str(r) for r in roots))
+    for owner in (file_io, file_ops):
+        monkeypatch.setattr(owner, "on_mounted_volume", lambda target, volume: True)
 
 
 def use_volume_root(monkeypatch: pytest.MonkeyPatch, root: Path) -> Path:
