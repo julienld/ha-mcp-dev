@@ -123,6 +123,11 @@ def _schema_converter() -> Callable[[Any], Any]:
     return cast(Callable[[Any], Any], legacy.convert_to_voluptuous)
 
 
+def reset_schema_converter() -> None:
+    """Resolve the shared converter again on its next use."""
+    _schema_converter.cache_clear()
+
+
 def convert_to_voluptuous(schema: Any) -> vol.Schema:
     """Convert an OpenAPI schema on stable and Probatio-based HA Core."""
     return cast(vol.Schema, _schema_converter()(schema))
@@ -174,6 +179,7 @@ def async_unregister_llm_api(hass: HomeAssistant) -> None:
 
 
 __all__ = [
+    "reset_schema_converter",
     "CALL_TOOL_DESCRIPTION",
     "CALL_TOOL_PARAMETERS",
     "_FALLBACK_API_PROMPT",

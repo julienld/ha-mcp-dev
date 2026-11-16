@@ -37,12 +37,12 @@ not requirements of Native mode.
 
 ## Requirements
 
-Each release declares its required Home Assistant version in HACS/Marketplace.
-The supported window is the current stable monthly Core release and the
-previous one. A new monthly release advances the CI window; a new ha-mcp
-release must declare the corresponding minimum before publication.
-An already-installed ha-mcp version does not stop working merely because
-another month begins.
+Only the current stable Home Assistant release is officially supported. A
+beta may be supported with a fallback to stable, but that is not guaranteed.
+Each release declares its installation floor in HACS/Marketplace. The Native
+qualification window covers the current stable monthly Core and its predecessor;
+that installation and qualification window does not extend official support.
+An installed release does not stop merely because another month begins.
 
 The initial native adoption floor is Core 2026.10.0. Core 2026.8–2026.9 uses
 Legacy; the component's minimum and Native's minimum are distinct. Use a

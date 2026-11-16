@@ -101,6 +101,7 @@ from .llm_projection import (
     build_search_tools,
     convert_parameters,
     convert_to_voluptuous,
+    reset_schema_converter as reset_schema_converter,
 )
 from .llm_tool_exposure import partition_tools
 from .llm_tool_metadata import declare_metadata, tool_hints, tool_result, tool_title
@@ -117,13 +118,13 @@ _LOGGER = logging.getLogger(__name__)
 
 # Listing tools is two loopback round-trips (initialize + tools/list); a slow
 # answer means the server thread is wedged, not that the network is slow.
-_LIST_TOOLS_TIMEOUT_SECONDS = 10.0
+LIST_TOOLS_TIMEOUT_SECONDS = 10.0
 
 # Tool calls run real work — WebSocket-verified device control, dashboard
 # screenshots, config writes that poll for completion — well beyond the 10s a
 # remote-server integration would allow. The conversation agent shows a spinner
 # for the duration, so err generous rather than kill a legitimate slow tool.
-_CALL_TOOL_TIMEOUT_SECONDS = 300.0
+CALL_TOOL_TIMEOUT_SECONDS = 300.0
 
 
 def _normalise_schema(schema: Any, tool_name: str) -> Any:
@@ -167,14 +168,14 @@ def _transport_errors() -> tuple[type[BaseException], ...]:
     :func:`_transport_error_leaves` to find. Includes ExceptionGroup because
     the SDK's anyio task groups wrap in-session failures — but a caught group
     must still pass
-    :func:`_is_transport_failure` before being mapped to a friendly error,
+    :func:`is_transport_failure` before being mapped to a friendly error,
     or a genuine bug that happened inside the task group would be relabeled
     as a transport failure (review finding).
     """
     return (*_transport_error_leaves(), ExceptionGroup)
 
 
-def _is_transport_failure(err: BaseException) -> bool:
+def is_transport_failure(err: BaseException) -> bool:
     """Return True when ``err`` is purely a transport failure.
 
     A group counts only when EVERY leaf (nested groups included) is a
@@ -183,9 +184,13 @@ def _is_transport_failure(err: BaseException) -> bool:
     remapped to a "could not reach the server" message.
     """
     if isinstance(err, ExceptionGroup):
-        return all(_is_transport_failure(exc) for exc in err.exceptions)
+        return all(is_transport_failure(exc) for exc in err.exceptions)
     return isinstance(err, _transport_error_leaves())
 
+
+
+_is_transport_failure = is_transport_failure
+_CALL_TOOL_TIMEOUT_SECONDS = CALL_TOOL_TIMEOUT_SECONDS
 
 def _only_home_assistant_error(error: BaseException) -> HomeAssistantError | None:
     """Find the first HA error only when every nested leaf is an HA error."""
@@ -298,7 +303,7 @@ async def _mcp_session(
     shared client is built with no explicit ``timeout=``, so it silently
     carries httpx's own hardcoded 5-second default — capping every tool call
     at 5 seconds of read-idle no matter how generous
-    ``_CALL_TOOL_TIMEOUT_SECONDS`` / ``_LIST_TOOLS_TIMEOUT_SECONDS`` looked
+    ``CALL_TOOL_TIMEOUT_SECONDS`` / ``LIST_TOOLS_TIMEOUT_SECONDS`` looked
     (live-found investigating a ~60s Assist-pipeline hang: a real tool doing
     real work never got anywhere near its own asyncio budget).
 
@@ -352,7 +357,7 @@ async def _mcp_session(
                 http_lib.AsyncClient(
                     verify=False,
                     trust_env=False,
-                    timeout=http_lib.Timeout(_CALL_TOOL_TIMEOUT_SECONDS),
+                    timeout=http_lib.Timeout(CALL_TOOL_TIMEOUT_SECONDS),
                 )
             )
             transport = streamable_http_client(url=url, http_client=http_client)
@@ -432,7 +437,7 @@ async def _forward_tool_call(
         check_enabled()
     try:
         async with (
-            asyncio.timeout(_CALL_TOOL_TIMEOUT_SECONDS),
+            asyncio.timeout(CALL_TOOL_TIMEOUT_SECONDS),
             _mcp_session(server_url) as (session, _init),
         ):
             if check_enabled is not None:
@@ -446,7 +451,7 @@ async def _forward_tool_call(
                 check_enabled()
             result = await session.call_tool(name, arguments)
     except _transport_errors() as err:
-        if not _is_transport_failure(err):
+        if not is_transport_failure(err):
             if (ha_error := _only_home_assistant_error(err)) is not None:
                 raise ha_error from None
             raise
@@ -554,7 +559,7 @@ class HaMcpLlmApi(llm.API):
         self._check_enabled()
         try:
             async with (
-                asyncio.timeout(_LIST_TOOLS_TIMEOUT_SECONDS),
+                asyncio.timeout(LIST_TOOLS_TIMEOUT_SECONDS),
                 _mcp_session(self.server_url) as (
                     session,
                     init_result,
@@ -563,7 +568,7 @@ class HaMcpLlmApi(llm.API):
                 self._check_enabled()
                 list_result = await session.list_tools()
         except _transport_errors() as err:
-            if not _is_transport_failure(err):
+            if not is_transport_failure(err):
                 if (ha_error := _only_home_assistant_error(err)) is not None:
                     raise ha_error from None
                 raise
@@ -728,6 +733,12 @@ async def async_register_llm_api(
 
 
 __all__ = [
+    "CALL_TOOL_TIMEOUT_SECONDS",
+    "LIST_TOOLS_TIMEOUT_SECONDS",
+    "is_transport_failure",
+    "reset_schema_converter",
+    "_is_transport_failure",
+    "_CALL_TOOL_TIMEOUT_SECONDS",
     "HaMcpLlmApi",
     "HaMcpSearchTool",
     "HaMcpTool",

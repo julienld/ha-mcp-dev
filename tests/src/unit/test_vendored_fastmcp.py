@@ -41,7 +41,10 @@ _SHARED_SDK_USERS = {
     # The external compatibility probe deliberately exercises Core's unchanged
     # SDK 1.x/2.x selected by Core, against the private server in a separate process.
     "tests/native/legacy_client_probe.py",
+    "tests/src/unit/_llm_api_server.py",
     "tests/src/unit/test_llm_api.py",
+    "tests/src/unit/test_llm_api_instance.py",
+    "tests/src/unit/test_llm_api_sdk_lines.py",
     "tests/src/unit/test_llm_tool_metadata.py",
     "tests/src/e2e/workflows/embedded/test_embedded_server.py",
 }

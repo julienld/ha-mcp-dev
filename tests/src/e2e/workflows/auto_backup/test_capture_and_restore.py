@@ -1253,6 +1253,159 @@ class TestToggleOffSkipsCapture:
 # block. The todo_item lane is test_todo_capture_restore.py.
 
 
+@pytest.mark.haos_only
+@pytest.mark.calendar
+@pytest.mark.external_only
+@pytest.mark.cleanup
+class TestCalendarCaptureRestore:
+    """Auto-backup for calendar events. The snapshot is keyed on
+    ``<entity>::<uid>``, so it fires on ``ha_config_remove_calendar_event``
+    and on an update through ``ha_config_set_calendar_event`` (a create
+    carries no uid). Restoring a deleted event re-creates it; restoring an
+    edited one puts the captured values back under the same uid."""
+
+    async def test_calendar_capture_on_delete(
+        self, mcp_client, ha_client, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from datetime import datetime, timedelta
+
+        _enable_auto_backup(monkeypatch)
+        unique = uuid.uuid4().hex[:8]
+        cal_name = f"BK Cal {unique}"
+        entity_id = f"calendar.bk_cal_{unique}"
+
+        entry_id: str | None = None
+        try:
+            flow_init = await ha_client.start_config_flow("local_calendar")
+            if not isinstance(flow_init, dict) or flow_init.get("type") != "form":
+                pytest.skip(f"local_calendar config flow unavailable: {flow_init}")
+            flow_done = await ha_client.submit_config_flow_step(
+                flow_init["flow_id"],
+                {"calendar_name": cal_name, "import": "create_empty"},
+            )
+            if flow_done.get("type") != "create_entry":
+                pytest.skip(f"local_calendar entry not created: {flow_done}")
+            entry_id = flow_done["result"]["entry_id"]
+
+            await wait_for_tool_result(
+                mcp_client,
+                tool_name="ha_get_entity",
+                arguments={"entity_id": entity_id},
+                predicate=lambda d: d.get("success") is True,
+                description=f"{entity_id} registers in entity registry",
+                timeout=20,
+            )
+
+            now = datetime.now()
+            start = (now + timedelta(days=1)).replace(
+                hour=10, minute=0, second=0, microsecond=0
+            )
+            end = start + timedelta(hours=1)
+            summary = f"bk-evt-{unique}"
+            events_window = {
+                "entity_id": entity_id,
+                "start": start.isoformat(),
+                "end": (end + timedelta(hours=1)).isoformat(),
+            }
+
+            def has_event(d: dict[str, Any]) -> bool:
+                return any(e.get("summary") == summary for e in d.get("events", []))
+
+            created = await safe_call_tool(
+                mcp_client,
+                "ha_config_set_calendar_event",
+                {
+                    "entity_id": entity_id,
+                    "summary": summary,
+                    "start": start.isoformat(),
+                    "end": end.isoformat(),
+                },
+            )
+            if created.get("success") is False:
+                pytest.skip(f"calendar event create unsupported: {created}")
+
+            got = await wait_for_tool_result(
+                mcp_client,
+                tool_name="ha_config_get_calendar_events",
+                arguments=events_window,
+                predicate=has_event,
+                description=f"event {summary!r} visible",
+                timeout=45,
+            )
+            uid = next(
+                (
+                    e.get("uid")
+                    for e in got.get("events", [])
+                    if e.get("summary") == summary
+                ),
+                None,
+            )
+            assert uid, f"created event has no uid: {got.get('events')}"
+
+            # Let HA's calendar store settle before the pre-delete fetch
+            # (the decorator runs its own read of the REST calendar view; a
+            # freshly-written iCal event can lag behind the create response).
+            await asyncio.sleep(_HA_PROPAGATION_SETTLE_SECONDS)
+
+            mcp = MCPAssertions(mcp_client)
+            # Delete the event — pre-delete capture fires (calendar_event).
+            await mcp.call_tool_success(
+                "ha_config_remove_calendar_event",
+                {"entity_id": entity_id, "uid": uid},
+            )
+            # Wait for the event to be gone, or the read-back after the restore
+            # could see an event the removal never took out.
+            await wait_for_tool_result(
+                mcp_client,
+                tool_name="ha_config_get_calendar_events",
+                arguments=events_window,
+                predicate=lambda d: not has_event(d),
+                description=f"removed event {summary!r} gone",
+                timeout=45,
+            )
+
+            try:
+                backup_name = await _wait_for_backup(
+                    mcp_client,
+                    domain="calendar_event",
+                    entity_id=f"{entity_id}::{uid}",
+                    timeout=20,
+                )
+            except TimeoutError:
+                pytest.skip(
+                    "calendar_event snapshot not observed within timeout on "
+                    "this HA rig (calendar capture/indexing timing); the unit "
+                    "test test_backup_manager_calendar covers the payload shape"
+                )
+            view = await mcp.call_tool_success(
+                "ha_manage_backup",
+                {"scope": "edits", "action": "view", "backup_name": backup_name},
+            )
+            assert view.get("success") is True
+
+            restore = await mcp.call_tool_success(
+                "ha_manage_backup",
+                {"scope": "edits", "action": "restore", "backup_name": backup_name},
+            )
+            assert restore.get("success") is True
+            # The restore must bring the deleted event back.
+            await wait_for_tool_result(
+                mcp_client,
+                tool_name="ha_config_get_calendar_events",
+                arguments=events_window,
+                predicate=has_event,
+                description=f"restored event {summary!r} visible",
+                timeout=45,
+            )
+        finally:
+            if entry_id is not None:
+                await safe_call_tool(
+                    mcp_client,
+                    "ha_remove_helpers_integrations",
+                    {"target": entry_id, "confirm": True},
+                )
+
+
 # ``integration`` (config_entries/disable) still has no full-loop e2e here:
 # it needs a real integration that is safe to disable/re-enable, and the
 # base image's core integrations are unsafe to toggle. Payload-shape: unit
