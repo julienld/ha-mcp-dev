@@ -38,6 +38,7 @@ from custom_components.ha_mcp_tools.const import (
     DOMAIN,
     EXPOSURE_FULL,
     EXPOSURE_TOOL_SEARCH,
+    OPT_ENABLE_LLM_API,
     OPT_LLM_API_EXPOSURE,
 )
 
@@ -210,7 +211,7 @@ async def register(
         entry = MockConfigEntry(domain=DOMAIN, title="HA-MCP Server", entry_id=ENTRY_ID)
         entry.add_to_hass(hass)
     hass.config_entries.async_update_entry(
-        entry, options={OPT_LLM_API_EXPOSURE: exposure}
+        entry, options={OPT_ENABLE_LLM_API: True, OPT_LLM_API_EXPOSURE: exposure}
     )
     await llm_api.async_register_llm_api(
         hass, entry, port=port, secret_path=SECRET_PATH

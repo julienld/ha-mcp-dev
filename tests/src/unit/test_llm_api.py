@@ -33,6 +33,7 @@ from custom_components.ha_mcp_tools.const import (
     EXPOSURE_BOTH,
     EXPOSURE_FULL,
     EXPOSURE_TOOL_SEARCH,
+    OPT_ENABLE_LLM_API,
     OPT_LLM_API_EXPOSURE,
 )
 
@@ -250,7 +251,7 @@ async def test_the_converter_is_imported_once_and_off_the_event_loop(
 ) -> None:
     """Importing it on the loop would trip Home Assistant's blocking-call check."""
     loop_thread = threading.get_ident()
-    watched = {"mcp.client.session", "mcp.client.streamable_http", "voluptuous_openapi"}
+    watched = {"ha_mcp._vendor.mcp.client.session", "ha_mcp._vendor.mcp.client.streamable_http", "voluptuous_openapi"}
     imports: list[tuple[str, int]] = []
     real_import_module = importlib.import_module
 
@@ -266,8 +267,8 @@ async def test_the_converter_is_imported_once_and_off_the_event_loop(
     llm_api.convert_to_voluptuous(_SCHEMA)
 
     assert [name for name, _ in imports] == [
-        "mcp.client.session",
-        "mcp.client.streamable_http",
+        "ha_mcp._vendor.mcp.client.session",
+        "ha_mcp._vendor.mcp.client.streamable_http",
         "voluptuous_openapi",
     ]
     assert all(thread != loop_thread for _, thread in imports)
@@ -288,7 +289,7 @@ def _add_entry(
         domain=DOMAIN,
         title="HA-MCP Server",
         entry_id="entry-1745",
-        options=options or {},
+        options={OPT_ENABLE_LLM_API: True, **(options or {})},
     )
     entry.add_to_hass(hass)
     return entry
@@ -312,6 +313,11 @@ async def _register(
     await llm_api.async_register_llm_api(
         hass, entry, port=port, secret_path=secret_path
     )
+
+
+async def test_an_explicitly_disabled_export_registers_no_api(hass: HomeAssistant) -> None:
+    await _register(hass, _add_entry(hass, {OPT_ENABLE_LLM_API: False}))
+    assert _ours(hass) == {}
 
 
 async def test_default_exposure_registers_only_the_tool_search_api(

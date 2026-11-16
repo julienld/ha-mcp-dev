@@ -27,7 +27,7 @@ from ha_mcp import backup_manager as bm
 from ha_mcp import config
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp.client.rest_client import HomeAssistantAPIError, HomeAssistantClient
-from ha_mcp.tools import tools_integrations, ws_waiters
+from ha_mcp.tools import ws_waiters
 from ha_mcp.tools.tools_config_helpers import HelperConfigTools
 
 from ._backup_core import add_label, captured_name, place_snapshot, snapshot_of

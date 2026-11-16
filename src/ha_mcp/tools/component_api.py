@@ -48,6 +48,8 @@ from ..client.rest_client import (
 from ..client.websocket_client import get_websocket_client, websocket_manager
 from ..runtime.component_messages import (
     COMPONENT_INSTALL_HINT as COMPONENT_INSTALL_HINT,
+)
+from ..runtime.component_messages import (
     COMPONENT_VIA_HACS as COMPONENT_VIA_HACS,
 )
 from ..runtime.component_messages import (

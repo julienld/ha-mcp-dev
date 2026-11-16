@@ -65,19 +65,24 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import llm
 
 from ha_mcp.tool_api.llm_projection import (
-    _EXCLUSIVE_BOUNDS as EXCLUSIVE_BOUNDS,
-    _INSTANCE_VALUES as INSTANCE_VALUES,
-    _SCHEMA_MAPS as SCHEMA_MAPS,
-    _is_opaque_key as is_opaque_key,
-)
-
-from ha_mcp.tool_api.llm_projection import (
     _EXCLUSIVE_BOUNDS,
     _INSTANCE_VALUES,
     _OPAQUE_KEYWORDS,
     _SCHEMA_MAPS,
     _is_opaque_key,
     _to_inclusive_bounds,
+)
+from ha_mcp.tool_api.llm_projection import (
+    _EXCLUSIVE_BOUNDS as EXCLUSIVE_BOUNDS,
+)
+from ha_mcp.tool_api.llm_projection import (
+    _INSTANCE_VALUES as INSTANCE_VALUES,
+)
+from ha_mcp.tool_api.llm_projection import (
+    _SCHEMA_MAPS as SCHEMA_MAPS,
+)
+from ha_mcp.tool_api.llm_projection import (
+    _is_opaque_key as is_opaque_key,
 )
 from ha_mcp.tool_api.llm_projection import (
     normalise_schema as _project_normalise_schema,
