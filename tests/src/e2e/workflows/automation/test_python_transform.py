@@ -387,7 +387,8 @@ async def test_legacy_keys_read_back_as_core_stores_them(mcp_client, ha_client):
     entity_id = create_result["entity_id"]
 
     compatible = await mcp.call_tool_success(
-        "ha_config_get_automation", {"identifier": entity_id, "config_format": "compatible"}
+        "ha_config_get_automation",
+        {"identifier": entity_id, "config_format": "compatible"},
     )
     assert compatible["config"]["triggers"] == [
         {"trigger": "time", "at": "17:00:00"}

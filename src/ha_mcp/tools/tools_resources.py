@@ -32,6 +32,9 @@ from ha_mcp.runtime.resource_values import (
     _HA_CONFIG_YAML_MARKERS as _HA_CONFIG_YAML_MARKERS,
 )
 from ha_mcp.runtime.resource_values import (
+    _HA_CONFIG_YAML_MARKERS as HA_CONFIG_YAML_MARKERS,
+)
+from ha_mcp.runtime.resource_values import (
     _RESOURCE_TYPE,
     _YAML_MODE_MESSAGE,
     LEGACY_WORKER_BASE_URL,
@@ -46,9 +49,9 @@ from ha_mcp.runtime.resource_values import (
     _is_preview_of,
     _looks_like_preview,
     _process_resource_list,
-    _summarize_resources,
     resource_list_result,
 )
+from ha_mcp.runtime.resource_values import summarize_resources as _summarize_resources
 from ha_mcp.runtime.resource_values import (
     _data_uri_for as _pure_data_uri_for,
 )
@@ -605,4 +608,3 @@ def _stored_content_hash(result: Any) -> str | None:
     return content_sha256(decoded[0]) if decoded else None
 
 
-HA_CONFIG_YAML_MARKERS = _HA_CONFIG_YAML_MARKERS

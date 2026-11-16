@@ -61,8 +61,11 @@ class RadioSession:
         changed: list[tuple[_OwnerPin, Any, Callable[[], Any]]] = []
         for pin in self.pins:
             replacement = next(
-                ((after, getter) for before, after, getter in replacements
-                 if isinstance(pin, _OwnerPin) and pin.expected is before),
+                (
+                    (after, getter)
+                    for before, after, getter in replacements
+                    if isinstance(pin, _OwnerPin) and pin.expected is before
+                ),
                 None,
             )
             if replacement is None:
@@ -74,7 +77,8 @@ class RadioSession:
                     changed.append((pin, after, getter))
             if not valid:
                 raise ToolFailure(
-                    "CONFIG_CONFLICT", "Reset runtime ownership could not be reconciled",
+                    "CONFIG_CONFLICT",
+                    "Reset runtime ownership could not be reconciled",
                     status="not_started",
                 )
         for pin, after, getter in changed:

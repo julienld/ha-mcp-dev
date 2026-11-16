@@ -28,8 +28,8 @@ from .runtime.redaction import (
     sentinel_option_keys,
     with_serialized_variants,
 )
-from .runtime.redaction import clear_known_secret_values as _clear_known_secret_values
 from .runtime.redaction import carries_sentinel as carries_sentinel
+from .runtime.redaction import clear_known_secret_values as _clear_known_secret_values
 from .runtime.redaction import harvest_secret_strings as harvest_secret_strings
 from .runtime.redaction import placeholder_option_keys as placeholder_option_keys
 from .runtime.redaction import sentinel_replacement as sentinel_replacement

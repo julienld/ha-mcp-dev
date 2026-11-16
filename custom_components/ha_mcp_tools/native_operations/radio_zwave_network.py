@@ -75,10 +75,15 @@ async def network_action(
             if not _inclusion_argument_error(error):
                 raise
             session.dispatched = previously_dispatched
-            raise ToolFailure("VALIDATION_INVALID_PARAMETER", str(error), status="not_started") from error
+            raise ToolFailure(
+                "VALIDATION_INVALID_PARAMETER", str(error), status="not_started"
+            ) from error
         return ok("zwave", action, mode="add_node", result=result, long_running=True)
     if action == "remove_device":
-        payload = session.validate("zwave_js/remove_node", {"entry_id": entry.entry_id, "strategy": args.get("strategy")})
+        payload = session.validate(
+            "zwave_js/remove_node",
+            {"entry_id": entry.entry_id, "strategy": args.get("strategy")},
+        )
         result = await session.effect(
             lambda: controller.async_begin_exclusion(payload.get("strategy"))
         )
@@ -105,7 +110,12 @@ async def _smart_start(
             "entry_id": entry.entry_id,
             **{
                 key: args.get(key)
-                for key in ("qr_provisioning_information", "device_name", "area_id", "protocol")
+                for key in (
+                    "qr_provisioning_information",
+                    "device_name",
+                    "area_id",
+                    "protocol",
+                )
             },
         },
     )
@@ -197,7 +207,10 @@ def _inclusion_argument_error(error: ValueError) -> bool:
     origin = error.__traceback__
     while origin is not None and origin.tb_next is not None:
         origin = origin.tb_next
-    return origin is not None and origin.tb_frame.f_code is Controller.async_begin_inclusion.__code__
+    return (
+        origin is not None
+        and origin.tb_frame.f_code is Controller.async_begin_inclusion.__code__
+    )
 
 
 async def _reset(session: RadioSession, entry: Any, driver: Any) -> dict[str, Any]:
@@ -207,19 +220,27 @@ async def _reset(session: RadioSession, entry: Any, driver: Any) -> dict[str, An
     session.validate("zwave_js/hard_reset_controller", {"entry_id": entry.entry_id})
     previous_runtime, previous_client = entry.runtime_data, entry.runtime_data.client
     previous_controller = driver.controller
-    waiter = asyncio.create_task(zwave_helpers.async_wait_for_driver_ready_event(entry, driver)())
+    waiter = asyncio.create_task(
+        zwave_helpers.async_wait_for_driver_ready_event(entry, driver)()
+    )
 
     async def reset_and_reconcile() -> None:
         await driver.async_hard_reset()
         await waiter
         runtime, client = entry.runtime_data, entry.runtime_data.client
         current_driver = client.driver
-        session.rebind_owners([
-            (previous_runtime, runtime, lambda: entry.runtime_data),
-            (previous_client, client, lambda: entry.runtime_data.client),
-            (driver, current_driver, lambda: entry.runtime_data.client.driver),
-            (previous_controller, current_driver.controller, lambda: entry.runtime_data.client.driver.controller),
-        ])
+        session.rebind_owners(
+            [
+                (previous_runtime, runtime, lambda: entry.runtime_data),
+                (previous_client, client, lambda: entry.runtime_data.client),
+                (driver, current_driver, lambda: entry.runtime_data.client.driver),
+                (
+                    previous_controller,
+                    current_driver.controller,
+                    lambda: entry.runtime_data.client.driver.controller,
+                ),
+            ]
+        )
 
     try:
         # Enter Core's waiter so cancellation runs its subscription cleanup.
