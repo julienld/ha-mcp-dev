@@ -53,9 +53,10 @@ from ._backup_todo_core import (
 )
 from ._backup_todo_core import plain_list as plain_list
 from ._backup_todo_core import tasks as tasks
-from ._command_faults import received, unanswered
+from ._command_faults import pooled_socket, received, unanswered
 from ._receipt_faults import on_receipt
 from ._tool_errors import error_body, error_of
+from ._ws_transport import abort_transport
 
 BRIDGE = "ha_mcp_tools/todo_item"
 MOVE = "todo/item/move"
@@ -252,15 +253,15 @@ class TestBridge:
         hass: HomeAssistant,
         component_core_client: HomeAssistantClient,
         tasks: MockConfigEntry,
-        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         await _shopping(hass)
+        socket = await pooled_socket(component_core_client)
         with (
             on_receipt(
                 hass,
                 BRIDGE,
-                lambda msg: _answers_lost(component_core_client, monkeypatch),
-                when=_resolving,
+                lambda msg: abort_transport(socket),
+                when=lambda msg: msg.get("action") == "remove",
             ),
             pytest.raises(ToolError) as excinfo,
         ):
@@ -598,7 +599,7 @@ class TestBackups:
         assert _backed_up(snapshot_manager) == {f"{LIST}::2": "Pay"}
         assert plain_list.rows[1].summary == "Paid"
 
-    async def test_an_update_names_a_backup_not_taken_and_still_writes(
+    async def test_an_update_refuses_when_its_final_identity_read_has_no_answer(
         self,
         hass: HomeAssistant,
         component_core_client: HomeAssistantClient,
@@ -606,18 +607,16 @@ class TestBackups:
         snapshot_manager: bm.BackupManager,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        # Only the backup reads the list over todo/item/list; the bridge
-        # resolves and writes.
+        # The resolved row supplies the backup. The final identity read must
+        # still answer before dispatch, even though that recovery point exists.
         async with unanswered(hass, "todo/item/list", monkeypatch):
-            got = await TodoTools(component_core_client).ha_set_todo_item(
-                LIST, item="Pay", rename="Paid"
-            )
-        assert len(got["warnings"]) == 1
-        assert got["warnings"][0].startswith(
-            f"No pre-write backup of todo_item:{LIST}::2 was taken"
-        )
-        assert _backed_up(snapshot_manager) == {}
-        assert plain_list.rows[1].summary == "Paid"
+            with pytest.raises(ToolError) as caught:
+                await TodoTools(component_core_client).ha_set_todo_item(
+                    LIST, item="Pay", rename="Paid"
+                )
+        assert error_of(caught)["code"] == "CONNECTION_TIMEOUT"
+        assert _backed_up(snapshot_manager) == {f"{LIST}::2": "Pay"}
+        assert plain_list.rows[1].summary == "Pay"
 
     async def test_a_backup_that_cannot_start_is_a_warning_and_the_write_goes_ahead(
         self,
@@ -629,7 +628,7 @@ class TestBackups:
             bm, "get_backup_manager", Mock(side_effect=OSError("disk full"))
         )
         got = await TodoTools(core_client).ha_remove_todo_item(LIST, item="Pay")
-        assert got["warnings"] == ["No pre-write backup was taken: OSError"]
+        assert got["warnings"] == [f"No pre-write backup of {LIST}::2 was taken: OSError"]
         assert [row.summary for row in plain_list.rows] == ["Buy milk"]
 
     async def test_no_backup_is_taken_with_auto_backup_off(

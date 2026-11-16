@@ -490,9 +490,16 @@ class IntegrationWriteTools(BackendTools):
                     enabled,
                     config,
                     flow_args=[name for name, value in flow_args.items() if value],
-                    separate_mode=reconfigure or any(
+                    separate_mode=reconfigure
+                    or any(
                         value is not None
-                        for value in (log_level, ws_command, ws_data, subentry_type, subentry_id)
+                        for value in (
+                            log_level,
+                            ws_command,
+                            ws_data,
+                            subentry_type,
+                            subentry_id,
+                        )
                     ),
                 )
                 if (

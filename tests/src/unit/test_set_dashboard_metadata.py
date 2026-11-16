@@ -18,9 +18,15 @@ from homeassistant.components.lovelace.const import LOVELACE_DATA
 from homeassistant.const import EVENT_LOVELACE_UPDATED
 from homeassistant.core import Event, HomeAssistant
 from homeassistant.setup import async_setup_component
+from pytest_homeassistant.common import MockConfigEntry
 
+from custom_components.ha_mcp_tools.const import DATA_WEBHOOK_ID, DOMAIN
 from custom_components.ha_mcp_tools.native_backend import NativeBackend
+from custom_components.ha_mcp_tools.native_dashboard_tools import build_dashboard_tools
+from custom_components.ha_mcp_tools.native_server import NativeServerManager
+from custom_components.ha_mcp_tools.native_snapshots import NativeSnapshots
 from ha_mcp.client.rest_client import HomeAssistantClient
+from ha_mcp.runtime import Engine
 from ha_mcp.tool_api import CallContext
 from ha_mcp.tools.tools_config_dashboards import DashboardConfigTools
 from ha_mcp.utils.config_hash import compute_config_hash
@@ -28,7 +34,6 @@ from ha_mcp.utils.config_hash import compute_config_hash
 from ._client_spies import sent_messages
 from ._config_dir_yaml import write_config_files
 from ._entity_registry_core import sent_types
-from ._native_test_engine import native_engine
 from ._tool_errors import rejected_call_body
 
 _LOGGER_NAME = "ha_mcp.tools.tools_config_dashboards"
@@ -41,8 +46,11 @@ async def test_native_dashboard_creation_does_not_invent_a_missing_title(
     hass_admin_user: User,
 ) -> None:
     backend = NativeBackend(hass)
+    manager = NativeServerManager(hass, MockConfigEntry(domain=DOMAIN, data={DATA_WEBHOOK_ID: "test-dashboard"}))
+    manager.backend = backend
+    manager.snapshots = NativeSnapshots(manager)
     try:
-        result = await native_engine(backend).call(
+        result = await Engine(backend, build_dashboard_tools(manager)).call(
             "ha_config_set_dashboard",
             {
                 "url_path": "new-map",

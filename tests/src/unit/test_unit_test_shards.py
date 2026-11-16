@@ -60,7 +60,7 @@ def test_the_required_check_passes_only_when_every_runner_did() -> None:
     name; the gate carries that name and must see every runner's result."""
     jobs = _jobs()
     assert jobs["unit-tests"]["name"] != _REQUIRED_CHECK
-    (gate,) = [job for job in jobs.values() if job["name"] == _REQUIRED_CHECK]
+    (gate,) = [job for job in jobs.values() if job.get("name") == _REQUIRED_CHECK]
     assert gate["needs"] == "unit-tests"
     # ``always()``: a job that waits on a failed one is skipped by default, and
     # a skipped required check counts as passed.
@@ -76,7 +76,7 @@ def test_the_gate_passes_for_no_runner_result_but_success(
 ) -> None:
     """The gate's own step decides the required check: run it as the runner
     does, with the result it would be handed."""
-    (gate,) = [job for job in _jobs().values() if job["name"] == _REQUIRED_CHECK]
+    (gate,) = [job for job in _jobs().values() if job.get("name") == _REQUIRED_CHECK]
     (step,) = gate["steps"]
     assert step["env"] == {"RESULT": "${{ needs.unit-tests.result }}"}
 

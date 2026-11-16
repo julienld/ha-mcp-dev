@@ -481,6 +481,7 @@ class AutomationWriteTools(AutomationRuntimeTools):
         # storage key; thread it so the upsert skips the redundant re-resolve
         # (issue #1813 Phase 0). Fall back to the raw identifier if the fetched
         # body carried no ``id`` (not expected for a real automation).
+        entity_id = await self._resolve_automation_entity_id_strict(identifier)
         runtime_requested = enabled is not None or run_actions
         async with self._config_reload_waiter(
             enabled=runtime_requested
@@ -506,7 +507,7 @@ class AutomationWriteTools(AutomationRuntimeTools):
             )
 
         entity_id = await self._resolve_post_write_automation_entity(
-            identifier or result.get("unique_id"), result.get("entity_id"), wait, result
+            identifier or result.get("unique_id"), result.get("entity_id") or entity_id, wait, result
         )
         if effective_category and entity_id:
             await self._apply_category(

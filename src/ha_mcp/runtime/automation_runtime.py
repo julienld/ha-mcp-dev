@@ -76,14 +76,6 @@ class AutomationRuntimeTools(AutomationConfigMethods):
         wait: bool,
         response: dict[str, Any],
     ) -> str | None:
-        if not entity_id and identifier and not wait:
-            try:
-                return await self._resolve_automation_entity_id_strict(identifier)
-            except _RUNTIME_ERRORS as error:
-                response.setdefault("warnings", []).append(
-                    f"Automation registration verification failed: {error}"
-                )
-                return None
         if (
             wait
             and not entity_id
