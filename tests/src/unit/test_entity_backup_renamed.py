@@ -160,10 +160,12 @@ async def test_a_rename_during_the_safety_backup_stops_the_restore(
         before_command(
             hass, "config/entity_registry/get", _rename(entity_registry, "light.lamp")
         ),
-        pytest.raises(bm.MandatoryBackupError),
+        pytest.raises(bm.BackupRestoreError) as refused,
     ):
         await entity_manager.restore_snapshot(path.name)
 
+    assert refused.value.outcome["reason"] == "config_conflict"
+    assert refused.value.outcome["apply_status"] == "not_applied"
     assert write_count(seen) == 0
     assert _area(entity_registry, "light.lamp") == desk.kitchen
 

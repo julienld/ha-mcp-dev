@@ -33,7 +33,6 @@ from ._entity_backup_core import (
     before_command,
     component_commands_removed,
     crashing_on,
-    entity_snapshot,
     with_config_entry,
     with_device,
     write_count,
@@ -357,7 +356,7 @@ async def test_no_answer_after_the_component_write_was_sent_is_unknown(
     entity_registry.async_update_entity(desk.entity_id, name="Desk")
 
     async with unanswered(hass, RESTORE, monkeypatch):
-        with written(hass) as seen, pytest.raises(HomeAssistantCommandTimeout) as err:
+        with written(hass) as seen, pytest.raises(HomeAssistantCommandTimeout):
             await entity_handler.restore(entity_client, desk.entity_id, snapshot)
 
     assert [len(seen[RESTORE]), len(seen[CORE_UPDATE])] == [1, 0]

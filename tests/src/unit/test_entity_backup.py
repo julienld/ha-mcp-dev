@@ -493,10 +493,10 @@ class TestStateSnapshotFile:
 
     async def test_restoring_an_absent_state_keeps_its_registry_settings(
         self,
+        hass: HomeAssistant,
         entity_manager: bm.BackupManager,
         backup_settings: config.Settings,
         legacy: str,
-        entity_client: HomeAssistantClient,
         entity_registry: er.EntityRegistry,
         desk: Desk,
     ) -> None:
@@ -505,7 +505,8 @@ class TestStateSnapshotFile:
 
         await entity_manager.restore_snapshot(legacy)
 
-        assert (await entity_client.get_state(desk.entity_id))["state"] == "on"
+        restored = hass.states.get(desk.entity_id)
+        assert restored is not None and restored.state == "on"
         assert _entry(entity_registry, desk) == registered
         assert (
             await asyncio.to_thread(backup_files, backup_dir(backup_settings)) == files
@@ -540,6 +541,7 @@ async def test_a_bulk_call_captures_every_entity_before_editing(
     after_single = await asyncio.to_thread(backup_files, directory)
 
     assert {name.split(".20")[0] for name in after_bulk} == {
-        "entity.light.desk", "entity.light.lamp"
+        "entity.light.desk",
+        "entity.light.lamp",
     }
     assert len(after_single) > len(after_bulk)
