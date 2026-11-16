@@ -8,13 +8,12 @@ the component's listing did not cover is a failed read or no helper at all.
 
 from typing import Any
 
-from ..runtime.helper_removal_entries import removal_helper_type as removal_helper_type
-
 from ..backup_manager import (
     _FlowHelperBackupSkip,
     _FlowHelperReadError,
     _is_flow_helper_domain,
 )
+from ..runtime.helper_removal_entries import removal_helper_type as removal_helper_type
 from .helper_flows import helper_flow_types, listed_helper_flows
 
 
@@ -28,8 +27,6 @@ def helper_backup_id(kwargs: dict[str, Any]) -> str:
         entry_id, subentry_id = kwargs.get("entry_id"), kwargs.get("subentry_id")
         return f"{entry_id}/{subentry_id}" if entry_id and subentry_id else ""
     return str(kwargs.get("helper_id") or kwargs.get("entry_id") or "")
-
-
 
 
 def removal_backup_domain(kwargs: dict[str, Any]) -> str:

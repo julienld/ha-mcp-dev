@@ -141,4 +141,5 @@ def scrub_known_secrets(text: str) -> str:
         return text
     return scrub_text(text, with_serialized_variants(known_secret_values()))
 
+
 clear_known_secret_values = _shared_redaction.clear_known_secret_values

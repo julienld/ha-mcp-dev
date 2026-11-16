@@ -1775,10 +1775,12 @@ class HomeAssistantClient:
                     continue
 
                 if acquiring or isinstance(e, _NO_ANSWER_ERRORS):
-                    log = logger.debug if not acquiring and message.get("_wait_timeout") == 0 else logger.error
-                    log(
-                        f"WebSocket transport failed ({message.get('type')}): {e}"
+                    log = (
+                        logger.debug
+                        if not acquiring and message.get("_wait_timeout") == 0
+                        else logger.error
                     )
+                    log(f"WebSocket transport failed ({message.get('type')}): {e}")
                     if acquiring:
                         raise HomeAssistantCommandNotSent(error_str) from e
                     if isinstance(e, HomeAssistantCommandNotSent):

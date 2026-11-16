@@ -2342,7 +2342,7 @@
         },
         "subentry_id": {
           "type": "str | None",
-          "description": "Config subentry ID to remove; target is its parent entry_id.",
+          "description": "Config subentry ID to remove when helper_type='config_subentry'.",
           "default": null
         },
         "confirm": {
