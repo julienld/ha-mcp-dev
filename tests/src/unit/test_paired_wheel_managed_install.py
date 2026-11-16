@@ -1,48 +1,17 @@
 """Exact manifest wheel receipts preserve a loaded native generation on rollback."""
 
-import json
 import threading
-from types import SimpleNamespace
 
 import pytest
 from homeassistant.core import HomeAssistant
 
 from custom_components.ha_mcp_tools import embedded_server as es
-from custom_components.ha_mcp_tools.const import DATA_LAST_PIP_SPEC, DATA_REINSTALL_REQUESTED, OPT_PIP_SPEC
+from custom_components.ha_mcp_tools.const import DATA_REINSTALL_REQUESTED, OPT_PIP_SPEC
 
-from ._embedded_server_core import PackageIndex, new_manager, pin, package_step
-from ._embedded_server_core import package_index as package_index
-from .test_paired_wheel import _DIGEST, _SPEC, _URL
-
-
-@pytest.fixture
-async def managed(hass: HomeAssistant, package_index: PackageIndex, tmp_path, monkeypatch):
-
-    from custom_components.ha_mcp_tools import paired_wheel
-
-    (tmp_path / "installed" / "ha_mcp").mkdir(parents=True)
-    monkeypatch.setattr(paired_wheel.wheel_payload, "sys", SimpleNamespace(modules={}))
-
-    pin(hass, _SPEC)
-    manager, entry = await new_manager(hass, data={DATA_LAST_PIP_SPEC: _SPEC})
-    env = package_index
-    env.dists["ha-mcp"] = "9.0.0.dev1"
-    monkeypatch.setattr(es, "native_bound_version", lambda: "9.0.0.dev1")
-    receipt = {"url": _URL, "archive_info": {"hashes": {"sha256": _DIGEST}}}
-    threads = []
-
-    def distribution(_name):
-        threads.append(threading.get_ident())
-        return SimpleNamespace(
-            version="9.0.0.dev1",
-            metadata={"Name": "ha-mcp"},
-            read_text=lambda _filename: json.dumps(receipt),
-            locate_file=lambda member: tmp_path / "installed" / member,
-        )
-
-    monkeypatch.setattr(paired_wheel.importlib.metadata, "distribution", distribution)
-
-    return manager, env, entry, receipt, threads
+from ._embedded_server_core import package_step
+from ._paired_wheel_core import WHEEL_SPEC as _SPEC
+from ._paired_wheel_core import managed as managed
+from ._paired_wheel_core import package_index as package_index
 
 
 async def test_exact_hashed_manifest_wheel_does_not_reinstall_on_native_to_legacy_switch(

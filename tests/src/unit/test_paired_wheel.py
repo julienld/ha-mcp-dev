@@ -1,46 +1,11 @@
 """Only exact installed wheel receipts can avoid a paired URL reinstall."""
 
-import importlib.util
-import json
-import sys
-from pathlib import Path
-from types import ModuleType, SimpleNamespace
-
 import pytest
 
-_URL = "https://github.com/julienld/ha-mcp-native/releases/download/9.0.0.dev1/ha_mcp-9.0.0.dev1-py3-none-any.whl"
-_DIGEST = "abc01234" * 8
-_SPEC = "ha-mcp @ " + _URL + "#sha256=" + _DIGEST
-
-
-@pytest.fixture
-def paired(monkeypatch, tmp_path):
-    path = (
-        Path(__file__).resolve().parents[3]
-        / "custom_components/ha_mcp_tools/paired_wheel.py"
-    )
-    package_name = "paired_wheel_contract"
-    package = ModuleType(package_name)
-    package.__path__ = [str(path.parent)]
-    monkeypatch.setitem(sys.modules, package_name, package)
-    spec = importlib.util.spec_from_file_location(package_name + ".paired_wheel", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    payload = importlib.import_module(package_name + ".wheel_payload")
-    monkeypatch.setattr(payload, "sys", SimpleNamespace(modules={}))
-    site = tmp_path / "installed"
-    (site / "ha_mcp").mkdir(parents=True)
-    receipt = {"url": _URL, "archive_info": {"hashes": {"sha256": _DIGEST}}}
-    distribution = SimpleNamespace(
-        version="9.0.0.dev1",
-        metadata={"Name": "ha-mcp"},
-        read_text=lambda _name: json.dumps(receipt),
-        locate_file=lambda member: site / member,
-    )
-    monkeypatch.setattr(
-        module.importlib.metadata, "distribution", lambda _name: distribution
-    )
-    return module, receipt, distribution
+from ._paired_wheel_core import WHEEL_DIGEST as _DIGEST
+from ._paired_wheel_core import WHEEL_SPEC as _SPEC
+from ._paired_wheel_core import WHEEL_URL as _URL
+from ._paired_wheel_core import paired as paired
 
 
 def test_exact_paired_wheel_receipt_is_read_without_importing_runtime(paired):
