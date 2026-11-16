@@ -26,7 +26,7 @@ from homeassistant.helpers import llm
 from mcp import McpError, types
 from pytest_homeassistant.common import MockConfigEntry
 
-from custom_components.ha_mcp_tools import llm_api
+from custom_components.ha_mcp_tools import llm_api, llm_projection
 from custom_components.ha_mcp_tools.const import (
     DATA_LLM_API_UNSUB,
     DOMAIN,
@@ -175,7 +175,7 @@ def _warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
     return [
         record.getMessage()
         for record in caplog.records
-        if record.name == llm_api.__name__ and record.levelno == logging.WARNING
+        if record.name == llm_projection.__name__ and record.levelno == logging.WARNING
     ]
 
 
@@ -183,7 +183,7 @@ def _warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
 def test_the_voluptuous_openapi_converter_is_used_without_a_warning(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    with caplog.at_level(logging.DEBUG, logger=llm_api.__name__):
+    with caplog.at_level(logging.DEBUG, logger=llm_projection.__name__):
         converted = llm_api.convert_to_voluptuous(_SCHEMA)
 
     assert isinstance(converted, vol.Schema)
@@ -221,7 +221,7 @@ def test_the_fallback_announces_which_codec_is_converting(
     """
     monkeypatch.setitem(sys.modules, "voluptuous_openapi", None)
 
-    with caplog.at_level(logging.DEBUG, logger=llm_api.__name__):
+    with caplog.at_level(logging.DEBUG, logger=llm_projection.__name__):
         llm_api.convert_to_voluptuous(_SCHEMA)
 
     [warning] = _warnings(caplog)

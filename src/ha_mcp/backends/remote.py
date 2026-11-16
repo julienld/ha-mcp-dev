@@ -191,7 +191,7 @@ class RemoteBackend:
         reader._client = self.client
         component = await reader._fetch_states_via_component(entity_ids)
         if component is not None:
-            return component
+            return {**component, "last_reported_live": True}
         results = await asyncio.gather(
             *(reader._fetch_single_state(eid) for eid in entity_ids)
         )
@@ -202,6 +202,7 @@ class RemoteBackend:
         }
         return {
             "states": states,
+            "last_reported_live": False,
             "missing": [eid for eid in entity_ids if eid not in states],
             "errors": {
                 eid: row

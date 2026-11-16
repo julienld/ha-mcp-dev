@@ -26,20 +26,10 @@ def service_names(hass: HomeAssistant) -> list[dict[str, Any]]:
 
 
 def read_states(hass: HomeAssistant, entity_ids: list[str]) -> dict[str, Any]:
-    """Return ``State.as_dict()`` for each requested entity_id + a ``missing`` list.
+    """Return Core state records with live ``last_reported`` and missing IDs.
 
-    ``hass.states.get(id)`` is a pure O(1) in-memory dict read, and core's
-    ``State.as_dict()`` is exactly the serialization the REST ``/api/states/<id>``
-    endpoint emits — so a component-served record is byte-identical to the legacy
-    per-id REST fetch by construction (the WS transport JSON-encodes the same
-    datetimes to the same ISO strings the REST layer does). The body is returned
-    UNMODIFIED — never ``_plainify``'d — precisely so that byte-parity holds:
-    ``_plainify``'s ``str()`` would render a datetime with a space separator where
-    both REST and WS use ``isoformat``'s ``T``. No freshness or secrets concern:
-    state bodies are always live and carry no ``!secret`` plaintext. The server
-    enforces its own ``MAX_ENTITIES`` cap before calling, so no per-frame guard is
-    needed here (100 full states is well within one frame — ``overview`` already
-    returns every state in one call).
+    Core caches the remaining wire body; the shared serializer refreshes the
+    repeated-report timestamp without changing datetime encoding or attributes.
     """
     states: dict[str, Any] = {}
     missing: list[str] = []

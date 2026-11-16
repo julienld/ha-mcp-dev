@@ -540,15 +540,15 @@ def _state_get(hass: HomeAssistant, entity_id: str) -> Any:
 
 
 def _state_as_dict(state: Any) -> Any:
-    """core ``State.as_dict()`` verbatim — the REST ``/api/states/<id>`` shape.
+    """Core's state wire shape with the live repeated-report timestamp.
 
-    Returned unmodified so the WS transport encodes its datetimes with the same
-    ``isoformat`` the REST layer uses (byte-parity — see :func:`_do_states`).
+    Core caches ``as_dict()`` without refreshing ``last_reported`` when the
+    same state is reported again (home-assistant/core#181392).
     """
     as_dict = getattr(state, "as_dict", None)
     if callable(as_dict):
         try:
-            return as_dict()
+            return {**as_dict(), "last_reported": state.last_reported.isoformat()}
         except Exception:  # pragma: no cover - defensive  # noqa: BLE001
             return None
     return None

@@ -20,6 +20,7 @@ from ha_mcp.tool_api import CallContext, ToolFailure, UnsupportedOperation
 from ha_mcp.utils.owned_executor import await_owned_io
 from ha_mcp.utils.registry_update_lock import registry_update_lock
 
+from ..core_registry import _state_as_dict
 from . import group_records as records
 from .entity_waiters import wait_registered, wait_removed
 from .registry_access import (
@@ -45,7 +46,7 @@ class NativeGroups:
         try:
             await authorize_actor(self.actor, self.authorize)
             core_states = self.hass.states.async_all("group")
-            states = [state.as_dict() for state in core_states]
+            states = [_state_as_dict(state) for state in core_states]
             try:
                 component = records.component(self.hass)
             except UnsupportedOperation:

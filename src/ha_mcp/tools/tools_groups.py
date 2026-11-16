@@ -24,6 +24,7 @@ from ha_mcp.runtime.group_values import (
 )
 
 from .auto_backup import with_auto_backup
+from .component_api import REST_LAST_REPORTED_WARNING, ask_component
 from .helpers import (
     exception_to_structured_error,
     get_entity_state_or_none,
@@ -95,7 +96,26 @@ class RemoteGroups:
 
     async def list(self, limit: int, offset: int) -> dict[str, Any]:
         try:
-            return group_list_result(await self._client.get_states(), limit, offset)
+            try:
+                snapshot = await ask_component(
+                    self._client,
+                    "system_snapshot",
+                    include_issues=False,
+                    include_config_entries=False,
+                    include_entities=False,
+                    include_states=True,
+                )
+            except HomeAssistantConnectionError as error:
+                logger.warning("Component snapshot failed; using REST: %r", error)
+                snapshot = None
+            states = snapshot.get("states") if snapshot else None
+            live = isinstance(states, list)
+            if not isinstance(states, list):
+                states = await self._client.get_states()
+            result = group_list_result(states, limit, offset)
+            if result["groups"] and not live:
+                result["warnings"] = [REST_LAST_REPORTED_WARNING]
+            return result
         except Exception as error:
             exception_to_structured_error(
                 error,

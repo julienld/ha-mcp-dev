@@ -10,6 +10,7 @@ from ha_mcp.tool_api import BackendTools
 from ha_mcp.tools.coercion import JSON_STRING_COERCION, parse_string_list_param
 
 from .errors import raise_failure
+from .component_messages import REST_LAST_REPORTED_WARNING
 from .projection import project_entity_record as _project_entity
 from .projection import timezone_metadata
 
@@ -86,7 +87,7 @@ class StateTools(BackendTools):
             data, result["timezone"], result.get("fetch_failed", False)
         )
 
-    async def _get_one_state(self, entity_id: str) -> dict[str, Any]:
+    async def _get_one_state(self, entity_id: str) -> tuple[dict[str, Any], bool]:
         result = await self.backend.execute(
             "states.read", {"entity_ids": [entity_id]}, self.context
         )
@@ -95,20 +96,21 @@ class StateTools(BackendTools):
                 result.get("errors", {}).get(entity_id, _missing_entity(entity_id))
             )
         record: dict[str, Any] = result["states"][entity_id]
-        return record
+        return record, bool(result.get("last_reported_live", True))
 
     async def _resolve_bulk_state_results(
         self, entity_ids: list[str]
-    ) -> list[dict[str, Any]]:
+    ) -> tuple[list[dict[str, Any]], bool]:
         result = await self.backend.execute(
             "states.read", {"entity_ids": entity_ids}, self.context
         )
-        return [
+        rows = [
             {"success": True, "entity_id": eid, "state": result["states"][eid]}
             if eid in result["states"]
             else result.get("errors", {}).get(eid, _missing_entity(eid))
             for eid in entity_ids
         ]
+        return rows, bool(result.get("last_reported_live", True))
 
     async def ha_get_state(
         self,
@@ -165,6 +167,10 @@ class StateTools(BackendTools):
         single-entity mode — so `fields=["state"]` still returns a record with
         only `state`.
 
+        Without the component, `last_reported` comes from Core's REST API and
+        may lag repeated reports of an unchanged state. A warning accompanies
+        the value when it is returned.
+
         EXAMPLES:
         - Single: ha_get_state("light.kitchen")
         - Multiple: ha_get_state(["light.kitchen", "light.living_room", "sensor.temperature"])
@@ -211,13 +217,15 @@ class StateTools(BackendTools):
         attribute_keys_no_effect: bool,
     ) -> dict[str, Any]:
         """Fetch and return state for a single entity ID."""
-        result = await self._get_one_state(entity_id)
+        result, live = await self._get_one_state(entity_id)
         entity_record, attr_warn = _project_entity(
             result, parsed_fields, parsed_attribute_keys
         )
         # Always wrap (include_metadata=True); callers and tests rely on
         # the ``result["data"]`` envelope even when fields= is active.
         wrapped = await self._timezone(entity_record)
+        if not live and (parsed_fields is None or "last_reported" in parsed_fields):
+            wrapped.setdefault("warnings", []).append(REST_LAST_REPORTED_WARNING)
         # ``attribute_keys`` was specified but ``attributes`` is not in the
         # projected ``fields=`` set. Attach the warning at the outer wrapper
         # level (sibling of ``data``/``metadata``) — the FIELDS PROJECTION
@@ -274,13 +282,15 @@ class StateTools(BackendTools):
                 f"Deduplicated entity_ids: {len(entity_ids)} -> {len(unique_ids)}"
             )
 
-        results = await self._resolve_bulk_state_results(unique_ids)
+        results, live = await self._resolve_bulk_state_results(unique_ids)
         states, errors, attr_warns = _accumulate_state_results(
             unique_ids, results, parsed_fields, parsed_attribute_keys
         )
         response = _build_bulk_states_response(
             states, errors, attr_warns, attribute_keys_no_effect
         )
+        if states and not live and (parsed_fields is None or "last_reported" in parsed_fields):
+            response.setdefault("warnings", []).append(REST_LAST_REPORTED_WARNING)
         return await self._timezone(response)
 
 

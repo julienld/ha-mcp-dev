@@ -63,6 +63,8 @@ class GroupTools:
         members as `entity_ids`, and its object_id. `auto` is true for a group
         created by ha_config_set_group (group.set) and false for a YAML group.
         The in-process runtime also reads the all/any mode from its Core owner.
+        Without the component, `last_reported` comes from Core's REST API,
+        may lag repeated unchanged reports, and is accompanied by a warning.
 
         EXAMPLE: ha_config_list_groups(offset=100)
         """

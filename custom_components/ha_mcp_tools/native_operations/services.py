@@ -3,9 +3,10 @@
 from typing import Any
 
 from homeassistant.const import EVENT_STATE_CHANGED
-from homeassistant.core import Event, EventStateChangedData, HomeAssistant, callback
+from homeassistant.core import Event, EventStateChangedData, HomeAssistant, State, callback
 
 from ..core_call_service import call_service
+from ..core_registry import _state_as_dict
 
 
 async def call_and_observe(
@@ -24,7 +25,7 @@ async def call_and_observe(
     """
     if not include_changed_states:
         return await call_service(hass, **parameters, context=context)
-    changed: list[dict[str, Any]] = []
+    changed: list[State] = []
 
     @callback
     def record(event: Event[EventStateChangedData]) -> None:
@@ -32,11 +33,16 @@ async def call_and_observe(
             event.context == context
             and (state := event.data.get("new_state")) is not None
         ):
-            changed.append(state.as_dict())
+            changed.append(state)
 
     unsubscribe = hass.bus.async_listen(EVENT_STATE_CHANGED, record)
     try:
         result = await call_service(hass, **parameters, context=context)
-        return {**result, "changed_states": changed}
+        if "changed_states" in result:
+            return result
+        return {
+            **result,
+            "changed_states": [_state_as_dict(state) for state in changed],
+        }
     finally:
         unsubscribe()
