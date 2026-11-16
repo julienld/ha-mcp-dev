@@ -1,29 +1,33 @@
 """Exact manifest wheel receipts preserve a loaded native generation on rollback."""
 
-import asyncio
 import json
 import threading
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
 
 import pytest
+from homeassistant.core import HomeAssistant
 
+from custom_components.ha_mcp_tools import embedded_server as es
+from custom_components.ha_mcp_tools.const import DATA_LAST_PIP_SPEC, DATA_REINSTALL_REQUESTED
+
+from ._embedded_server_core import PackageIndex, new_manager, pin
+from ._embedded_server_core import package_index as package_index
 from .test_paired_wheel import _DIGEST, _SPEC, _URL
 
 
 @pytest.fixture
-def managed(tmp_path, monkeypatch):
+async def managed(hass: HomeAssistant, package_index: PackageIndex, tmp_path, monkeypatch):
 
     from custom_components.ha_mcp_tools import paired_wheel
 
     (tmp_path / "installed" / "ha_mcp").mkdir(parents=True)
     monkeypatch.setattr(paired_wheel.wheel_payload, "sys", SimpleNamespace(modules={}))
 
-    from .test_embedded_server import DATA_LAST_PIP_SPEC, _manager, _PkgEnv, es
-
-    manager, hass, entry = _manager(tmp_path, data={DATA_LAST_PIP_SPEC: _SPEC})
+    pin(hass, _SPEC)
+    manager, entry = await new_manager(hass, data={DATA_LAST_PIP_SPEC: _SPEC})
     manager._pip_spec = manager._paired_spec = _SPEC
-    env = _PkgEnv(monkeypatch, {"ha-mcp": "9.0.0.dev1"})
+    env = package_index
+    env.dists["ha-mcp"] = "9.0.0.dev1"
     monkeypatch.setattr(es, "native_bound_version", lambda: "9.0.0.dev1")
     receipt = {"url": _URL, "archive_info": {"hashes": {"sha256": _DIGEST}}}
     threads = []
@@ -39,10 +43,6 @@ def managed(tmp_path, monkeypatch):
 
     monkeypatch.setattr(paired_wheel.importlib.metadata, "distribution", distribution)
 
-    async def executor(fn, *args):
-        return await asyncio.to_thread(fn, *args)
-
-    hass.async_add_executor_job = AsyncMock(side_effect=executor)
     return manager, env, entry, receipt, threads
 
 
@@ -66,15 +66,15 @@ async def test_exact_hashed_manifest_wheel_does_not_reinstall_on_native_to_legac
     ],
 )
 async def test_requested_or_unproven_package_change_still_requires_Core_restart(
-    managed, reason, monkeypatch
+    hass: HomeAssistant, managed, reason, monkeypatch
 ):
-    from .test_embedded_server import DATA_REINSTALL_REQUESTED, es
-
     manager, env, entry, receipt, _threads = managed
     if reason == "override":
         manager._pip_spec_override = _SPEC
     elif reason == "explicit_reinstall":
-        entry.data[DATA_REINSTALL_REQUESTED] = True
+        hass.config_entries.async_update_entry(
+            entry, data={**entry.data, DATA_REINSTALL_REQUESTED: True}
+        )
     elif reason == "wrong_receipt":
         receipt["archive_info"]["hashes"]["sha256"] = "0" * 64
     elif reason == "conflicting_distribution":
