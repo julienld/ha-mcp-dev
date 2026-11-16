@@ -18,7 +18,9 @@ from ._native_test_engine import native_engine
 async def test_native_reads_keep_a_repeated_report_visible(
     hass: HomeAssistant, hass_admin_user: User, tool: str
 ) -> None:
-    entity_id = "group.repeated_report" if tool.endswith("groups") else "sensor.repeated_report"
+    entity_id = (
+        "group.repeated_report" if tool.endswith("groups") else "sensor.repeated_report"
+    )
     hass.states.async_set(entity_id, "0", timestamp=1_800_000_000.0)
     first = hass.states.get(entity_id)
     assert first is not None

@@ -15,7 +15,6 @@ from ...client.rest_client import (
 from ...client.websocket_client import get_websocket_client
 from ...runtime.states import StateTools
 from ..component_api import (
-    REST_LAST_REPORTED_WARNING,
     component_supports,
     get_component_caps,
     invalidate_caps,

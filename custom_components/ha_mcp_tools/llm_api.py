@@ -65,6 +65,13 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import llm
 
 from ha_mcp.tool_api.llm_projection import (
+    _EXCLUSIVE_BOUNDS as EXCLUSIVE_BOUNDS,
+    _INSTANCE_VALUES as INSTANCE_VALUES,
+    _SCHEMA_MAPS as SCHEMA_MAPS,
+    _is_opaque_key as is_opaque_key,
+)
+
+from ha_mcp.tool_api.llm_projection import (
     _EXCLUSIVE_BOUNDS,
     _INSTANCE_VALUES,
     _OPAQUE_KEYWORDS,
@@ -101,6 +108,8 @@ from .llm_projection import (
     build_search_tools,
     convert_parameters,
     convert_to_voluptuous,
+)
+from .llm_projection import (
     reset_schema_converter as reset_schema_converter,
 )
 from .llm_tool_exposure import partition_tools
@@ -188,9 +197,9 @@ def is_transport_failure(err: BaseException) -> bool:
     return isinstance(err, _transport_error_leaves())
 
 
-
 _is_transport_failure = is_transport_failure
 _CALL_TOOL_TIMEOUT_SECONDS = CALL_TOOL_TIMEOUT_SECONDS
+
 
 def _only_home_assistant_error(error: BaseException) -> HomeAssistantError | None:
     """Find the first HA error only when every nested leaf is an HA error."""
@@ -733,6 +742,10 @@ async def async_register_llm_api(
 
 
 __all__ = [
+    "EXCLUSIVE_BOUNDS",
+    "INSTANCE_VALUES",
+    "SCHEMA_MAPS",
+    "is_opaque_key",
     "CALL_TOOL_TIMEOUT_SECONDS",
     "LIST_TOOLS_TIMEOUT_SECONDS",
     "is_transport_failure",

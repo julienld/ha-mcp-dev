@@ -27,7 +27,7 @@ from ha_mcp import backup_manager as bm
 from ha_mcp import config
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp.client.rest_client import HomeAssistantAPIError, HomeAssistantClient
-from ha_mcp.tools import tools_integrations
+from ha_mcp.tools import tools_integrations, ws_waiters
 from ha_mcp.tools.tools_config_helpers import HelperConfigTools
 
 from ._backup_core import add_label, captured_name, place_snapshot, snapshot_of
@@ -710,8 +710,8 @@ async def test_an_unreadable_registry_does_not_stop_the_removal(
     Core's ``config`` commands the registry read is refused."""
     assert await async_setup_component(hass, "tag", {})
     await create_tag(core_client, "front")
-    waited = AsyncMock(wraps=tools_integrations.verify_entity_removed)
-    monkeypatch.setattr(tools_integrations, "verify_entity_removed", waited)
+    waited = AsyncMock(wraps=ws_waiters.verify_entity_removed)
+    monkeypatch.setattr(ws_waiters, "verify_entity_removed", waited)
 
     result = await remove_tag(core_client, "front", wait=True)
 
@@ -730,8 +730,8 @@ async def test_a_readable_registry_names_the_entity_and_waits_for_its_removal(
     """The twin of the unreadable registry: the entity is named and waited on."""
     await set_up(hass, "tag")
     await create_tag(core_client, "front")
-    waited = AsyncMock(wraps=tools_integrations.verify_entity_removed)
-    monkeypatch.setattr(tools_integrations, "verify_entity_removed", waited)
+    waited = AsyncMock(wraps=ws_waiters.verify_entity_removed)
+    monkeypatch.setattr(ws_waiters, "verify_entity_removed", waited)
 
     result = await remove_tag(core_client, "front", wait=True)
 

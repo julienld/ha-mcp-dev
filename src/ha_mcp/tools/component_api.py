@@ -46,9 +46,11 @@ from ..client.rest_client import (
     HomeAssistantConnectionError,
 )
 from ..client.websocket_client import get_websocket_client, websocket_manager
-
 from ..runtime.component_messages import (
     COMPONENT_INSTALL_HINT as COMPONENT_INSTALL_HINT,
+    COMPONENT_VIA_HACS as COMPONENT_VIA_HACS,
+)
+from ..runtime.component_messages import (
     REST_LAST_REPORTED_WARNING as REST_LAST_REPORTED_WARNING,
 )
 
@@ -616,9 +618,6 @@ def webhook_auth(info: InfoResult | None) -> str | None:
     return auth if isinstance(auth, str) else None
 
 
-COMPONENT_VIA_HACS = (
-    "via HACS (the Marketplace on Home Assistant 2026.11+) and restart Home Assistant."
-)
 # Said wherever a response is poorer for want of a component command.
 def component_unusable_warning(caps: ComponentCaps | None, without: str) -> str:
     """Why a read came without the component's part, and how to get it.

@@ -177,7 +177,9 @@ async def call_service(
         if response_error is not None:
             result["service_error" if failed else "response_error"] = response_error
         if return_response:
-            result["changed_states"] = _changed_states(hass, changed, entity_ids, captured)
+            result["changed_states"] = _changed_states(
+                hass, changed, entity_ids, captured
+            )
     except Exception:
         # An async_call failure may follow an effect: re-raise for an unknown outcome.
         # A failure after async_call returned preserves its known acceptance:

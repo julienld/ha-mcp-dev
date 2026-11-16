@@ -52,7 +52,7 @@ import time
 import weakref
 from collections import Counter
 from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
-from contextlib import asynccontextmanager, nullcontext, suppress
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path

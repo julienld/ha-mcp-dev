@@ -9,8 +9,8 @@ from ha_mcp.errors import create_entity_not_found_error, create_validation_error
 from ha_mcp.tool_api import BackendTools
 from ha_mcp.tools.coercion import JSON_STRING_COERCION, parse_string_list_param
 
-from .errors import raise_failure
 from .component_messages import REST_LAST_REPORTED_WARNING
+from .errors import raise_failure
 from .projection import project_entity_record as _project_entity
 from .projection import timezone_metadata
 
@@ -289,7 +289,11 @@ class StateTools(BackendTools):
         response = _build_bulk_states_response(
             states, errors, attr_warns, attribute_keys_no_effect
         )
-        if states and not live and (parsed_fields is None or "last_reported" in parsed_fields):
+        if (
+            states
+            and not live
+            and (parsed_fields is None or "last_reported" in parsed_fields)
+        ):
             response.setdefault("warnings", []).append(REST_LAST_REPORTED_WARNING)
         return await self._timezone(response)
 

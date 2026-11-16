@@ -1,5 +1,9 @@
 """Shared component availability guidance without a transport dependency."""
 
+COMPONENT_VIA_HACS = (
+    "via HACS (the Marketplace on Home Assistant 2026.11+) and restart Home Assistant."
+)
+
 COMPONENT_INSTALL_HINT = (
     f"Install or update the ha_mcp_tools component {COMPONENT_VIA_HACS}"
 )
