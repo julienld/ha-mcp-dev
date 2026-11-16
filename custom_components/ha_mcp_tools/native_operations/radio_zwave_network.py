@@ -217,7 +217,9 @@ async def _reset(session: RadioSession, entry: Any, driver: Any) -> dict[str, An
     zwave_helpers = loaded_integration_module(session.hass, "zwave_js.helpers")
     async_get_version_info = zwave_helpers.async_get_version_info
 
-    session.validate("zwave_js/hard_reset_controller", {"entry_id": entry.entry_id})
+    command = "zwave_js/hard_reset_controller"
+    session.validate(command, {"entry_id": entry.entry_id})
+    previous_registration = session.hass.data["websocket_api"][command]
     previous_runtime, previous_client = entry.runtime_data, entry.runtime_data.client
     previous_controller = driver.controller
     waiter = asyncio.create_task(
@@ -229,8 +231,21 @@ async def _reset(session: RadioSession, entry: Any, driver: Any) -> dict[str, An
         await waiter
         runtime, client = entry.runtime_data, entry.runtime_data.client
         current_driver = client.driver
+        registration = session.hass.data["websocket_api"][command]
+        previous_schema, schema = previous_registration[1], registration[1]
+        # Core reinstalls registrations during reload; accept the same handler,
+        # declaration and validation options, while retaining the new container.
+        if (
+            registration[0] is not previous_registration[0]
+            or type(schema) is not type(previous_schema)
+            or schema != previous_schema
+            or getattr(schema, "extra", None) != getattr(previous_schema, "extra", None)
+            or getattr(schema, "required", None) != getattr(previous_schema, "required", None)
+        ):
+            raise ToolFailure("CONFIG_CONFLICT", "The reset command validator changed during reload", status="not_started")
         session.rebind_owners(
             [
+                (previous_registration, registration, lambda: session.hass.data["websocket_api"][command]),
                 (previous_runtime, runtime, lambda: entry.runtime_data),
                 (previous_client, client, lambda: entry.runtime_data.client),
                 (driver, current_driver, lambda: entry.runtime_data.client.driver),
