@@ -251,7 +251,11 @@ async def test_the_converter_is_imported_once_and_off_the_event_loop(
 ) -> None:
     """Importing it on the loop would trip Home Assistant's blocking-call check."""
     loop_thread = threading.get_ident()
-    watched = {"ha_mcp._vendor.mcp.client.session", "ha_mcp._vendor.mcp.client.streamable_http", "voluptuous_openapi"}
+    watched = {
+        "ha_mcp._vendor.mcp.client.session",
+        "ha_mcp._vendor.mcp.client.streamable_http",
+        "voluptuous_openapi",
+    }
     imports: list[tuple[str, int]] = []
     real_import_module = importlib.import_module
 
@@ -315,7 +319,9 @@ async def _register(
     )
 
 
-async def test_an_explicitly_disabled_export_registers_no_api(hass: HomeAssistant) -> None:
+async def test_an_explicitly_disabled_export_registers_no_api(
+    hass: HomeAssistant,
+) -> None:
     await _register(hass, _add_entry(hass, {OPT_ENABLE_LLM_API: False}))
     assert _ours(hass) == {}
 

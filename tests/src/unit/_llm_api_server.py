@@ -13,14 +13,12 @@ from __future__ import annotations
 import asyncio
 import copy
 import socket
-import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from types import ModuleType
 from typing import Any
 
-import pytest
 import uvicorn
 import voluptuous as vol
 from homeassistant.core import HomeAssistant

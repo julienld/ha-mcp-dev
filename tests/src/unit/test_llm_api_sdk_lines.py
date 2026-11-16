@@ -22,9 +22,9 @@ from ._llm_api_server import (
     call,
     mirrored_tool,
     payload,
+    private_transport,
     serve,
     unused_port,
-    private_transport,
 )
 
 pytestmark = pytest.mark.usefixtures("socket_enabled")
