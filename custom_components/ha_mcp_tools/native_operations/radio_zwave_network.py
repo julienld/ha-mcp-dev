@@ -240,12 +240,21 @@ async def _reset(session: RadioSession, entry: Any, driver: Any) -> dict[str, An
             or type(schema) is not type(previous_schema)
             or schema != previous_schema
             or getattr(schema, "extra", None) != getattr(previous_schema, "extra", None)
-            or getattr(schema, "required", None) != getattr(previous_schema, "required", None)
+            or getattr(schema, "required", None)
+            != getattr(previous_schema, "required", None)
         ):
-            raise ToolFailure("CONFIG_CONFLICT", "The reset command validator changed during reload", status="not_started")
+            raise ToolFailure(
+                "CONFIG_CONFLICT",
+                "The reset command validator changed during reload",
+                status="not_started",
+            )
         session.rebind_owners(
             [
-                (previous_registration, registration, lambda: session.hass.data["websocket_api"][command]),
+                (
+                    previous_registration,
+                    registration,
+                    lambda: session.hass.data["websocket_api"][command],
+                ),
                 (previous_runtime, runtime, lambda: entry.runtime_data),
                 (previous_client, client, lambda: entry.runtime_data.client),
                 (driver, current_driver, lambda: entry.runtime_data.client.driver),
