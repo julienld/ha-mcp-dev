@@ -29,6 +29,8 @@ from ..runtime.resource_values import _process_resource_list as _process_resourc
 from ..runtime.resource_values import _summarize_resources as _summarize_resources
 from ..runtime.resource_values import content_sha256 as content_sha256
 
+from ..runtime.resource_values import summarize_resources as summarize_resources
+
 _data_uri_for = legacy_errors_sync(_core_data_uri_for)
 
 
@@ -56,6 +58,6 @@ __all__ = [
     "_process_resource_list",
     "_summarize_resources",
     "content_sha256",
+    "summarize_resources",
 ]
 
-from ..runtime.resource_values import summarize_resources as summarize_resources

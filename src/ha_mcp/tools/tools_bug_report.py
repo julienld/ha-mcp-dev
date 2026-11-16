@@ -614,6 +614,9 @@ __all__ = [
     "_format_startup_logs",
     "_format_websockets_dependency_value",
     "register_bug_report_tools",
+    "format_websockets_dependency_value",
+    "websockets_dependency_state",
+    "detect_mcp_transport",
 ]
 
 format_websockets_dependency_value = _format_websockets_dependency_value

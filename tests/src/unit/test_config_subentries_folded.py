@@ -23,6 +23,10 @@ from homeassistant.config_entries import (
     SubentryFlowResult,
 )
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.auth.models import User
+from custom_components.ha_mcp_tools.native_backend import NativeBackend
+from ha_mcp.tool_api import CallContext
+from ._native_test_engine import native_engine
 from homeassistant.setup import async_setup_component
 from pytest_homeassistant.common import (
     MockConfigEntry,
@@ -550,6 +554,23 @@ async def test_a_subentry_id_without_the_helper_type_never_removes_the_whole_ent
     kept = hass.config_entries.async_get_entry(parent.entry_id)
     assert kept is not None
     assert _EXISTING not in kept.subentries
+
+
+async def test_native_subentry_id_without_helper_type_keeps_the_parent(
+    hass: HomeAssistant, hass_admin_user: User, parent: MockConfigEntry,
+) -> None:
+    engine = native_engine(NativeBackend(hass), {"ha_remove_helpers_integrations"})
+    try:
+        result = await engine.call(
+            "ha_remove_helpers_integrations",
+            {"target": parent.entry_id, "subentry_id": _EXISTING, "confirm": True},
+            CallContext(hass_admin_user.id),
+        )
+        assert not result.is_error, result.data
+        kept = hass.config_entries.async_get_entry(parent.entry_id)
+        assert kept is not None and _EXISTING not in kept.subentries
+    finally:
+        await engine.stop()
 
 
 async def test_a_refused_subentry_removal_is_a_failure_not_a_missing_subentry(

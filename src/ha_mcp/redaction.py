@@ -118,6 +118,7 @@ __all__ = [
     "RedactSecretsMiddleware",
     "_clear_known_secret_values",
     "carries_sentinel",
+    "clear_known_secret_values",
     "collect_addon_secret_values",
     "harvest_secret_strings",
     "is_password_flow_field",

@@ -15,6 +15,10 @@ from unittest.mock import MagicMock
 
 import pytest
 from homeassistant.core import HomeAssistant
+from homeassistant.auth.models import User
+from custom_components.ha_mcp_tools.native_backend import NativeBackend
+from ha_mcp.tool_api import CallContext
+from ._native_test_engine import native_engine
 from homeassistant.helpers import device_registry as dr
 from homeassistant.setup import async_setup_component
 from pytest_homeassistant.common import MockConfigEntry
@@ -294,6 +298,26 @@ async def test_add_with_only_a_qr_code_starts_inclusion(
         message["command"] == "controller.begin_inclusion"
         for message in sent_to_server(server)
     )
+
+
+async def test_native_qr_only_inclusion_uses_cores_secure_strategy(
+    hass: HomeAssistant, hass_admin_user: User, server: MagicMock, entry: MockConfigEntry,
+) -> None:
+    engine = native_engine(NativeBackend(hass), {"ha_manage_radio"})
+    try:
+        result = await engine.call(
+            "ha_manage_radio",
+            {"radio": "zwave", "action": "add", "params": {"qr_code_string": QR_CODE}},
+            CallContext(hass_admin_user.id),
+        )
+        assert not result.is_error, result.data
+        assert any(
+            message["command"] == "controller.begin_inclusion"
+            and message["options"]["strategy"] == InclusionStrategy.SECURITY_S2
+            for message in sent_to_server(server)
+        )
+    finally:
+        await engine.stop()
 
 
 async def test_add_with_smart_start_needs_the_provisioning_information(
