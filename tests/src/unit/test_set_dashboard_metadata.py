@@ -46,7 +46,9 @@ async def test_native_dashboard_creation_does_not_invent_a_missing_title(
     hass_admin_user: User,
 ) -> None:
     backend = NativeBackend(hass)
-    manager = NativeServerManager(hass, MockConfigEntry(domain=DOMAIN, data={DATA_WEBHOOK_ID: "test-dashboard"}))
+    manager = NativeServerManager(
+        hass, MockConfigEntry(domain=DOMAIN, data={DATA_WEBHOOK_ID: "test-dashboard"})
+    )
     manager.backend = backend
     manager.snapshots = NativeSnapshots(manager)
     try:

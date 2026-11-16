@@ -646,6 +646,7 @@ jobs:
           [ "$RESULT" = "success" ]
 
   unit-tests-beta:
+    needs: [fast-checks]
     name: Unit Tests (beta Core)
     runs-on: ubuntu-latest
     container:

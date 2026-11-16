@@ -506,9 +506,7 @@ class AutomationWriteTools(AutomationRuntimeTools):
                 f"Saved; reading it back failed ({e}), re-read it for a config_hash"
             )
 
-        entity_id = await self._resolve_post_write_automation_entity(
-            identifier or result.get("unique_id"), result.get("entity_id") or entity_id, wait, result
-        )
+        entity_id = result.get("entity_id") or entity_id
         if effective_category and entity_id:
             await self._apply_category(
                 entity_id,

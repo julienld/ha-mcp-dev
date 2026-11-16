@@ -628,7 +628,9 @@ class TestBackups:
             bm, "get_backup_manager", Mock(side_effect=OSError("disk full"))
         )
         got = await TodoTools(core_client).ha_remove_todo_item(LIST, item="Pay")
-        assert got["warnings"] == [f"No pre-write backup of {LIST}::2 was taken: OSError"]
+        assert got["warnings"] == [
+            f"No pre-write backup of {LIST}::2 was taken: OSError"
+        ]
         assert [row.summary for row in plain_list.rows] == ["Buy milk"]
 
     async def test_no_backup_is_taken_with_auto_backup_off(

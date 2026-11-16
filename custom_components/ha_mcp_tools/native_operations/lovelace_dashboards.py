@@ -589,11 +589,7 @@ class NativeDashboards:
         warnings: list[str],
     ) -> tuple[DashboardState, bool]:
         if before.owner is None:
-            create = {
-                **metadata,
-                "title": metadata.get("title")
-                or before.url_path.replace("-", " ").title(),
-            }
+            create = dict(metadata)
             if create.get("icon") is None:
                 create.pop("icon", None)
             return await self.storage.create(before, create), False
