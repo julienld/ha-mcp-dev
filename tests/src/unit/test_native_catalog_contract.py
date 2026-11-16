@@ -256,7 +256,10 @@ def test_current_interfaces_match_the_independent_upstream_source_receipt() -> N
 @pytest.mark.parametrize("mutation", [None, "default", "type", "other_parameter"])
 def test_archive_database_exception_is_limited_to_its_reviewed_schema_path(mutation):
     name = "other_parameter" if mutation == "other_parameter" else "restore_database"
-    new: dict[str, Any] = {"default": None, "anyOf": [{"type": "boolean"}, {"type": "null"}]}
+    new: dict[str, Any] = {
+        "default": None,
+        "anyOf": [{"type": "boolean"}, {"type": "null"}],
+    }
     if mutation == "default":
         new["default"] = True
     elif mutation == "type":

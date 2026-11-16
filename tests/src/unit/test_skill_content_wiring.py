@@ -91,7 +91,7 @@ _ATTACH_SIBLING_MODULES: dict[str, tuple[str, ...]] = {
     )
 }
 _SHARED_ATTACH_SIBLINGS = {
-    "ha_config_set_helper": ("helper_storage.py",),
+    "ha_config_set_helper": ("helper_storage.py", "flows/helpers.py"),
     "ha_config_set_dashboard": ("dashboard_advice.py",),
 }
 _NATIVE_ATTACH_OWNERS = {

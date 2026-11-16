@@ -1941,14 +1941,13 @@ class LegacyDashboards:
         show_in_sidebar: bool | None,
     ) -> str | None:
         """Create a new storage-mode dashboard and return its dashboard_id."""
-        # Preserve the public optional-title policy; Core still validates the create.
         create_data: dict[str, Any] = {
             "type": "lovelace/dashboards/create",
             "url_path": url_path,
             **{
                 key: value
                 for key, value in {
-                    "title": title or url_path.replace("-", " ").title(),
+                    "title": title,
                     "icon": icon or None,
                     "require_admin": require_admin,
                     "show_in_sidebar": show_in_sidebar,

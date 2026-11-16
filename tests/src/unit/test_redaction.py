@@ -28,7 +28,6 @@ from ha_mcp.redaction import (
     sentinel_for,
     sentinel_option_keys,
 )
-from ha_mcp.tools.component_config_entries import ComponentEntries
 from ha_mcp.tools.config_entry_flow import _reject_redaction_sentinels
 from ha_mcp.tools.integration_schema import (
     options_from_form_flow,
@@ -792,72 +791,6 @@ class TestWriteEntryPointsRejectSentinels:
                 action="create",
             )
         client.start_config_flow.assert_not_awaited()
-
-
-class TestComponentPathEndToEndRedaction:
-    """Component-served reads through the real formatting paths (issue 2157)."""
-
-    def _tools(self, monkeypatch):
-        from ha_mcp.tools import tools_integrations as ti
-
-        monkeypatch.setattr(ti, "get_logger_levels", AsyncMock(return_value={}))
-        client = MagicMock()
-        client.start_options_flow = AsyncMock(
-            return_value={
-                "flow_id": "f1",
-                "type": "form",
-                "data_schema": FLOW_SCHEMA,
-            }
-        )
-        client.abort_options_flow = AsyncMock()
-        return ti.IntegrationTools(client)
-
-    @pytest.mark.asyncio
-    async def test_single_entry_include_schema_redacts_options_and_schema(
-        self, redact_on, monkeypatch
-    ):
-        tools = self._tools(monkeypatch)
-        rows = [
-            {
-                "entry_id": "e1",
-                "domain": "demo",
-                "supports_options": True,
-                "options": {"api_key": "sk-LIVEFLOWSECRET", "host": "1.2.3.4"},
-            }
-        ]
-        resp = await tools._single_entry_from_component(
-            "e1",
-            ComponentEntries(rows=rows, secret_scrub_degraded=False),
-            True,
-            include_subentries=False,
-            include_subentry_schema=False,
-            subentry_type=None,
-            subentry_id=None,
-            show_advanced_options=False,
-        )
-        assert resp["entry"]["options"]["api_key"] == REDACTED_SET
-        assert resp["entry"]["options"]["host"] == "1.2.3.4"
-        fields = resp["options_schema"]["fields"]
-        api_field = next(f for f in fields if f.get("name") == "api_key")
-        assert api_field["current"] == REDACTED_SET
-
-    @pytest.mark.asyncio
-    async def test_list_page_redacts_options(self, redact_on, monkeypatch):
-        tools = self._tools(monkeypatch)
-        rows = [
-            {
-                "entry_id": "e1",
-                "domain": "demo",
-                "title": "Demo",
-                "state": "loaded",
-                "supports_options": True,
-                "options": {"api_key": "sk-LIVEFLOWSECRET"},
-            }
-        ]
-        resp = await tools._list_entries_from_component(
-            rows, None, None, True, None, 50, 0
-        )
-        assert resp["entries"][0]["options"]["api_key"] == REDACTED_SET
 
 
 class TestScrubObjKeyCollision:

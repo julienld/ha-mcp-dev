@@ -798,6 +798,8 @@ async def test_a_schema_read_under_redact_secrets_opens_the_options_flow_once(
 
     assert spies.start_flow.await_count == 1
     assert resp["entry"]["options"] == {"api_key": REDACTED_SET, "host": "1.2.3.4"}
+    fields = {field["name"]: field for field in resp["options_schema"]["fields"]}
+    assert fields["api_key"]["current"] == REDACTED_SET
 
 
 # --- a degraded secrets scrub is surfaced, not passed off as scrubbed ----------------

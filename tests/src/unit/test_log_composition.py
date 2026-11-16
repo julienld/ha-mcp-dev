@@ -16,6 +16,11 @@ from ._error_log_core import call_logs, error_log, numbered_log
 from ._error_log_core import log_file as log_file
 from ._error_log_routes_core import ErrorLogRoute
 from ._error_log_routes_core import journald_route as journald_route
+from ._error_log_routes_core import supervised_journal_route as supervised_journal_route
+from ._journal_gatewayd import gatewayd as gatewayd
+from ._journal_gatewayd import hassio_path_client as hassio_path_client
+from ._journal_gatewayd import in_app_client as in_app_client
+from ._journal_gatewayd import journal_proxy as journal_proxy
 from ._tool_errors import error_of
 
 

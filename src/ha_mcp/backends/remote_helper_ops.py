@@ -162,7 +162,10 @@ async def _registry_snapshot(client: Any, arguments: dict[str, Any]) -> dict[str
 
 async def _capture_backup(client: Any, arguments: dict[str, Any]) -> dict[str, Any]:
     from ha_mcp.runtime.helper_tools import HelperConfigTools
-    from ha_mcp.tools.auto_backup import _capture_pre_write_snapshot, get_global_settings
+    from ha_mcp.tools.auto_backup import (
+        _capture_pre_write_snapshot,
+        get_global_settings,
+    )
 
     settings = get_global_settings()
     if not settings.enable_auto_backup:
