@@ -72,7 +72,7 @@ from custom_components.ha_mcp_tools.const import (
 
 from ._server_entry import add_server_entry
 
-SERVER_MODULE = "ha_mcp.tools.tools_filesystem"
+SERVER_MODULE = "ha_mcp.component_contract"
 LAN_URL = "http://192.168.1.5:8123"
 NABU_URL = "https://abc.ui.nabu.casa"
 PANEL_LINK = "[HA-MCP settings panel](/ha-mcp)"
@@ -211,7 +211,7 @@ class TestBringUp:
         collaborators: Collaborators,
         notices: Notices,
     ) -> None:
-        entry = add_server_entry(hass)
+        entry = add_server_entry(hass, options={OPT_ENABLE_LLM_API: True})
 
         await esetup.async_bring_up_server(hass, entry)
 
@@ -284,7 +284,9 @@ class TestBringUp:
     async def test_a_custom_port_reaches_the_webhook_and_the_llm_api(
         self, hass: HomeAssistant, collaborators: Collaborators
     ) -> None:
-        entry = add_server_entry(hass, options={OPT_SERVER_PORT: 9999})
+        entry = add_server_entry(
+            hass, options={OPT_SERVER_PORT: 9999, OPT_ENABLE_LLM_API: True}
+        )
 
         await esetup.async_bring_up_server(hass, entry)
 

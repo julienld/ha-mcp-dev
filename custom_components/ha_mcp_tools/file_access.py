@@ -696,6 +696,8 @@ class FileAccess:
                 partial(_delete_file_sync, state=state, expected=image),
                 target_file,
             )
+        except IsADirectoryError:
+            result = {"_error": "not_a_file"}
         except PermissionError:
             _LOGGER.error("Permission denied deleting: %s", rel_path)
             return {

@@ -2276,7 +2276,7 @@ def register_default_handlers(mgr: BackupManager, _client: Any) -> None:
         DomainHandler("area_or_floor", _fetch_area_or_floor, _restore_area_or_floor)
     )
     mgr.register(DomainHandler("todo_item", _fetch_todo_item, _restore_todo_item))
-    mgr.register(DomainHandler("entity", fetch_entity_registry, _restore_entity_state))
+    mgr.register(DomainHandler("entity", fetch_entity_registry, restore_entity_registry))
     mgr.register(
         DomainHandler("entity_registry", fetch_entity_registry, restore_entity_registry)
     )

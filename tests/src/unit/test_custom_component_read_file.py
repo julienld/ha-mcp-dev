@@ -15,8 +15,7 @@ from typing import Any
 import pytest
 from homeassistant.core import HomeAssistant
 
-import custom_components.ha_mcp_tools as comp
-from custom_components.ha_mcp_tools import SERVICE_READ_FILE
+from custom_components.ha_mcp_tools import SERVICE_READ_FILE, file_views
 from custom_components.ha_mcp_tools.yaml_rt import make_yaml
 from ha_mcp import backup_manager as bm
 from ha_mcp import config
@@ -340,7 +339,7 @@ class TestSecretsMasking:
             callers.append(threading.get_ident())
             return make_yaml()
 
-        monkeypatch.setattr(comp, "make_yaml", spying_make_yaml)
+        monkeypatch.setattr(file_views, "make_yaml", spying_make_yaml)
 
         result = await _read(files, "secrets.yaml")
 
