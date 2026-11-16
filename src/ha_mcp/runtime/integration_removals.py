@@ -10,7 +10,7 @@ from ha_mcp.tool_api import ToolFailure
 from .errors import raise_failure
 from .flows.entry import refuse_component_entry
 from .flows.session import FlowSession
-from .helper_removal_entries import EntryRemovalTools
+from .helper_removal_entries import EntryRemovalTools, removal_helper_type
 from .helper_schema import SIMPLE_HELPER_TYPES, StorageHelperType
 from .helper_targets import resolve_helper_entity
 from .validation import validate_identifier_not_empty
@@ -139,6 +139,9 @@ class IntegrationRemovalTools(EntryRemovalTools):
         or otp (no stored options); re-add those yourself, otp through the user
         in the HA UI.
         """
+        helper_type = removal_helper_type(
+            {"helper_type": helper_type, "subentry_id": subentry_id}
+        )
         # === Confirm gate (uniform for every path) ===
         if not confirm:
             raise_failure(

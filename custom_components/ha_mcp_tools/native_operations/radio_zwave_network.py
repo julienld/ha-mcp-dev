@@ -4,7 +4,7 @@ import asyncio
 from typing import Any
 
 from ha_mcp.runtime.radio_values import ok
-from ha_mcp.runtime.radio_zwave_values import validate_inclusion
+from ha_mcp.runtime.radio_zwave_values import inclusion_strategy, validate_inclusion
 from ha_mcp.tool_api import ToolFailure
 
 from ..optional_integrations import loaded_integration_module
@@ -35,10 +35,10 @@ async def network_action(
             "zwave_js/add_node",
             {
                 "entry_id": entry.entry_id,
+                "inclusion_strategy": inclusion_strategy(args),
                 **{
                     key: args.get(key)
                     for key in (
-                        "inclusion_strategy",
                         "qr_provisioning_information",
                         "qr_code_string",
                         "planned_provisioning_entry",

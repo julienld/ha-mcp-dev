@@ -60,6 +60,12 @@ def network_status(entry_id: str, net: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def inclusion_strategy(args: dict[str, Any]) -> Any:
+    """Pre-shared credentials need Core's SECURITY_S2 strategy (protocol value 4)."""
+    strategy = args.get("inclusion_strategy")
+    return 4 if strategy is None else strategy
+
+
 def validate_inclusion(args: dict[str, Any]) -> None:
     provided = [c for c in _ADD_CREDENTIALS if args.get(c)]
     if not provided:

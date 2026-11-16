@@ -25,6 +25,14 @@ from .helper_targets import get_entry_id_for_flow_helper, raise_flow_helper_look
 logger = logging.getLogger(__name__)
 
 
+def removal_helper_type(kwargs: dict[str, Any]) -> str | None:
+    """An explicit subentry id selects its child even when the type is omitted."""
+    helper_type: str | None = kwargs.get("helper_type")
+    if helper_type is None and kwargs.get("subentry_id") is not None:
+        return "config_subentry"
+    return helper_type
+
+
 class EntryRemovalTools(StorageRemovalTools):
     def _entry_guard(self, entry_id: str) -> AbstractAsyncContextManager[Any]:
         return registry_update_lock("config_entry", entry_id)

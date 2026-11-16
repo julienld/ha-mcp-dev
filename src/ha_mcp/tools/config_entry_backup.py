@@ -28,13 +28,7 @@ def helper_backup_id(kwargs: dict[str, Any]) -> str:
     return str(kwargs.get("helper_id") or kwargs.get("entry_id") or "")
 
 
-def removal_helper_type(kwargs: dict[str, Any]) -> str | None:
-    """The helper type of a removal. A ``subentry_id`` names one subentry, also
-    when the caller left ``helper_type`` out: never its whole parent entry."""
-    helper_type: str | None = kwargs.get("helper_type")
-    if helper_type is None and kwargs.get("subentry_id") is not None:
-        return "config_subentry"
-    return helper_type
+from ..runtime.helper_removal_entries import removal_helper_type as removal_helper_type
 
 
 def removal_backup_domain(kwargs: dict[str, Any]) -> str:

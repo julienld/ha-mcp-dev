@@ -21,7 +21,7 @@ from typing import Any
 
 from ha_mcp.backends.legacy import legacy_errors_sync
 from ha_mcp.runtime.radio_specs import ZWAVE
-from ha_mcp.runtime.radio_zwave_values import diagnostics, network_status
+from ha_mcp.runtime.radio_zwave_values import diagnostics, inclusion_strategy, network_status
 from ha_mcp.runtime.radio_zwave_values import validate_inclusion as _validate_inclusion
 
 from . import zwave_parameters
@@ -125,7 +125,7 @@ async def _handle_zwave_inclusion(
             client,
             "zwave_js/add_node",
             entry_id=entry_id,
-            inclusion_strategy=args.get("inclusion_strategy"),
+            inclusion_strategy=inclusion_strategy(args),
             qr_provisioning_information=args.get("qr_provisioning_information"),
             qr_code_string=args.get("qr_code_string"),
             planned_provisioning_entry=args.get("planned_provisioning_entry"),

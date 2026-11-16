@@ -605,6 +605,14 @@ class HomeAssistantAPIError(HomeAssistantError):
         self.status_code = status_code
         self.response_data = response_data
 
+    @property
+    def config_not_found(self) -> bool:
+        """Core reports a missing config as 404, or 400 on deletion."""
+        return self.status_code == 404 or (
+            self.status_code == 400
+            and (self.response_data or {}).get("message") == "Resource not found"
+        )
+
 
 NON_ADMIN_TOKEN_WARNING = (
     "ha-mcp does not officially support non-admin Home Assistant tokens. They "

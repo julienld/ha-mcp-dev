@@ -241,27 +241,11 @@ class SceneConfigTools(SceneRemovalTools, ConfigWriteContext):
                 )
             )
 
-        # Issue #1168 R5 blocker 10: a transform that mutates
-        # ``config['id']`` produces a duplicate scene at the new
-        # storage key AND orphans the original (state goes
-        # ``unavailable``, registry row left behind). HA itself
-        # accepts the mismatched-id upsert silently. Reject the
-        # rename here — renaming a scene means delete-old +
-        # create-new through the explicit tools, not an in-place
-        # ``id`` rebind. R6 blocker 18: only reject an explicit
-        # mismatched id; a transform that ``del config['id']`` is
-        # legitimate (HA treats ``id`` as optional) and should pass
-        # through. R7 blocker 24: ``transformed_config["id"] = None``
-        # is the in-place equivalent of ``del`` — normalise both
-        # by checking against ``(None, original_id)``, so only an
-        # explicit non-None mismatch triggers the reject. Compare against
-        # the scene's own captured ``id`` (not ``resolved_id``, which may
-        # be None on the structural-invariant path) — in production the
-        # two are equal.
-        if "id" in transformed_config and transformed_config["id"] not in (
-            None,
-            original_id,
-        ):
+        # Core rejects a null optional id, but omitting it updates the same
+        # stored scene. An explicit different id would create another scene.
+        if transformed_config.get("id", original_id) is None:
+            transformed_config.pop("id", None)
+        if "id" in transformed_config and transformed_config["id"] != original_id:
             raise_failure(
                 create_error_response(
                     ErrorCode.VALIDATION_FAILED,
