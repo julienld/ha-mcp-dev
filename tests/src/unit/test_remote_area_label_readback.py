@@ -1,5 +1,7 @@
 """Shared remote area writes verify real Core label loss after dispatch."""
 
+from typing import Any
+
 import pytest
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import area_registry as ar
@@ -11,8 +13,7 @@ from ha_mcp.client.rest_client import HomeAssistantClient
 from ha_mcp.runtime.area_writes import AreaWriteTools
 from ha_mcp.tool_api import CallContext, ToolFailure
 
-from ._client_spies import sent_commands
-from ._command_faults import before_handling, pooled_socket
+from ._command_faults import before_handling, received
 
 
 async def test_shared_remote_area_write_verifies_labels_removed_during_update(
@@ -23,23 +24,26 @@ async def test_shared_remote_area_write_verifies_labels_removed_during_update(
     label = labels.async_create("Guests")
     area = ar.async_get(hass).async_create("Kitchen")
     tools = AreaWriteTools(RemoteBackend(core_client), CallContext(None))
+    update_command = "config/area_registry/update"
+    read_command = "config/area_registry/list"
+    before_reads: list[int] = []
+
+    def drop_label(_message: dict[str, Any]) -> None:
+        labels.async_delete(label.label_id)
+        before_reads.append(len(sent[read_command]))
 
     with (
-        before_handling(
-            hass,
-            "config/area_registry/update",
-            lambda message: labels.async_delete(label.label_id),
-        ),
-        sent_commands(await pooled_socket(core_client)) as sent,
+        received(hass, update_command, read_command) as sent,
+        before_handling(hass, update_command, drop_label),
+        pytest.raises(ToolFailure) as failure,
     ):
-        with pytest.raises(ToolFailure) as failure:
-            await tools.ha_set_area_or_floor(
-                kind="area", id=area.id, labels=[label.label_id]
-            )
+        await tools.ha_set_area_or_floor(
+            kind="area", id=area.id, labels=[label.label_id]
+        )
 
     assert failure.value.data["write_committed"] is True
     assert failure.value.data["expected_labels"] == [label.label_id]
-    types = [message["type"] for message in sent]
-    assert "config/area_registry/list" in types[types.index("config/area_registry/update") + 1 :]
+    assert sent[update_command] and before_reads
+    assert len(sent[read_command]) > before_reads[0]
     stored = ar.async_get(hass).async_get_area(area.id)
     assert stored is not None and not stored.labels

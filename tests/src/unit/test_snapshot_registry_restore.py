@@ -23,10 +23,12 @@ async def test_deleted_category_scope_with_colon_is_preserved_in_restore_and_dif
     registry.async_delete(scope="custom:scope", category_id=category.category_id)
 
     await backup_manager.restore_snapshot(path.name)
-    restored = registry.async_list_categories(scope="custom:scope")
+    restored = list(registry.async_list_categories(scope="custom:scope"))
     assert len(restored) == 1 and restored[0].name == "Saved"
     assert restored[0].category_id != category.category_id
-    untouched = registry.async_get_category(scope="custom", category_id=other.category_id)
+    untouched = registry.async_get_category(
+        scope="custom", category_id=other.category_id
+    )
     assert untouched is not None and untouched.name == "Saved"
     diff = cast(DiffResponse, await backup_manager.diff_snapshot(path.name))
     assert diff["entity_missing"] is False
@@ -43,7 +45,9 @@ async def test_area_restore_keeps_the_saved_floor_assignment(
     other_floor = floors.async_create("Other floor")
     areas = ar.async_get(hass)
     area = areas.async_create("Room", floor_id=saved_floor.floor_id)
-    path = await backup_manager.maybe_snapshot("area_or_floor", f"area:{area.id}", force=True)
+    path = await backup_manager.maybe_snapshot(
+        "area_or_floor", f"area:{area.id}", force=True
+    )
     assert path is not None
     areas.async_update(area.id, floor_id=other_floor.floor_id)
 

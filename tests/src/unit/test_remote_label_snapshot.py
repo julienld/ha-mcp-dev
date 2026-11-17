@@ -21,7 +21,7 @@ async def test_remote_label_discovery_survives_the_label_facade_migration(
     assert expected["success"]
     tools = LabelDiscoveryTools(RemoteBackend(core_client), CallContext(None))
 
-    result = await tools.ha_config_get_label()
+    result = await LabelDiscoveryTools.ha_config_get_label(tools)
 
     assert result["labels"] == expected["result"]
     assert any(row["label_id"] == label.label_id for row in result["labels"])

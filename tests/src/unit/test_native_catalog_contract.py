@@ -349,7 +349,11 @@ def test_native_migration_keeps_preexisting_mcp_call_contracts(
     )
     changes = {}
     shared = _shared_annotation_overrides()
-    assert set(shared) == {"ha_remove_todo_item", "ha_write_file", "ha_set_area_or_floor"}
+    assert set(shared) == {
+        "ha_remove_todo_item",
+        "ha_write_file",
+        "ha_set_area_or_floor",
+    }
     assert shared["ha_set_area_or_floor"]["annotations"] == {
         "title": "Create, Update or Reorder Areas or Floors"
     }
@@ -603,11 +607,23 @@ def test_helper_answer_list_extension_preserves_every_old_branch(
     assert bool(changes) is (mutation is not None)
 
 
-@pytest.mark.parametrize("mutation", [None, "type", "default", "required", "another_tool", "another_parameter"])
-def test_main_floor_level_omission_exception_keeps_other_restrictions(mutation: str | None) -> None:
+@pytest.mark.parametrize(
+    "mutation",
+    [None, "type", "default", "required", "another_tool", "another_parameter"],
+)
+def test_main_floor_level_omission_exception_keeps_other_restrictions(
+    mutation: str | None,
+) -> None:
     parameter = "other" if mutation == "another_parameter" else "level"
     tool = "other" if mutation == "another_tool" else "ha_set_area_or_floor"
-    before = {"properties": {parameter: {"anyOf": [{"type": "integer"}, {"type": "null"}], "default": None}}}
+    before = {
+        "properties": {
+            parameter: {
+                "anyOf": [{"type": "integer"}, {"type": "null"}],
+                "default": None,
+            }
+        }
+    }
     after = json.loads(json.dumps(before))
     after["properties"][parameter].pop("default")
     if mutation == "type":
