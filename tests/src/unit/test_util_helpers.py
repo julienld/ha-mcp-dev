@@ -643,7 +643,7 @@ class TestParseDiagnosticsFields:
 
     def test_non_string_non_list_raises(self):
         with pytest.raises(ValueError, match="must be list, string, or None"):
-            parse_diagnostics_fields(42)  # type: ignore[arg-type]
+            parse_diagnostics_fields(42)
 
 
 class TestProjectFieldsTypoGuard:

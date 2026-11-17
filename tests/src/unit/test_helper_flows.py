@@ -30,6 +30,7 @@ from pytest_homeassistant.common import (
 from ha_mcp import backup_manager as bm
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp.client.rest_client import HomeAssistantClient, HomeAssistantConnectionError
+from ha_mcp.runtime import helper_flows as shared_helper_flows
 from ha_mcp.tools import flow_helper_lookup, helper_flows
 from ha_mcp.tools.config_entry_backup import resolve_config_entry_backup_domain
 from ha_mcp.tools.tools_config_helpers import HelperConfigTools
@@ -147,7 +148,7 @@ async def test_a_helper_integration_installed_later_shows_up_after_the_cache_exp
     core_client: HomeAssistantClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     clock = MonotonicClock()
-    monkeypatch.setattr(helper_flows, "time", clock)
+    monkeypatch.setattr(shared_helper_flows, "time", clock)
     with flow_list_reads() as reads:
         await helper_flows.helper_flow_types(core_client)
         await helper_flows.helper_flow_types(core_client)

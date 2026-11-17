@@ -17,8 +17,9 @@ import pytest
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp.client.rest_client import HomeAssistantAPIError
 from ha_mcp.redaction import REDACTED_SET
-from ha_mcp.tools import config_entry_flow_introspect, integration_schema
-from ha_mcp.tools.config_helpers import describe as flow_describe
+from ha_mcp.runtime import flow_description as flow_describe
+from ha_mcp.runtime import integration_schema
+from ha_mcp.runtime.flows import introspect as config_entry_flow_introspect
 from ha_mcp.tools.integration_schema import (
     fetch_config_subentry_schema,
     fetch_options_schema,
@@ -53,6 +54,7 @@ _MENU = {
 
 def _client(first_step: dict[str, Any], strings: dict[str, str] | None = None):
     client = AsyncMock()
+    client.get_config_entry.return_value = {"entry_id": "e1", "domain": "demo"}
     client.start_options_flow.return_value = first_step
     client.start_config_subentry_flow.return_value = first_step
     client.start_config_flow.return_value = first_step
@@ -197,7 +199,7 @@ async def test_a_failed_describe_abort_is_a_warning_unless_the_flow_is_gone(
         f"API error: {status}", status_code=status
     )
 
-    with caplog.at_level("DEBUG", logger="ha_mcp.tools.config_entry_flow_introspect"):
+    with caplog.at_level("DEBUG", logger="ha_mcp.runtime.flows.introspect"):
         await _describe(kind, client)
 
     assert [r.levelname for r in caplog.records if "abort" in r.getMessage()] == [level]
@@ -669,10 +671,10 @@ async def test_a_swallowed_options_flow_failure_logs_its_traceback(
     client = _client(_form("init", _HOST))
     client.start_options_flow.side_effect = RuntimeError("ws down")
 
-    with caplog.at_level("WARNING", logger="ha_mcp.tools.integration_schema"):
+    with caplog.at_level("WARNING", logger="ha_mcp.runtime.integration_schema"):
         await _describe("options", client)
 
     (record,) = [
-        r for r in caplog.records if r.name == "ha_mcp.tools.integration_schema"
+        r for r in caplog.records if r.name == "ha_mcp.runtime.integration_schema"
     ]
     assert record.exc_info is not None

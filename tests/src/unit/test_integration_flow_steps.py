@@ -1,24 +1,32 @@
 """One flow step per ``ha_set_integration`` call (integration_flow_steps)."""
 
 import contextlib
+import json
 from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
 
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
+from ha_mcp.backends.legacy_flows import legacy_flow
 from ha_mcp.client.rest_client import HomeAssistantAPIError
 from ha_mcp.redaction import REDACTED_SET
-from ha_mcp.tools import config_entry_flow_errors, integration_flow_steps
-from ha_mcp.tools.integration_flow_steps import (
+from ha_mcp.runtime import integration_flow_steps
+from ha_mcp.runtime.flows import submission as config_entry_flow_errors
+from ha_mcp.runtime.integration_flow_steps import (
     FlowTarget,
     drive_flow,
     run_integration_step,
     settle,
 )
+from ha_mcp.tool_api import ToolFailure
 from ha_mcp.tools.tools_integrations import IntegrationTools
 
-from ._tool_errors import error_body, error_of
+from ._flow_test_ports import FlowClient
+
+drive_flow = legacy_flow(drive_flow)
+run_integration_step = legacy_flow(run_integration_step)
+settle = legacy_flow(settle)
 
 SETUP = FlowTarget("setup", "knx")
 OPTIONS = FlowTarget("options", "demo", "entry1")
@@ -54,7 +62,7 @@ CREATED = {
 
 
 def _client(**overrides: Any) -> Any:
-    client = AsyncMock()
+    client = FlowClient()
     client.submit_config_flow_step = AsyncMock(return_value=CREATED)
     client.submit_options_flow_step = AsyncMock(return_value=CREATED)
     client.abort_config_flow = AsyncMock(return_value={})
@@ -81,6 +89,14 @@ def _no_strings(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     monkeypatch.setattr(integration_flow_steps, "_flow_texts", flow_texts)
     monkeypatch.setattr(config_entry_flow_errors, "_flow_texts", flow_texts)
+
+
+def _error(exc_info: pytest.ExceptionInfo[ToolError]) -> dict[str, Any]:
+    return (
+        exc_info.value.data
+        if isinstance(exc_info.value, ToolFailure)
+        else json.loads(str(exc_info.value))
+    )
 
 
 def _start(step: dict[str, Any]) -> AsyncMock:
@@ -215,7 +231,7 @@ async def test_a_flow_started_without_flow_id_is_refused(flow_id):
     client = _client()
     with pytest.raises(ToolError) as exc_info:
         await _drive(client, start=_start({"type": "form", **flow_id}))
-    assert error_of(exc_info)["code"] == "SERVICE_CALL_FAILED"
+    assert _error(exc_info)["error"]["code"] == "SERVICE_CALL_FAILED"
 
 
 async def test_a_new_flow_aborted_on_its_answer_is_refused():
@@ -237,7 +253,7 @@ async def test_a_rejected_form_is_an_error_and_keeps_the_flow_open():
             start=_start(_form("routing", _field("individual_address"))),
             config={"individual_address": "0.0.240"},
         )
-    error = error_body(exc_info)
+    error = _error(exc_info)
     assert error["error"]["code"] == "VALIDATION_INVALID_PARAMETER"
     assert error["flow_id"] == "f1"
     assert error["errors"] == {"base": "no_router"}
@@ -285,7 +301,7 @@ async def test_an_undeclared_key_is_left_to_home_assistant_to_refuse():
     client.submit_config_flow_step.assert_awaited_once_with(
         "f1", {"host": "h", "port": 1}
     )
-    error = error_body(exc_info)
+    error = _error(exc_info)
     assert error["error"]["code"] == "VALIDATION_INVALID_PARAMETER"
     assert "extra keys not allowed" in error["error"]["message"]
     assert error["flow_id"] == "f1"
@@ -377,7 +393,7 @@ async def test_a_flow_not_opened_for_the_calls_anchor_is_refused(
     client = _client()
     with pytest.raises(ToolError) as exc_info:
         await _drive(client, target, opened=False, flow_id="f1", **call)
-    assert "of this call's target" in error_of(exc_info)["message"]
+    assert "of this call's target" in _error(exc_info)["error"]["message"]
     client._request.assert_not_awaited()
     client.submit_config_flow_step.assert_not_awaited()
     client.submit_options_flow_step.assert_not_awaited()
@@ -439,7 +455,7 @@ async def test_a_rejected_answer_says_the_flow_is_still_open():
     )
     with pytest.raises(ToolError) as exc_info:
         await _drive(client, flow_id="f1", menu_choice="routing")
-    assert "still open" in error_of(exc_info)["suggestion"]
+    assert "still open" in _error(exc_info)["error"]["suggestion"]
 
 
 async def test_a_flow_home_assistant_no_longer_has_is_not_found():
@@ -448,7 +464,7 @@ async def test_a_flow_home_assistant_no_longer_has_is_not_found():
     )
     with pytest.raises(ToolError) as exc_info:
         await _drive(client, flow_id="f1", config={"host": "h"})
-    error = error_body(exc_info)
+    error = _error(exc_info)
     assert error["error"]["code"] == "RESOURCE_NOT_FOUND"
     assert error["flow_kind"] == "setup"
 
@@ -468,7 +484,7 @@ async def test_a_wrong_kind_of_answer_is_refused_and_the_flow_stays_open(
     client = _client(_request=AsyncMock(return_value=step))
     with pytest.raises(ToolError) as exc_info:
         await _drive(client, flow_id="f1", menu_choice=menu_choice, config=config)
-    error = error_body(exc_info)
+    error = _error(exc_info)
     assert error["error"]["code"] == "VALIDATION_INVALID_PARAMETER"
     assert says in error["error"]["message"]
     assert "abort=True" in error["error"]["suggestion"]
@@ -481,7 +497,7 @@ async def test_a_wrong_kind_of_answer_is_refused_and_the_flow_stays_open(
 @pytest.mark.parametrize("target", [SETUP, OPTIONS], ids=["setup", "options"])
 async def test_a_redaction_placeholder_in_config_is_refused_and_nothing_is_sent(target):
     client = _client(_request=AsyncMock(return_value=_form("user", _field("host"))))
-    with pytest.raises(ToolError) as exc_info:
+    with pytest.raises(ToolFailure) as exc_info:
         await integration_flow_steps.submit_step(
             client,
             target,
@@ -490,7 +506,7 @@ async def test_a_redaction_placeholder_in_config_is_refused_and_nothing_is_sent(
             menu_choice=None,
             current=_form("user", _field("host")),
         )
-    error = error_body(exc_info)
+    error = _error(exc_info)
     assert error["error"]["code"] == "VALIDATION_INVALID_PARAMETER"
     assert "redaction placeholder" in error["error"]["message"]
     client._request.assert_not_awaited()
@@ -529,7 +545,7 @@ async def test_a_failed_abort_keeps_the_flow_bound_and_a_gone_one_is_not_open(
     )
     with pytest.raises(ToolError) as exc_info:
         await _drive(client, RECONFIGURE, flow_id="f1", abort=True)
-    assert error_of(exc_info)["code"] == "RESOURCE_NOT_FOUND"
+    assert _error(exc_info)["error"]["code"] == "RESOURCE_NOT_FOUND"
     client._request.assert_not_awaited()
 
 
@@ -557,9 +573,12 @@ async def test_abort_reaches_the_clients_abort_through_the_tool(
             return_value={"domain": "demo", "supports_options": True}
         ),
     )
-    result = await IntegrationTools(client).ha_set_integration(
-        flow_id="f1", abort=True, **kwargs
-    )
+    client.start_config_flow.return_value = _form("user")
+    client.start_options_flow.return_value = _form("user")
+    tools = IntegrationTools(client)
+    await tools.ha_set_integration(**kwargs)
+    client.reset_mock()
+    result = await tools.ha_set_integration(flow_id="f1", abort=True, **kwargs)
     getattr(client, abort_fn).assert_awaited_once_with("f1")
     assert result["aborted"] is True
     assert opened_flows == {}
@@ -581,11 +600,69 @@ async def test_a_server_error_on_re_reading_a_setup_flow_is_not_reported_as_appl
 # --- settle -------------------------------------------------------------------
 
 
+@pytest.mark.parametrize("continued", [False, True], ids=["start", "submit"])
+@pytest.mark.parametrize(
+    "target,terminal",
+    [
+        (SETUP, {"type": "abort", "reason": "already_configured"}),
+        (SETUP, {"type": "external", "step_id": "auth"}),
+        (RECONFIGURE, CREATED),
+        (SETUP, {"type": "abort", "reason": "reauth_successful"}),
+    ],
+    ids=["abort", "external", "reconfigure-created", "setup-updated"],
+)
+async def test_refused_terminal_flow_does_not_retain_its_open_binding(
+    opened_flows, target, terminal, continued
+):
+    client = _client(_request=AsyncMock(return_value=_form("user", _field("host"))))
+    client.submit_config_flow_step.return_value = terminal
+    with pytest.raises(ToolError):
+        await _drive(
+            client,
+            target,
+            flow_id="f1" if continued else None,
+            config={"host": "h"} if continued else None,
+            start=_start({"flow_id": "f1", **terminal}),
+        )
+    assert "f1" not in opened_flows
+
+
+async def test_timed_out_progress_keeps_its_binding_for_continuation(
+    opened_flows, monkeypatch
+):
+    wait = AsyncMock(side_effect=ToolFailure("TIMEOUT", "Flow remains open"))
+    monkeypatch.setattr(
+        integration_flow_steps,
+        "_wait_for_progress",
+        wait,
+    )
+    with pytest.raises(ToolError):
+        await _drive(
+            client=_client(), start=_start({"flow_id": "f1", "type": "progress"})
+        )
+    wait.assert_awaited_once()
+    assert opened_flows == {"f1": SETUP.anchor}
+
+
+@pytest.mark.parametrize("status", [500, 404], ids=["uncertain", "already-gone"])
+async def test_external_abort_retains_only_a_possibly_open_binding(
+    opened_flows, status
+):
+    client = _client(
+        abort_config_flow=AsyncMock(
+            side_effect=HomeAssistantAPIError("abort failed", status_code=status)
+        )
+    )
+    with pytest.raises(ToolError):
+        await _drive(client, start=_start({"flow_id": "f1", "type": "external"}))
+    assert opened_flows == ({"f1": SETUP.anchor} if status == 500 else {})
+
+
 async def test_an_external_step_is_refused_and_its_flow_aborted():
     client = _client()
     with pytest.raises(ToolError) as exc_info:
         await settle(client, SETUP, "f1", {"type": "external", "step_id": "auth"})
-    assert error_of(exc_info)["code"] == "SERVICE_CALL_FAILED"
+    assert _error(exc_info)["error"]["code"] == "SERVICE_CALL_FAILED"
     client.abort_config_flow.assert_awaited_once_with("f1")
 
 
@@ -595,7 +672,7 @@ async def test_a_core_abort_raises_with_its_reason():
         await settle(
             client, SETUP, "f1", {"type": "abort", "reason": "already_configured"}
         )
-    error = error_body(exc_info)
+    error = _error(exc_info)
     assert error["error"]["code"] == "SERVICE_CALL_FAILED"
     assert "already_configured" in error["error"]["message"]
 
@@ -609,7 +686,7 @@ async def test_a_reconfigure_success_abort_is_returned():
 async def test_a_success_reason_outside_reconfigure_raises_as_applied(reason):
     with pytest.raises(ToolError) as exc_info:
         await settle(_client(), SETUP, "f1", {"type": "abort", "reason": reason})
-    error = error_body(exc_info)
+    error = _error(exc_info)
     assert error["status"] == "applied_but_unverified"
     assert "updated an existing config entry" in error["error"]["message"]
 
@@ -625,13 +702,13 @@ async def test_a_success_reason_outside_reconfigure_raises_as_applied(reason):
 async def test_a_reconfigure_flow_that_creates_an_entry_is_unverified(target):
     with pytest.raises(ToolError) as exc_info:
         await settle(_client(), target, "f1", CREATED)
-    assert error_body(exc_info)["status"] == "applied_but_unverified"
+    assert _error(exc_info)["status"] == "applied_but_unverified"
 
 
 async def test_an_unknown_step_type_is_unexpected():
     with pytest.raises(ToolError) as exc_info:
         await settle(_client(), SETUP, "f1", {"type": "show_progress_v2"})
-    assert error_of(exc_info)["code"] == "INTERNAL_UNEXPECTED"
+    assert _error(exc_info)["error"]["code"] == "INTERNAL_UNEXPECTED"
 
 
 # --- run_integration_step ------------------------------------------------------
@@ -653,7 +730,7 @@ async def test_an_entry_without_options_is_refused():
     )
     with pytest.raises(ToolError) as exc_info:
         await _run(client, domain=None, entry_id="entry1", config={})
-    assert "supports_options" in error_of(exc_info)["message"]
+    assert "supports_options" in _error(exc_info)["error"]["message"]
     client.start_options_flow.assert_not_awaited()
 
 
@@ -679,7 +756,10 @@ async def test_an_entry_without_options_is_refused():
 async def test_every_flow_call_but_an_abort_captures_a_backup(
     monkeypatch: pytest.MonkeyPatch, args: dict[str, Any], captures: int
 ):
-    from ha_mcp.tools import auto_backup, tools_integrations
+    from ha_mcp import config
+    from ha_mcp.runtime import integration_writes as tools_integrations
+    from ha_mcp.tools import auto_backup
+    from ha_mcp.tools.tools_integrations import IntegrationTools
 
     calls: list[str] = []
 
@@ -695,6 +775,7 @@ async def test_every_flow_call_but_an_abort_captures_a_backup(
         enable_auto_backup = True
 
     monkeypatch.setattr(auto_backup, "get_global_settings", _Settings)
+    monkeypatch.setattr(config, "get_global_settings", _Settings)
     monkeypatch.setattr(auto_backup, "get_backup_manager", lambda _c, _s: _Mgr())
     for name in ("run_integration_step", "set_log_level"):
         monkeypatch.setattr(
@@ -706,7 +787,6 @@ async def test_every_flow_call_but_an_abort_captures_a_backup(
         AsyncMock(return_value={"success": True}),
     )
     client = _client(get_config_entry=AsyncMock(return_value={"domain": "demo"}))
-    await tools_integrations.IntegrationTools(client).ha_set_integration(
-        entry_id="entry1", **args
-    )
+    client._request.return_value = []
+    await IntegrationTools(client).ha_set_integration(entry_id="entry1", **args)
     assert len(calls) == captures

@@ -31,7 +31,8 @@ from pytest_homeassistant.common import MockConfigEntry
 from custom_components.ha_mcp_tools import websocket_api as component_ws_api
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp.client.rest_client import HomeAssistantClient, HomeAssistantConnectionError
-from ha_mcp.tools import component_api, helper_flows, tools_config_helpers
+from ha_mcp.runtime import helper_flows
+from ha_mcp.tools import component_api, tools_config_helpers
 from ha_mcp.tools.component_api import invalidate_caps
 
 from ._client_spies import sent_commands
@@ -558,7 +559,7 @@ async def test_a_custom_helper_flow_left_out_by_a_failed_loader_read_names_it(
 ) -> None:
     """An installed component whose loader read failed is not told to update."""
     monkeypatch.setattr(
-        "ha_mcp.tools.helper_flows._fetch_helper_flow_types",
+        "ha_mcp.runtime.helper_flows._fetch_helper_flow_types",
         AsyncMock(return_value=CORE_HELPER_FLOWS | {"my_custom_helper"}),
     )
     monkeypatch.setattr(
@@ -644,7 +645,7 @@ async def test_all_types_refuses_a_listing_that_misses_a_custom_helper_flow(
     partial listing."""
     await setup_every_simple_type(hass)
     monkeypatch.setattr(
-        "ha_mcp.tools.helper_flows._fetch_helper_flow_types",
+        "ha_mcp.runtime.helper_flows._fetch_helper_flow_types",
         AsyncMock(return_value=CORE_HELPER_FLOWS | {"my_custom_helper"}),
     )
 
@@ -661,7 +662,7 @@ async def test_all_types_reads_the_helper_flows_afresh(
     as missing from the component's listing."""
     await setup_every_simple_type(hass)
     monkeypatch.setattr(
-        "ha_mcp.tools.helper_flows._fetch_helper_flow_types",
+        "ha_mcp.runtime.helper_flows._fetch_helper_flow_types",
         AsyncMock(side_effect=[CORE_HELPER_FLOWS | {"gone_helper"}, CORE_HELPER_FLOWS]),
     )
     assert "gone_helper" in await helper_flows.helper_flow_types(client)
@@ -676,7 +677,7 @@ async def test_all_types_with_an_unreadable_helper_flow_list_is_a_connection_err
 ) -> None:
     await setup_every_simple_type(hass)
     monkeypatch.setattr(
-        "ha_mcp.tools.helper_flows._fetch_helper_flow_types",
+        "ha_mcp.runtime.helper_flows._fetch_helper_flow_types",
         AsyncMock(side_effect=HomeAssistantConnectionError("flow_handlers down")),
     )
     socket = await pooled_socket(client)

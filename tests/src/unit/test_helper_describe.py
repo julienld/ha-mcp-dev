@@ -10,7 +10,8 @@ import pytest
 
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp.read_only import read_only_request
-from ha_mcp.tools import config_entry_flow_introspect
+from ha_mcp.runtime import flow_description
+from ha_mcp.tools import component_helper_collections, config_entry_flow_introspect
 from ha_mcp.tools.config_helpers import describe as mod
 
 pytestmark = pytest.mark.usefixtures("no_flow_outline")
@@ -40,8 +41,14 @@ def client() -> AsyncMock:
 
 @pytest.fixture
 def no_component(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(mod, "fetch_helper_schemas", AsyncMock(return_value=None))
-    monkeypatch.setattr(mod, "read_helper_item", AsyncMock(return_value=None))
+    monkeypatch.setattr(
+        component_helper_collections,
+        "fetch_helper_schemas",
+        AsyncMock(return_value=None),
+    )
+    monkeypatch.setattr(
+        component_helper_collections, "read_helper_item", AsyncMock(return_value=None)
+    )
 
 
 @pytest.mark.asyncio
@@ -51,7 +58,7 @@ async def test_storage_helper_fields_come_from_core_when_component_present(
     """With the component, the field list is Core's; a field whose validator
     Core cannot serialize is named as untyped, not typed by hand."""
     monkeypatch.setattr(
-        mod,
+        component_helper_collections,
         "fetch_helper_schemas",
         AsyncMock(return_value={"schedule": {"create": _SCHEDULE_CORE}}),
     )
@@ -193,7 +200,7 @@ async def test_a_refused_menu_choice_points_at_menu_options_only_with_a_menu(
 async def test_current_values_of_a_password_field_are_redacted(
     client: AsyncMock, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr(mod, "redaction_enabled", lambda: True)
+    monkeypatch.setattr(flow_description, "redaction_enabled", lambda: True)
     client.get_config_entry.return_value = {"domain": "group"}
     client.send_websocket_message.return_value = {"result": {"resources": {}}}
     client.start_options_flow.return_value = {
@@ -406,7 +413,7 @@ async def test_an_options_flow_abort_is_reported_with_its_reason(
 
     assert (result["flow_type"], result["aborted"]) == ("abort", "not_loaded")
     assert "fields" not in result
-    client.abort_options_flow.assert_awaited_once_with("f1")
+    client.abort_options_flow.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -609,7 +616,7 @@ async def test_a_failed_probe_abort_logs_at_debug_when_quiet(
 ) -> None:
     abort = AsyncMock(side_effect=RuntimeError("ws down"))
 
-    with caplog.at_level("DEBUG", logger="ha_mcp.tools.config_entry_flow_introspect"):
+    with caplog.at_level("DEBUG", logger="ha_mcp.runtime.flows.introspect"):
         await config_entry_flow_introspect.abort_probe_flow(abort, "f1", quiet=quiet)
 
     assert [r.levelname for r in caplog.records if "f1" in r.getMessage()] == [level]

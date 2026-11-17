@@ -8,12 +8,15 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
+from ha_mcp.backends import remote_reconfigure_identity
 from ha_mcp.client.rest_client import (
     HomeAssistantAPIError,
     HomeAssistantClient,
     HomeAssistantConnectionError,
 )
-from ha_mcp.tools import config_entry_identity, integration_flow_steps
+from ha_mcp.runtime import integration_flow_steps
+from ha_mcp.runtime import reconfigure_identity as config_entry_identity
+from ha_mcp.tools import component_config_entries
 from ha_mcp.tools.component_config_entries import UNKNOWN_UNIQUE_ID, EntryUniqueId
 from ha_mcp.tools.config_entry_flow_errors import ReconfigureStatus
 from ha_mcp.tools.config_entry_identity import (
@@ -50,12 +53,12 @@ def _no_entry_stream(monkeypatch: pytest.MonkeyPatch) -> None:
 def _legacy_registry_reads(monkeypatch: pytest.MonkeyPatch) -> None:
     """Stub the custom-component probes to a miss: these tests drive plain client doubles."""
     monkeypatch.setattr(
-        config_entry_identity,
+        remote_reconfigure_identity,
         "fetch_entities_for_config_entry_via_component",
         AsyncMock(return_value=None),
     )
     monkeypatch.setattr(
-        config_entry_identity,
+        remote_reconfigure_identity,
         "fetch_device_list_via_component",
         AsyncMock(return_value=None),
     )
@@ -64,7 +67,7 @@ def _legacy_registry_reads(monkeypatch: pytest.MonkeyPatch) -> None:
         return getattr(client, "_test_entry_unique_id", UNKNOWN_UNIQUE_ID)
 
     monkeypatch.setattr(
-        config_entry_identity, "fetch_config_entry_unique_id", _entry_unique_id
+        component_config_entries, "fetch_config_entry_unique_id", _entry_unique_id
     )
 
 
@@ -183,10 +186,12 @@ async def test_a_finished_reconfigure_reports_the_state_after_the_reload(
 ) -> None:
     monkeypatch.setattr(integration_flow_steps, "watch_entry_reload", _watch(reloaded))
     # A re-read finishes a flow whose progress step ended between calls.
-    opened_flows["flow-1"] = ("reconfigure", "entry-123")
     client = open_client(reconfig_entry)
     client._request = AsyncMock(return_value=ABORT_OK)
-    result = await IntegrationTools(client).ha_set_integration(
+    tools = IntegrationTools(client)
+    if "flow_id" in call:
+        await tools.ha_set_integration(entry_id="entry-123", reconfigure=True)
+    result = await tools.ha_set_integration(
         entry_id="entry-123", reconfigure=True, **call
     )
     assert result["status"] == status
@@ -758,6 +763,7 @@ async def test_expected_unique_id_is_rejected_without_the_component(
 @pytest.mark.asyncio
 async def test_each_reconfigure_step_checks_the_identity_again(
     reconfig_entry: dict[str, object],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Every call that may submit re-reads the entry's identity first; an abort
     does not, so a flow whose entry is gone can still be ended. A finished flow
@@ -772,6 +778,10 @@ async def test_each_reconfigure_step_checks_the_identity_again(
     client = open_client(reconfig_entry)
     client.start_reconfigure_flow = AsyncMock(return_value=form)
     client._request = AsyncMock(return_value=form)  # the step read before a submit
+    check_identity = AsyncMock(wraps=integration_flow_steps.check_reconfigure_identity)
+    monkeypatch.setattr(
+        integration_flow_steps, "check_reconfigure_identity", check_identity
+    )
     tools = IntegrationTools(client)
 
     opened = await tools.ha_set_integration(entry_id="entry-123", reconfigure=True)
@@ -784,7 +794,7 @@ async def test_each_reconfigure_step_checks_the_identity_again(
 
     assert opened["step_id"] == "host"
     assert done["message"] == "shelly integration reconfigured"
-    assert client.get_config_entry.await_count == 2
+    assert check_identity.await_count == 2
     client.start_reconfigure_flow.assert_awaited_once()
     client.submit_config_flow_step.assert_awaited_once_with(
         "flow-multi", {"host": "192.0.2.10"}
