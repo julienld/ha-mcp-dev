@@ -117,7 +117,7 @@ def _category_rows(hass: HomeAssistant, scopes: list[str]) -> dict[str, Any]:
     )
 
     return {
-        scope: [category_row(c) for c in _list_categories(registry, scope)]
+        scope: [category_row(c) for c in registry.async_list_categories(scope=scope)]
         for scope in scopes
     }
 
@@ -129,16 +129,3 @@ def _category_registry(hass: HomeAssistant) -> Any:
     except ImportError:  # pragma: no cover - defensive; core drift
         return None
     return _safe(cr.async_get, hass)
-
-
-def _list_categories(registry: Any, scope: str) -> list[Any]:
-    """``registry.async_list_categories(scope=...)`` guarded (scope is keyword-only)."""
-    if registry is None:
-        return []
-    lister = getattr(registry, "async_list_categories", None)
-    if not callable(lister):
-        return []
-    try:
-        return list(lister(scope=scope))
-    except Exception:  # pragma: no cover - defensive  # noqa: BLE001
-        return []

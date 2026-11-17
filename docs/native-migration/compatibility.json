@@ -97,6 +97,12 @@
     "missing_registration": "explicit unsupported recreation; restoring history does not recreate an integration-owned entity"
   },
   "shared_annotation_overrides": {
+    "ha_set_area_or_floor": {
+      "annotations": {
+        "title": "Create, Update or Reorder Areas or Floors"
+      },
+      "reason": "Main7bf04d40c adds Core-owned area/floor reordering. Both runtimes use its updated title; the safety flags and historical catalogues remain unchanged."
+    },
     "ha_remove_todo_item": {
       "annotations": {
         "idempotentHint": false
@@ -335,6 +341,10 @@
     "reference": "upstream-contract-40e86d657.json",
     "decision": "Julien: upstream remains the functional reference; adapt Native to upstream choices without preserving retired upstream APIs. Historical baseline files remain immutable.",
     "tools": {
+      "ha_set_area_or_floor": {
+        "drop_null_defaults": ["level"],
+        "reason": "Main7bf04d40c distinguishes an omitted floor level from explicit null: omission keeps the stored level and null clears it. The integer/null type and other parameter restrictions remain unchanged."
+      },
       "ha_config_get_automation": {
         "rename_parameters": {
           "identifier": "entity_id"

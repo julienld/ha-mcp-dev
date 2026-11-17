@@ -1,25 +1,27 @@
-"""The shared label reader must still reach the retained remote registry owner."""
+"""Shared remote label discovery preserves Core's complete registry rows."""
 
-from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers import label_registry as lr
+from homeassistant.setup import async_setup_component
 
 from ha_mcp.backends.remote import RemoteBackend
+from ha_mcp.client.rest_client import HomeAssistantClient
 from ha_mcp.runtime.labels import LabelDiscoveryTools
 from ha_mcp.tool_api import CallContext
 
 
-async def test_remote_label_discovery_survives_the_label_facade_migration():
-    labels = [{"label_id": "kitchen", "name": "Kitchen", "future_field": False}]
-    client = SimpleNamespace(
-        send_websocket_message=AsyncMock(
-            return_value={"success": True, "result": labels}
-        )
+async def test_remote_label_discovery_survives_the_label_facade_migration(
+    hass: HomeAssistant, core_client: HomeAssistantClient
+) -> None:
+    assert await async_setup_component(hass, "config", {})
+    label = lr.async_get(hass).async_create("Kitchen", color="blue")
+    expected = await core_client.send_websocket_message(
+        {"type": "config/label_registry/list"}
     )
-    tools = LabelDiscoveryTools(RemoteBackend(client), CallContext(None))
+    assert expected["success"]
+    tools = LabelDiscoveryTools(RemoteBackend(core_client), CallContext(None))
 
     result = await tools.ha_config_get_label()
 
-    assert result["labels"] == labels
-    client.send_websocket_message.assert_awaited_once_with(
-        {"type": "config/label_registry/list"}
-    )
+    assert result["labels"] == expected["result"]
+    assert any(row["label_id"] == label.label_id for row in result["labels"])

@@ -1,49 +1,54 @@
-"""Scoped registry names remain intact in retained snapshot identities."""
+"""Scoped snapshot identities and affiliations are restored through real Core."""
 
-from unittest.mock import AsyncMock
+from typing import cast
 
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers import area_registry as ar
+from homeassistant.helpers import category_registry as cr
+from homeassistant.helpers import floor_registry as fr
 
-async def test_category_scope_containing_colon_is_not_split_into_another_scope(
-    monkeypatch,
-):
-    from ha_mcp.backup_manager import _fetch_category
-    from ha_mcp.tools import component_registries
-
-    row = {"category_id": "stable", "name": "Category"}
-    read = AsyncMock(return_value={"categories": {"custom:scope": [row]}})
-    monkeypatch.setattr(component_registries, "fetch_registries_via_component", read)
-    client = object()
-    result = await _fetch_category(client, "custom:scope:stable")
-    assert result == {"scope": "custom:scope", **row}
-    read.assert_awaited_once_with(
-        client, ["category"], category_scopes=["custom:scope"]
-    )
+from ha_mcp.backup_diff import DiffResponse
+from ha_mcp.backup_manager import BackupManager
 
 
-async def test_area_restore_keeps_the_saved_floor_assignment():
-    from types import SimpleNamespace
+async def test_deleted_category_scope_with_colon_is_preserved_in_restore_and_diff(
+    hass: HomeAssistant, backup_manager: BackupManager
+) -> None:
+    registry = cr.async_get(hass)
+    category = registry.async_create(scope="custom:scope", name="Saved")
+    other = registry.async_create(scope="custom", name="Saved")
+    identifier = f"custom:scope:{category.category_id}"
+    path = await backup_manager.maybe_snapshot("category", identifier, force=True)
+    assert path is not None
+    registry.async_delete(scope="custom:scope", category_id=category.category_id)
 
-    from ha_mcp.backup_manager import _restore_area_or_floor
+    await backup_manager.restore_snapshot(path.name)
+    restored = registry.async_list_categories(scope="custom:scope")
+    assert len(restored) == 1 and restored[0].name == "Saved"
+    assert restored[0].category_id != category.category_id
+    untouched = registry.async_get_category(scope="custom", category_id=other.category_id)
+    assert untouched is not None and untouched.name == "Saved"
+    diff = cast(DiffResponse, await backup_manager.diff_snapshot(path.name))
+    assert diff["entity_missing"] is False
+    assert [(operation["path"], operation["value"]) for operation in diff["patch"]] == [
+        ("/category_id", category.category_id)
+    ]
 
-    before = {"area_id": "room", "name": "Room", "floor_id": "wrong-floor"}
-    saved = {
-        "kind": "area",
-        "area_id": "room",
-        "name": "Room",
-        "floor_id": "saved-floor",
-    }
 
-    async def command(message):
-        if message["type"].endswith("/list"):
-            return {"success": True, "result": [before]}
-        assert message["type"] == "config/area_registry/update"
-        assert message["floor_id"] == "saved-floor"
-        assert "kind" not in message
-        return {
-            "success": True,
-            "result": {k: v for k, v in saved.items() if k != "kind"},
-        }
+async def test_area_restore_keeps_the_saved_floor_assignment(
+    hass: HomeAssistant, backup_manager: BackupManager
+) -> None:
+    floors = fr.async_get(hass)
+    saved_floor = floors.async_create("Saved floor")
+    other_floor = floors.async_create("Other floor")
+    areas = ar.async_get(hass)
+    area = areas.async_create("Room", floor_id=saved_floor.floor_id)
+    path = await backup_manager.maybe_snapshot("area_or_floor", f"area:{area.id}", force=True)
+    assert path is not None
+    areas.async_update(area.id, floor_id=other_floor.floor_id)
 
-    client = SimpleNamespace(send_websocket_message=AsyncMock(side_effect=command))
-    result = await _restore_area_or_floor(client, "area:room", saved)
-    assert result["floor_id"] == "saved-floor"
+    await backup_manager.restore_snapshot(path.name)
+
+    restored = areas.async_get_area(area.id)
+    assert restored is not None
+    assert restored.floor_id == saved_floor.floor_id

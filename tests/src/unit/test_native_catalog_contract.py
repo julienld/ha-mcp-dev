@@ -135,6 +135,7 @@ def _upstream_input_contract(
     if update:
         before = json.loads(json.dumps(before))
         properties = before.get("properties", {})
+        _drop_null_defaults(properties, update.get("drop_null_defaults", []))
         renames = update.get("rename_parameters", {})
         for retired, current in renames.items():
             if retired in properties:
@@ -154,6 +155,13 @@ def _upstream_input_contract(
             if name not in removed
         ]
     return before
+
+
+def _drop_null_defaults(properties: dict[str, Any], names: list[str]) -> None:
+    for name in names:
+        schema = properties.get(name, {})
+        if "default" in schema and schema["default"] is None:
+            schema.pop("default")
 
 
 def _changed_inputs(
@@ -341,7 +349,10 @@ def test_native_migration_keeps_preexisting_mcp_call_contracts(
     )
     changes = {}
     shared = _shared_annotation_overrides()
-    assert set(shared) == {"ha_remove_todo_item", "ha_write_file"}
+    assert set(shared) == {"ha_remove_todo_item", "ha_write_file", "ha_set_area_or_floor"}
+    assert shared["ha_set_area_or_floor"]["annotations"] == {
+        "title": "Create, Update or Reorder Areas or Floors"
+    }
     for old in baseline["tools"]:
         name = old["name"]
         if name not in registered:
@@ -408,6 +419,7 @@ def test_native_engine_advertises_the_existing_contract_of_each_migrated_tool() 
         ]
     )
     assert set(overrides) == {
+        "ha_set_area_or_floor",
         "ha_remove_todo_item",
         "ha_write_file",
         "ha_config_list_helpers",
@@ -588,4 +600,21 @@ def test_helper_answer_list_extension_preserves_every_old_branch(
         {"properties": {parameter: new}},
         tool_name=tool,
     )
+    assert bool(changes) is (mutation is not None)
+
+
+@pytest.mark.parametrize("mutation", [None, "type", "default", "required", "another_tool", "another_parameter"])
+def test_main_floor_level_omission_exception_keeps_other_restrictions(mutation: str | None) -> None:
+    parameter = "other" if mutation == "another_parameter" else "level"
+    tool = "other" if mutation == "another_tool" else "ha_set_area_or_floor"
+    before = {"properties": {parameter: {"anyOf": [{"type": "integer"}, {"type": "null"}], "default": None}}}
+    after = json.loads(json.dumps(before))
+    after["properties"][parameter].pop("default")
+    if mutation == "type":
+        after["properties"][parameter]["anyOf"][0] = {"type": "string"}
+    if mutation == "default":
+        after["properties"][parameter]["default"] = 0
+    if mutation == "required":
+        after["required"] = [parameter]
+    changes = _changed_inputs(before, after, tool_name=tool)
     assert bool(changes) is (mutation is not None)

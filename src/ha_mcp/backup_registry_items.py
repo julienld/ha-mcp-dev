@@ -367,7 +367,7 @@ async def restore_label(client: Any, entity_id: str, config: Any) -> Any:
 
 
 async def fetch_category(client: Any, entity_id: str) -> Any:
-    scope, _, cat_id = entity_id.partition(":")
+    scope, _, cat_id = entity_id.rpartition(":")
     if not cat_id:
         return None
     for item in await _category_rows(client, scope):
@@ -377,7 +377,7 @@ async def fetch_category(client: Any, entity_id: str) -> Any:
 
 
 async def restore_category(client: Any, entity_id: str, config: Any) -> Any:
-    scope, _, cat_id = entity_id.partition(":")
+    scope, _, cat_id = entity_id.rpartition(":")
     scope = scope or config.get("scope")
     return await _restore_item(
         client,
@@ -460,7 +460,7 @@ async def _restored_item(client: Any, domain: str, entity_id: str, config: Any) 
     if domain == "label":
         return _holding_name(await _rows(client, "label"), config)
     if domain == "category":
-        scope = entity_id.partition(":")[0]
+        scope = entity_id.rpartition(":")[0]
         row = _holding_name(await _category_rows(client, scope), config)
         return row and {"scope": scope, **row}
     kind = entity_id.partition(":")[0]
