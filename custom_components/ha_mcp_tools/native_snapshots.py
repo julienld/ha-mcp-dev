@@ -431,7 +431,7 @@ class NativeSnapshots:
                 current,
             )
         if (
-            data["domain"] in {"label", "category", "area_or_floor", "device", "entity"}
+            data["domain"] in {"label", "category", "area_or_floor", "device", "entity", "entity_registry"}
             and isinstance(current, dict)
             and isinstance(data["config"], dict)
         ):
@@ -440,7 +440,7 @@ class NativeSnapshots:
             )
 
             kind = (
-                current["kind"] if data["domain"] == "area_or_floor" else data["domain"]
+                current["kind"] if data["domain"] == "area_or_floor" else "entity" if data["domain"] == "entity_registry" else data["domain"]
             )
             item_id = current.get("id" if kind == "device" else f"{kind}_id")
             fields = await self.manager.backend.execute(

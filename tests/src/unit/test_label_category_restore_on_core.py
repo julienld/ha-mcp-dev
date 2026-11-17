@@ -421,7 +421,7 @@ async def test_a_second_restore_does_not_take_an_area_whose_ordered_list_differs
     order is not the one the snapshot holds: the restore is Core's name refusal,
     naming the area that holds the name."""
     monkeypatch.setattr(
-        "custom_components.ha_mcp_tools.websocket_api.registries.declared_fields",
+        "custom_components.ha_mcp_tools.core_registry_fields.declared_fields",
         lambda entry: (),
     )
     snapshot = await _second_restore_with_lists_reversed(

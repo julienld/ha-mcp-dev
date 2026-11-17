@@ -1,6 +1,6 @@
 """Native location edits use the running Core owners and schemas."""
 
-from typing import Literal, Any
+from typing import Any, Literal
 
 import pytest
 from homeassistant.auth.models import User

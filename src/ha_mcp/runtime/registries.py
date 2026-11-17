@@ -78,20 +78,6 @@ def _partition_areas_by_floor(
     return floor_map, unassigned_areas, orphaned_areas
 
 
-def _floor_sort_key(floor: dict[str, Any]) -> int:
-    raw = floor.get("level")
-    if raw is None:
-        return 0
-    try:
-        return int(raw)
-    except TypeError, ValueError:
-        logger.warning(
-            f"Floor {floor.get('floor_id')!r} has non-numeric "
-            f"level {raw!r}; treating as 0 for sort"
-        )
-        return 0
-
-
 class AreaDiscoveryTools(BackendTools):
     async def _fetch_area_floor_registries(
         self, progress: dict[str, Any]
@@ -143,11 +129,11 @@ class AreaDiscoveryTools(BackendTools):
         ] = None,
     ) -> dict[str, Any]:
         """
-        List floors sorted by level ascending, each with their assigned areas nested, plus areas without a floor.
+        List floors in the order Home Assistant keeps them, each with their assigned areas nested, plus areas without a floor.
 
         Use for location-based reasoning where floor-to-area relationships matter, such as "which rooms are on the ground floor" or operations scoped to a level.
 
-        Floors with level=None sort alongside level 0 (ground floor). Areas without a floor assignment appear in unassigned_areas; areas whose floor_id points to a non-existent floor appear in orphaned_areas. When the ha_mcp_tools component's registries capability is available, both registries come from a single in-process snapshot, so this classification is always consistent. Without it (legacy path), the two registries are fetched via independent WebSocket calls and a registry change between reads may transiently misclassify an area.
+        ha_set_area_or_floor(order=...) sets the order of floors and areas within each group. Areas without a floor assignment appear in unassigned_areas; areas whose floor_id points to a non-existent floor appear in orphaned_areas. When the ha_mcp_tools component's registries capability is available, both registries come from a single in-process snapshot, so this classification is always consistent. Without it (legacy path), the two registries are fetched via independent WebSocket calls and a registry change between reads may transiently misclassify an area.
         """
         # Validate projection params before any WS round-trips so a bad shape
         # fails fast without burning two registry reads.
@@ -182,8 +168,6 @@ class AreaDiscoveryTools(BackendTools):
                 for floor in floors
             ]
 
-            topology.sort(key=_floor_sort_key)
-            progress["phase"] = "sorted"
 
             # Apply per-area projection across all 3 buckets uniformly.
             # Snapshot pre-projection areas for the typo-guard warning.

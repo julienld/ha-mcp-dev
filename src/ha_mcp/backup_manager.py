@@ -1118,6 +1118,7 @@ class BackupManager(SnapshotFilesMixin):
         """Read a snapshot and the live config for its stable target identity."""
         data = await asyncio.to_thread(self.read_snapshot, name)
         _validate_snapshot_envelope(data)
+        historical_entity = data["domain"] == "entity" and isinstance(data["config"], dict) and "id" in data["config"]
         data = entity_snapshot_target(data)
         data["warnings"] = []
         domain = data["domain"]
@@ -1144,10 +1145,13 @@ class BackupManager(SnapshotFilesMixin):
             live = await _dashboard_resource_like(self._client, data["config"])
             if live is not None:
                 current = {**live, "id": data["config"].get("id")}
-        elif domain in _COMPARED_ROW_DOMAINS and isinstance(data["config"], dict):
+        elif domain in (_COMPARED_ROW_DOMAINS | {"entity_registry"}) and isinstance(data["config"], dict):
             current, data["warnings"] = await _compared_row(
-                self._client, domain, data["entity_id"], data["config"], current
+                self._client, "entity" if domain == "entity_registry" else domain, data["entity_id"], data["config"], current
             )
+        if historical_entity and isinstance(current, dict):
+            # Historical Main captures recorded a smaller registry row.
+            current = {key: current.get(key) for key in data["config"]}
         return comparison_values(data, current)
 
     async def diff_snapshot(self, name: str) -> DiffResponse | DiffResponseText:

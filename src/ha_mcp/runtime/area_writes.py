@@ -7,13 +7,13 @@ from pydantic import Field
 
 from ha_mcp.errors import ErrorCode, create_error_response
 from ha_mcp.tool_api import ToolFailure
-from ha_mcp.tools.coercion import JSON_STRING_COERCION, UNSET, parse_string_list_param
+from ha_mcp.tools.coercion import JSON_STRING_COERCION, UNSET
 from ha_mcp.utils.registry_update_lock import registry_update_lock
 
 from .area_config import AreaConfigTools
 from .area_payloads import (
-    require_id_not_blank,
     parse_string_list_field,
+    require_id_not_blank,
     resolve_clearable,
     resolve_level,
     validate_cross_kind_params,

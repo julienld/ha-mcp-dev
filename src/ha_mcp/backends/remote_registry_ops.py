@@ -179,6 +179,11 @@ async def execute_registry_operation(
         "devices.list_snapshot",
     }:
         return await _device_read(client, operation, arguments)
+    if operation == "registries.snapshot" and arguments in ({"registries": ["area"]}, {"registries": ["floor"]}):
+        from ha_mcp.tools.component_registries import registry_list_rows
+
+        kind = arguments["registries"][0]
+        return {f"{kind}s": await registry_list_rows(client, kind)}
     if operation == "registries.snapshot" and arguments in (
         {"registries": ["area", "floor"]},
         {"registries": ["area"]},

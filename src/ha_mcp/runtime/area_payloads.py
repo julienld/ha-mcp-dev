@@ -217,8 +217,15 @@ def build_floor_create_payload(
 # ============================================================
 
 
-def parse_string_list_field(value: str | list[str] | None, field: str) -> list[str] | None:
+def parse_string_list_field(
+    value: str | list[str] | None, field: str
+) -> list[str] | None:
     try:
         return parse_string_list_param(value, field)
     except ValueError as error:
-        return raise_failure(create_error_response(ErrorCode.VALIDATION_INVALID_PARAMETER, f"Invalid {field} parameter: {error}"))
+        return raise_failure(
+            create_error_response(
+                ErrorCode.VALIDATION_INVALID_PARAMETER,
+                f"Invalid {field} parameter: {error}",
+            )
+        )

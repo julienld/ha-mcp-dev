@@ -31,8 +31,9 @@ from .client.rest_client import (
     HomeAssistantCommandError,
     HomeAssistantConnectionError,
 )
-
-from .runtime.registry_recovery_values import registry_identity_warning as _other_id_warning
+from .runtime.registry_recovery_values import (
+    registry_identity_warning as _other_id_warning,
+)
 
 logger = logging.getLogger(__name__)
 
