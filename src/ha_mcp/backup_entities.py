@@ -138,43 +138,9 @@ async def current_entity_id(client: Any, entity_id: str, config: Any) -> str | N
 
 
 def _entry_deleted(entity_id: str, found: dict[str, Any]) -> Exception:
-    """The refusal for a gone entry, from what ``_lookup`` knows of it."""
-    again = "If this backup is from an earlier edit, restore it once the entity is back"
-    if "deleted" not in found:
-        suggestions = [
-            "Restart Home Assistant: if what provides the entity is still "
-            "there, it adds the entity again with the registry settings it "
-            "had while its config entry exists, and for 30 days after that "
-            "entry, or an entity without one, was removed. A reload does not "
-            "bring back a stored helper's entity",
-            again,
-        ]
-    elif (deleted := found["deleted"]) is None:
-        suggestions = [
-            "Home Assistant no longer keeps this entity's registry settings: "
-            "an entity added again gets a new registry entry, which this "
-            "backup cannot be restored over. Set the entity with ha_set_entity "
-            "instead"
-        ]
-    else:
-        kept = (
-            f"until {deleted['kept_until']}"
-            if deleted.get("kept_until")
-            else "while its config entry exists"
-        )
-        suggestions = [
-            f"Home Assistant keeps the registry settings of {deleted['entity_id']} "
-            f"{kept} and gives them back when the entity is added again. If "
-            "what provides the entity is still there, restart Home Assistant; "
-            "a reload does not bring back a stored helper's entity",
-            again,
-        ]
-    error: Exception = _manager().BackupRestoreError(
-        f"{entity_id} is no longer in the entity registry",
-        reason="entry_deleted",
-        suggestions=suggestions,
-    )
-    return error
+    from .runtime.entity_recovery import deleted_entity_error
+
+    return deleted_entity_error(entity_id, found)
 
 
 # The entity IDs whose locks ``restore_locks`` holds for the running restore.
@@ -182,7 +148,9 @@ _HELD: ContextVar[frozenset[str] | None] = ContextVar("held_entity_locks", defau
 
 
 @asynccontextmanager
-async def restore_locks(client: Any, config: Any) -> AsyncIterator[None]:
+async def restore_locks(
+    client: Any, config: Any, *, require_lookup: bool = False
+) -> AsyncIterator[None]:
     """Hold the entity locks from before a restore's safety backup through its
     write, as a flow helper's restore holds its config-entry guard. When the
     lookup finds no entry or fails with a transient error, nothing is locked,
@@ -192,8 +160,16 @@ async def restore_locks(client: Any, config: Any) -> AsyncIterator[None]:
     try:
         found = await _lookup(client, entry_id) if isinstance(entry_id, str) else {}
     except _manager()._CAPTURE_TRANSIENT_ERRORS:
+        if require_lookup:
+            raise
         found = {}  # the restore looks the entry up again and reports a failure
     entry = found.get("entry")
+    if require_lookup and entry is None:
+        if not isinstance(saved, str):
+            raise _manager().InvalidBackupSnapshotError(
+                "Entity snapshot names no entity_id"
+            )
+        raise _entry_deleted(saved, found)
     ids: frozenset[str] = frozenset()
     if entry is not None and isinstance(saved, str):
         ids = frozenset((entry["entity_id"], saved))

@@ -25,6 +25,7 @@ from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp.client.rest_client import HomeAssistantClient
 from ha_mcp.client.websocket_client import HomeAssistantWebSocketClient
 from ha_mcp.errors import ErrorCode
+from ha_mcp.runtime.backup_tools import BackupFacade
 from ha_mcp.tools import backup_snapshot, backup_snapshot_restore
 from ha_mcp.tools.backup_snapshot_restore import restore_backup
 
@@ -139,7 +140,19 @@ class TestWhatIsRestored:
         await backup_install.configure(password=PASSWORD)
         target = await _core_backup(backup_install, include_database=included)
 
-        result = await restore_backup(core_client, target, restore_database=requested)
+        async def manage_backups(**arguments: Any) -> dict[str, Any]:
+            return await restore_backup(
+                core_client,
+                arguments["backup_id"],
+                restore_database=arguments["restore_database"],
+            )
+
+        given: dict[str, Any] = (
+            {} if requested is None else {"restore_database": requested}
+        )
+        result = await BackupFacade(manage_backups).ha_manage_backup(
+            scope="snapshot", action="restore", backup_id=target, **given
+        )
 
         restore = await backup_install.restore_request()
         assert restore is not None
