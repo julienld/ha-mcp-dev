@@ -267,4 +267,3 @@ async function exerciseCorePins() {
 await exerciseCorePins();
 
 console.log('Pinned Renovate executor regenerated the websockets and Rich/FastMCP/MCP SDK trees, licenses and manifests; collected additions/deletions; rejected unauthorized commands and surfaced generator failures; rewrote the Core integration pins and their Dependabot ignores and re-locked.');
-
