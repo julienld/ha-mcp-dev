@@ -171,31 +171,52 @@ async def floor_delete(
 
 async def reorder(hass: HomeAssistant, arguments: dict[str, Any]) -> dict[str, Any]:
     domain = arguments["kind"]
-    data = _validated_payload(hass, f"config/{domain}_registry/reorder", arguments["data"])
+    data = _validated_payload(
+        hass, f"config/{domain}_registry/reorder", arguments["data"]
+    )
     registry, _ = _owners(hass, domain)
-    previous = [entry.id if domain == "area" else entry.floor_id for entry in getattr(registry, f"async_list_{domain}s")()]
+    previous = [
+        entry.id if domain == "area" else entry.floor_id
+        for entry in getattr(registry, f"async_list_{domain}s")()
+    ]
     if previous != arguments["expected_order"]:
-        raise ToolFailure("CONFIG_CONFLICT", "Registry order changed before dispatch", status="not_started")
+        raise ToolFailure(
+            "CONFIG_CONFLICT",
+            "Registry order changed before dispatch",
+            status="not_started",
+        )
     if admission := current_admission.get():
         check_mutation_admission(admission.context)
     try:
         registry.async_reorder(data[f"{domain}_ids"])
     except ValueError as error:
-        current = [entry.id if domain == "area" else entry.floor_id for entry in getattr(registry, f"async_list_{domain}s")()]
+        current = [
+            entry.id if domain == "area" else entry.floor_id
+            for entry in getattr(registry, f"async_list_{domain}s")()
+        ]
         if current == previous:
-            return {"success": False, "error_code": "invalid_format", "error": str(error)}
+            return {
+                "success": False,
+                "error_code": "invalid_format",
+                "error": str(error),
+            }
         return registry_outcome_unknown(domain, "reorder", error)
-    except Exception as error:
+    except Exception as error:  # noqa: BLE001 - save/listener may fail after dispatch
         return registry_outcome_unknown(domain, "reorder", error)
     return {"success": True, "result": None}
 
 
-async def area_reorder(hass: HomeAssistant, arguments: dict[str, Any]) -> dict[str, Any]:
+async def area_reorder(
+    hass: HomeAssistant, arguments: dict[str, Any]
+) -> dict[str, Any]:
     return await reorder(hass, {**arguments, "kind": "area"})
 
 
-async def floor_reorder(hass: HomeAssistant, arguments: dict[str, Any]) -> dict[str, Any]:
+async def floor_reorder(
+    hass: HomeAssistant, arguments: dict[str, Any]
+) -> dict[str, Any]:
     return await reorder(hass, {**arguments, "kind": "floor"})
+
 
 DIRECT_OPERATIONS = {
     "registry.area.reorder": (area_reorder, True),

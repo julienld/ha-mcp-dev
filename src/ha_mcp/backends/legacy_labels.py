@@ -2,8 +2,6 @@
 
 import json
 import logging
-from ha_mcp.tools.component_registries import registry_list_reply
-
 from typing import Any, NoReturn
 
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
@@ -26,6 +24,7 @@ from ha_mcp.runtime.label_values import (
     with_retry_suggestions,
 )
 from ha_mcp.runtime.label_values import string_labels as _string_labels
+from ha_mcp.tools.component_registries import registry_list_reply
 from ha_mcp.tools.helpers import (
     clearable_value,
     exception_to_structured_error,

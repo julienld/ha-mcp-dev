@@ -28,7 +28,7 @@ from homeassistant.setup import async_setup_component
 from pytest_homeassistant.common import MockConfigEntry
 from starlette.requests import Request
 
-from custom_components.ha_mcp_tools.websocket_api import registries
+from custom_components.ha_mcp_tools import core_registry_fields as registries
 from custom_components.ha_mcp_tools.websocket_api.constants import WS_REGISTRY_FIELDS
 from ha_mcp.backup_diff import DiffResponse
 from ha_mcp.backup_manager import BackupManager

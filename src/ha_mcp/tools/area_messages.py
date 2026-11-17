@@ -4,9 +4,6 @@ from typing import Any
 
 from ..backends.legacy import legacy_errors_sync
 from ..runtime.area_payloads import (
-    resolve_clearable,
-    resolve_level,
-    require_id_not_blank,
     build_area_create_payload,
     build_area_update_payload,
     build_floor_create_payload,

@@ -19,8 +19,8 @@ from ..backends.legacy_config_errors import raise_legacy_classified
 from ..errors import ErrorCode, create_error_response
 from ..runtime.category_writes import CategoryWriteTools
 from ..runtime.labels import CategoryDiscoveryTools
-from .component_registries import category_list_reply
 from .auto_backup import with_auto_backup
+from .component_registries import category_list_reply
 from .helpers import (
     exception_to_structured_error,
     log_tool_usage,

@@ -11,11 +11,16 @@ from ha_mcp.tools.coercion import JSON_STRING_COERCION, UNSET, parse_string_list
 from ha_mcp.utils.registry_update_lock import registry_update_lock
 
 from .area_config import AreaConfigTools
-from .area_payloads import resolve_clearable, resolve_level, require_id_not_blank, validate_cross_kind_params
-from .errors import raise_failure, raise_core_refusal
-from .validation import validate_identifier_not_empty
+from .area_payloads import (
+    require_id_not_blank,
+    resolve_clearable,
+    resolve_level,
+    validate_cross_kind_params,
+)
 from .area_reorder import reorder_area_or_floor
 from .error_text import core_error_message
+from .errors import raise_core_refusal, raise_failure
+from .validation import validate_identifier_not_empty
 
 
 class AreaWriteTools(AreaConfigTools):
@@ -136,10 +141,19 @@ class AreaWriteTools(AreaConfigTools):
         """
         if order is not None:
             return await reorder_area_or_floor(
-                self.backend, self.context, kind, order,
+                self.backend,
+                self.context,
+                kind,
+                order,
                 {"name": name, "id": id, "aliases": aliases, "labels": labels},
-                {"floor_id": floor_id, "level": level, "icon": icon, "picture": picture,
-                 "temperature_entity_id": temperature_entity_id, "humidity_entity_id": humidity_entity_id},
+                {
+                    "floor_id": floor_id,
+                    "level": level,
+                    "icon": icon,
+                    "picture": picture,
+                    "temperature_entity_id": temperature_entity_id,
+                    "humidity_entity_id": humidity_entity_id,
+                },
             )
         operation = "create"
         try:
@@ -237,7 +251,9 @@ class AreaWriteTools(AreaConfigTools):
                 ctx[id_key] = id
                 if result.get("error_code") == "unknown_error":
                     await self._raise_if_unknown(kind, id)
-            return raise_core_refusal(f"Failed to {operation} {kind}", result, context=ctx)
+            return raise_core_refusal(
+                f"Failed to {operation} {kind}", result, context=ctx
+            )
 
         except ToolFailure:
             raise
@@ -310,12 +326,20 @@ class AreaWriteTools(AreaConfigTools):
                 }
 
             context = {"kind": kind, id_key: id}
-            if core_error_message(result.get("error", "")) == f"{kind.capitalize()} ID doesn't exist":
-                return raise_failure(create_error_response(
-                    ErrorCode.RESOURCE_NOT_FOUND, f"{kind.capitalize()} not found: {id}",
-                    context={**context, "ha_error_code": result.get("error_code")},
-                ))
-            return raise_core_refusal(f"Failed to remove {kind}", result, context=context)
+            if (
+                core_error_message(result.get("error", ""))
+                == f"{kind.capitalize()} ID doesn't exist"
+            ):
+                return raise_failure(
+                    create_error_response(
+                        ErrorCode.RESOURCE_NOT_FOUND,
+                        f"{kind.capitalize()} not found: {id}",
+                        context={**context, "ha_error_code": result.get("error_code")},
+                    )
+                )
+            return raise_core_refusal(
+                f"Failed to remove {kind}", result, context=context
+            )
 
         except ToolFailure:
             raise

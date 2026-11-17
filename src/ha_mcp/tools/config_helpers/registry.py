@@ -382,7 +382,9 @@ async def validate_registry_ids(
 
     results = await _lookups_via_component(client, checks)
     if results is None:
-        results = await asyncio.gather(*(_ws_registry_lookup(client, message) for *_, message in checks))
+        results = await asyncio.gather(
+            *(_ws_registry_lookup(client, message) for *_, message in checks)
+        )
     for (kind, scope, value, _), (ok, items, exc, error_code) in zip(
         checks, results, strict=True
     ):

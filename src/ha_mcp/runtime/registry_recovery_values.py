@@ -42,11 +42,17 @@ def note_registry_identity(
     )
 
 
-def compare_core_registry_row(current: dict[str, Any], stored: dict[str, Any], fields: dict[str, Any]) -> dict[str, Any]:
+def compare_core_registry_row(
+    current: dict[str, Any], stored: dict[str, Any], fields: dict[str, Any]
+) -> dict[str, Any]:
     """Normalize only sets and timestamps identified by the running Core owner."""
     result = dict(current)
     for key in fields["set_fields"] or ():
-        if key in stored and key in result and registry_fields_match({key: result[key]}, {key: stored[key]}):
+        if (
+            key in stored
+            and key in result
+            and registry_fields_match({key: result[key]}, {key: stored[key]})
+        ):
             result[key] = stored[key]
     for key in fields["stamped_fields"] or ():
         result.pop(key, None)
@@ -54,10 +60,20 @@ def compare_core_registry_row(current: dict[str, Any], stored: dict[str, Any], f
             result[key] = stored[key]
     return result
 
-def note_restore_omissions(row: dict[str, Any], stored: dict[str, Any], sent: dict[str, Any], fields: dict[str, Any], kind: str, action: str) -> dict[str, Any]:
+
+def note_restore_omissions(
+    row: dict[str, Any],
+    stored: dict[str, Any],
+    sent: dict[str, Any],
+    fields: dict[str, Any],
+    kind: str,
+    action: str,
+) -> dict[str, Any]:
     """Disclose snapshot values the running Core command cannot restore."""
     writable = {*fields["update_fields"], *(fields["create_fields"] or ())}
-    omitted = sorted(key for key in stored if key not in sent and (key in writable or key not in row))
+    omitted = sorted(
+        key for key in stored if key not in sent and (key in writable or key not in row)
+    )
     if not omitted:
         return row
     warning = f"Not restored: {', '.join(omitted)}. The backup holds a value for each, and Home Assistant's command to {action} a {kind} does not take it."

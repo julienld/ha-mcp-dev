@@ -939,7 +939,6 @@ class BackupManager(SnapshotFilesMixin):
             data = await asyncio.to_thread(self.read_snapshot, name)
             _validate_snapshot_envelope(data)
             data = entity_snapshot_target(data)
-        data["warnings"] = []
         except FileNotFoundError as err:
             raise BackupRestoreError(
                 f"Backup {name!r} not found",

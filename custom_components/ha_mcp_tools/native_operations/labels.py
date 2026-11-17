@@ -24,8 +24,8 @@ from ha_mcp.runtime.label_values import (
 )
 from ha_mcp.runtime.mutation_guard import check_mutation_admission
 from ha_mcp.runtime.registry_recovery_values import (
-    note_registry_identity,
     compare_core_registry_row,
+    note_registry_identity,
     note_restore_omissions,
 )
 from ha_mcp.runtime.snapshot_payloads import InvalidBackupSnapshotError
@@ -250,7 +250,11 @@ class NativeLabels:
 
         fields = registry_fields(self.hass, {"registry": "label"})
         action = "create" if expected is None else "update"
-        payload = {key: value for key, value in config.items() if key in fields[f"{action}_fields"] and key != "label_id"}
+        payload = {
+            key: value
+            for key, value in config.items()
+            if key in fields[f"{action}_fields"] and key != "label_id"
+        }
         if expected is None:
             registry, serialize = self._label_owner()
             if registry.async_get_label(label_id) is not None:
@@ -262,10 +266,18 @@ class NativeLabels:
 
             for entry in registry.async_list_labels():
                 current = self._json(serialize(entry))
-                entry_fields = registry_fields(self.hass, {"registry": "label", "item_id": current["label_id"]})
+                entry_fields = registry_fields(
+                    self.hass, {"registry": "label", "item_id": current["label_id"]}
+                )
                 compared = compare_core_registry_row(current, payload, entry_fields)
                 if all(compared.get(key) == value for key, value in payload.items()):
-                    return note_registry_identity(note_restore_omissions(current, config, payload, fields, "label", action), "label_id", label_id)
+                    return note_registry_identity(
+                        note_restore_omissions(
+                            current, config, payload, fields, "label", action
+                        ),
+                        "label_id",
+                        label_id,
+                    )
             row, _, _ = await self._write_label(
                 "create",
                 {key: value for key, value in payload.items() if value is not None},
@@ -274,7 +286,11 @@ class NativeLabels:
                 absent_id=label_id,
             )
             assert row is not None
-            return note_registry_identity(note_restore_omissions(row, config, payload, fields, "label", action), "label_id", label_id)
+            return note_registry_identity(
+                note_restore_omissions(row, config, payload, fields, "label", action),
+                "label_id",
+                label_id,
+            )
         row, _, _ = await self._write_label(
             "update",
             {**payload, "label_id": label_id},
@@ -371,7 +387,7 @@ class NativeLabels:
                     or (identifier is not None and row["label_id"] != identifier)
                 ):
                     raise ValueError("The Core label result has no matching identity")
-                return note_restore_omissions(row, config, payload, fields, "label", action), warnings, registry
+                return row, warnings, registry
             except Exception as error:  # noqa: BLE001 - save/listener/serializer can fail after mutation
                 return registry_outcome_unknown("label", action, error)
 

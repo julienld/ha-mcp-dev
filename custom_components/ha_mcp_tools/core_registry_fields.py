@@ -9,7 +9,12 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
 from .core_registries import _category_registry
-from .core_registry import _resolve_registries, _substrate_unavailable, _unambiguous_device_entries
+from .core_registry import (
+    _resolve_registries,
+    _substrate_unavailable,
+    _unambiguous_device_entries,
+)
+
 
 def registry_fields(hass: HomeAssistant, params: dict[str, Any]) -> dict[str, Any]:
     """Name the fields Core's commands take for a registry, and how Core keeps
@@ -105,6 +110,7 @@ def declared_fields(entry: Any) -> Any:
     return attr.fields(cls) if attr.has(cls) else dataclasses.fields(cls)
 
 
-
-async def read_registry_fields(hass: HomeAssistant, arguments: dict[str, Any]) -> dict[str, Any]:
+async def read_registry_fields(
+    hass: HomeAssistant, arguments: dict[str, Any]
+) -> dict[str, Any]:
     return registry_fields(hass, arguments)

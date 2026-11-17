@@ -22,7 +22,9 @@ from .core_registry import (
 # =============================================================================
 # ha_mcp_tools/registries
 # =============================================================================
-def registry_snapshot(hass: HomeAssistant, registries: list[str], category_scopes: list[str] | None = None) -> dict[str, Any]:
+def registry_snapshot(
+    hass: HomeAssistant, registries: list[str], category_scopes: list[str] | None = None
+) -> dict[str, Any]:
     """Return the requested registries as Core's own ``config/<x>_registry/list`` rows.
 
     ``{areas: [...], floors: [...], labels: [...], categories: {scope: [...]}}`` —
@@ -56,7 +58,7 @@ def registry_snapshot(hass: HomeAssistant, registries: list[str], category_scope
     if "area" in requested:
         if view.area is None:
             raise _substrate_unavailable("area registry")
-        result["areas"] = [_area_row(a) for a in _all_area_entries(view)]
+        result["areas"] = [_area_row(a) for a in view.area.async_list_areas()]
     if "floor" in requested:
         if view.floor is None:
             raise _substrate_unavailable("floor registry")
@@ -64,7 +66,7 @@ def registry_snapshot(hass: HomeAssistant, registries: list[str], category_scope
             _entry_dict as floor_row,
         )
 
-        result["floors"] = [floor_row(f) for f in _all_floor_entries(view)]
+        result["floors"] = [floor_row(f) for f in view.floor.async_list_floors()]
     if "label" in requested:
         if view.label is None:
             raise _substrate_unavailable("label registry")
@@ -72,7 +74,7 @@ def registry_snapshot(hass: HomeAssistant, registries: list[str], category_scope
             _entry_dict as label_row,
         )
 
-        result["labels"] = [label_row(x) for x in _all_label_entries(view)]
+        result["labels"] = [label_row(x) for x in view.label.async_list_labels()]
     if "category" in requested:
         result["categories"] = _category_rows(hass, category_scopes)
     return result

@@ -1,5 +1,7 @@
 """Native location edits use the running Core owners and schemas."""
 
+from typing import Literal
+
 import pytest
 from homeassistant.auth.models import User
 from homeassistant.core import HomeAssistant
@@ -19,29 +21,44 @@ async def locations(hass: HomeAssistant, hass_admin_user: User) -> AreaWriteTool
 
 
 @pytest.mark.parametrize("kind", ["area", "floor"])
-async def test_native_reorder_uses_core_and_returns_previous(hass: HomeAssistant, locations: AreaWriteTools, kind: str) -> None:
+async def test_native_reorder_uses_core_and_returns_previous(
+    hass: HomeAssistant, locations: AreaWriteTools, kind: Literal["area", "floor"]
+) -> None:
     registry = ar.async_get(hass) if kind == "area" else fr.async_get(hass)
     first = registry.async_create("First")
     second = registry.async_create("Second")
-    previous = [first.id, second.id] if kind == "area" else [first.floor_id, second.floor_id]
-    result = await locations.ha_set_area_or_floor(kind=kind, order=list(reversed(previous)))
+    previous = (
+        [first.id, second.id] if kind == "area" else [first.floor_id, second.floor_id]
+    )
+    result = await locations.ha_set_area_or_floor(
+        kind=kind, order=list(reversed(previous))
+    )
     assert result["previous_order"] == previous
     assert result["order"] == list(reversed(previous))
     with pytest.raises(ToolFailure):
         await locations.ha_set_area_or_floor(kind=kind, order=previous[:1])
-    assert result["order"] == [entry.id if kind == "area" else entry.floor_id for entry in getattr(registry, f"async_list_{kind}s")()]
+    assert result["order"] == [
+        entry.id if kind == "area" else entry.floor_id
+        for entry in getattr(registry, f"async_list_{kind}s")()
+    ]
 
 
-async def test_native_floor_omission_preserves_and_null_clears(hass: HomeAssistant, locations: AreaWriteTools) -> None:
+async def test_native_floor_omission_preserves_and_null_clears(
+    hass: HomeAssistant, locations: AreaWriteTools
+) -> None:
     registry = fr.async_get(hass)
     floor = registry.async_create("First", level=3)
-    await locations.ha_set_area_or_floor(kind="floor", id=floor.floor_id, name="Renamed")
+    await locations.ha_set_area_or_floor(
+        kind="floor", id=floor.floor_id, name="Renamed"
+    )
     assert registry.async_get_floor(floor.floor_id).level == 3
     await locations.ha_set_area_or_floor(kind="floor", id=floor.floor_id, level=None)
     assert registry.async_get_floor(floor.floor_id).level is None
 
 
-async def test_native_reorder_interruption_remains_unknown(hass: HomeAssistant, locations: AreaWriteTools, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_native_reorder_interruption_remains_unknown(
+    hass: HomeAssistant, locations: AreaWriteTools, monkeypatch: pytest.MonkeyPatch
+) -> None:
     registry = ar.async_get(hass)
     first = registry.async_create("First")
     second = registry.async_create("Second")
@@ -55,7 +72,9 @@ async def test_native_reorder_interruption_remains_unknown(hass: HomeAssistant, 
     with monkeypatch.context() as patched:
         patched.setattr(ar.AreaRegistry, "async_schedule_save", interrupted_save)
         with pytest.raises(ToolFailure) as failure:
-            await locations.ha_set_area_or_floor(kind="area", order=[second.id, first.id])
+            await locations.ha_set_area_or_floor(
+                kind="area", order=[second.id, first.id]
+            )
     assert failure.value.status == "outcome_unknown"
     assert failure.value.data["previous_order"] == [first.id, second.id]
     assert calls == 1

@@ -20,7 +20,11 @@ from ..runtime.bulk_selection import (
 from ..runtime.bulk_selection import (
     SelectorTopology as _Topology,
 )
-from ..visibility.resolver import VisibilityDataUnavailable, core_device_list_reply, load_hidden_set
+from ..visibility.resolver import (
+    VisibilityDataUnavailable,
+    core_device_list_reply,
+    load_hidden_set,
+)
 from .component_registries import registry_list_reply
 
 logger = logging.getLogger(__name__)

@@ -5,13 +5,18 @@ from typing import Any
 
 from pydantic.fields import FieldInfo
 
-from ..client.exceptions import HomeAssistantCommandNotSent
-from ..errors import ErrorCode, create_error_response
-from ha_mcp.tools.coercion import UNSET, parse_string_list_param
 from ha_mcp.tool_api import Backend, CallContext, ToolFailure
+from ha_mcp.tools.coercion import UNSET, parse_string_list_param
+
+from ha_mcp.errors import HomeAssistantCommandNotSent
+from ..errors import ErrorCode, create_error_response
 from .errors import (
     raise_classified as exception_to_structured_error,
+)
+from .errors import (
     raise_core_refusal,
+)
+from .errors import (
     raise_failure as raise_tool_error,
 )
 
@@ -33,7 +38,9 @@ def _passed_params(plain: dict[str, Any], clearable: dict[str, Any]) -> list[str
 
 async def _order(backend: Backend, actor: CallContext, kind: str) -> list[str]:
     """The ids of the areas or floors, in the order Core lists them."""
-    snapshot = await backend.execute("registries.snapshot", {"registries": [kind]}, actor)
+    snapshot = await backend.execute(
+        "registries.snapshot", {"registries": [kind]}, actor
+    )
     return [row[f"{kind}_id"] for row in snapshot[f"{kind}s"]]
 
 
@@ -85,7 +92,9 @@ async def reorder_area_or_floor(
     context["previous_order"] = previous
     try:
         result = await backend.execute(
-            f"registry.{kind}.reorder", {"data": {f"{kind}_ids": ids}, "expected_order": previous}, actor
+            f"registry.{kind}.reorder",
+            {"data": {f"{kind}_ids": ids}, "expected_order": previous},
+            actor,
         )
     except ToolFailure as error:
         error.data.update(context)

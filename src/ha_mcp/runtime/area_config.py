@@ -26,12 +26,21 @@ def _label_id_set(entry: dict[str, Any] | None) -> set[str]:
 
 class AreaConfigTools(AreaDiscoveryTools, RegistryWriteContext):
     async def _raise_if_unknown(self, kind: str, identifier: str) -> None:
-        snapshot = await self.backend.execute("registries.snapshot", {"registries": [kind]}, self.context)
+        snapshot = await self.backend.execute(
+            "registries.snapshot", {"registries": [kind]}, self.context
+        )
         if not any(row.get(f"{kind}_id") == identifier for row in snapshot[f"{kind}s"]):
-            raise_failure(create_error_response(
-                ErrorCode.RESOURCE_NOT_FOUND, f"{kind.capitalize()} not found: {identifier}",
-                context={"kind": kind, f"{kind}_id": identifier, "ha_error_code": "unknown_error"},
-            ))
+            raise_failure(
+                create_error_response(
+                    ErrorCode.RESOURCE_NOT_FOUND,
+                    f"{kind.capitalize()} not found: {identifier}",
+                    context={
+                        "kind": kind,
+                        f"{kind}_id": identifier,
+                        "ha_error_code": "unknown_error",
+                    },
+                )
+            )
 
     def _map_area_write_error(
         self, error: Exception, context: dict[str, Any], suggestions: list[str]
@@ -199,6 +208,8 @@ class AreaConfigTools(AreaDiscoveryTools, RegistryWriteContext):
             return
         try:
             listed = await self._list_area_rows()
+            if not listed.get("success"):
+                raise RuntimeError(str(listed.get("error")))
         except Exception as exc:  # noqa: BLE001
             # Write already succeeded; a transport failure on re-read must
             # not look like a failed create (retry would duplicate the area).

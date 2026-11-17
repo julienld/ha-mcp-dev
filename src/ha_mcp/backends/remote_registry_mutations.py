@@ -56,7 +56,9 @@ async def execute_registry_mutation(
     if {"type", "id"}.intersection(data):
         raise UnsupportedOperation("registry.payload.envelope")
     if action == "reorder":
-        return await client.send_websocket_message({"type": f"config/{domain}_registry/reorder", **data})
+        return await client.send_websocket_message(
+            {"type": f"config/{domain}_registry/reorder", **data}
+        )
     previous = (
         await _registry_read(client, domain, data) if action != "create" else None
     )

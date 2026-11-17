@@ -4,7 +4,11 @@ from typing import Any
 
 from ha_mcp.tool_api import Backend, CallContext, ToolFailure, UnsupportedOperation
 
-from .registry_recovery_values import note_registry_identity, compare_core_registry_row, note_restore_omissions
+from .registry_recovery_values import (
+    compare_core_registry_row,
+    note_registry_identity,
+    note_restore_omissions,
+)
 from .snapshot_payloads import InvalidBackupSnapshotError
 
 
@@ -66,7 +70,12 @@ async def restore_registry(
     fields = await backend.execute("registry.fields", {"registry": kind}, actor)
     stored = {key: value for key, value in config.items() if key not in metadata}
     action = "create" if before is None else "update"
-    payload = {key: value for key, value in stored.items() if key in fields[f"{action}_fields"] and (action != "create" or key != f"{kind}_id")}
+    payload = {
+        key: value
+        for key, value in stored.items()
+        if key in fields[f"{action}_fields"]
+        and (action != "create" or key != f"{kind}_id")
+    }
     if before is None:
         id_key = f"{kind}_id"
         query: dict[str, Any] = {"registries": [kind]}
@@ -86,10 +95,22 @@ async def restore_registry(
             )
         # Core owns the writable fields; no timestamp or order allowlist.
         for row in rows:
-            entry_fields = await backend.execute("registry.fields", {"registry": kind, "item_id": row[id_key], "scope": target.get("scope")}, actor)
+            entry_fields = await backend.execute(
+                "registry.fields",
+                {
+                    "registry": kind,
+                    "item_id": row[id_key],
+                    "scope": target.get("scope"),
+                },
+                actor,
+            )
             compared = compare_core_registry_row(row, payload, entry_fields)
             if all(compared.get(key) == value for key, value in payload.items()):
-                return note_registry_identity(note_restore_omissions(row, stored, payload, fields, kind, action), id_key, target[id_key])
+                return note_registry_identity(
+                    note_restore_omissions(row, stored, payload, fields, kind, action),
+                    id_key,
+                    target[id_key],
+                )
         data = {key: value for key, value in payload.items() if value is not None}
         if kind == "category":
             data["scope"] = target["scope"]
@@ -104,7 +125,13 @@ async def restore_registry(
                 "Core rejected registry recreation",
                 status="not_started",
             )
-        return note_registry_identity(note_restore_omissions(result["result"], stored, data, fields, kind, action), id_key, target[id_key])
+        return note_registry_identity(
+            note_restore_omissions(
+                result["result"], stored, data, fields, kind, action
+            ),
+            id_key,
+            target[id_key],
+        )
     # An area's floor_id is writable affiliation, not the area's own identity.
     result = await backend.execute(
         f"registry.{kind}.update",
@@ -120,7 +147,9 @@ async def restore_registry(
         raise ToolFailure(
             "RESTORE_FAILED", "Core rejected registry restoration", status="not_started"
         )
-    return note_restore_omissions(result["result"], stored, payload, fields, kind, action)
+    return note_restore_omissions(
+        result["result"], stored, payload, fields, kind, action
+    )
 
 
 async def registry_comparison(
