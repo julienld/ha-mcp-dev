@@ -17,7 +17,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from typing import Any, NamedTuple
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 from homeassistant.components.homeassistant import async_set_stop_handler
@@ -30,7 +30,7 @@ from pytest_homeassistant.test_util.aiohttp import AiohttpClientMocker
 
 from ha_mcp.client.rest_client import HomeAssistantClient
 from ha_mcp.tools.backup_snapshot_restore import restore_backup
-from ha_mcp.tools.tools_addons import register_addon_tools
+from ha_mcp.tools.tools_addons import AddOnTools
 from ha_mcp.tools.tools_config_helpers import HelperConfigTools
 from ha_mcp.tools.tools_config_scenes import ConfigSceneTools
 from ha_mcp.tools.tools_energy import EnergyTools
@@ -146,7 +146,7 @@ class TestUniformResponseShape:
         )
 
         _assert_uniform_shape(result)
-        assert "warnings" not in result
+        assert "warnings" not in result, result.get("warnings")
         assert result["action"] == "update"
         assert result["data"]["options"] == ["x", "y"]
 
@@ -588,13 +588,7 @@ class TestSweepWarningsShape:
         )
         # The server is not in an app: it reaches Supervisor through Core.
         monkeypatch.delenv("SUPERVISOR_TOKEN")
-        registered: dict[str, Any] = {}
-        mcp = MagicMock(
-            tool=lambda *a, **k: lambda fn: registered.setdefault(fn.__name__, fn)
-        )
-        register_addon_tools(mcp, core_client)
-
-        result = await registered["ha_manage_app"](
+        result = await AddOnTools(core_client).ha_manage_app(
             slug="test_addon", options={"log_level": "debug", "zombie_field": "ghost"}
         )
 
