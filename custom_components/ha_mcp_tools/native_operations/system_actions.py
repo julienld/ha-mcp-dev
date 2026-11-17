@@ -9,8 +9,8 @@ from homeassistant.core import Context
 from ha_mcp.errors import ErrorCode, create_error_response
 from ha_mcp.runtime.errors import raise_failure
 from ha_mcp.runtime.system_values import (
-    reload_service,
     reload_entry_result,
+    reload_service,
     reload_target_result,
     restart_precheck_warnings,
     restart_scheduled_result,

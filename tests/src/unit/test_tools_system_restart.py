@@ -90,7 +90,7 @@ async def test_a_gateway_error_after_core_got_the_restart_has_an_unknown_outcome
     assert stops == [True]
     result = json.loads(str(failure.value))
     assert result["execution_status"] == "outcome_unknown"
-    assert result["error"]["context"]["write_outcome_unknown"] is True
+    assert result["write_outcome_unknown"] is True
 
 
 async def test_a_gateway_error_before_the_restart_was_sent_fails(

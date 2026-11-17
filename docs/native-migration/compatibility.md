@@ -10,9 +10,29 @@ changes. The 6 November compatibility pass below restores the installation
 floor and automatic entity-history contracts; historical audit entries remain
 evidence of their original candidate, rather than current behavior.
 
-## Main contracts integrated on 16 November 2026
+## Core reload contracts integrated on 16 November 2026
 
-The current integration target is Main `47c34e6e8635d8d2d4aa280edc0eb5d25ef1e3c1`.
+The current integration target is Main
+`3bcc7b9bdeb9c0ded1eea5910519ff7cc170132f`, with stable Core 2026.11.2.
+`ha_reload_core(target="all")` now calls Core's `homeassistant.reload_all`
+once, letting Core validate configuration and choose its reload services.
+Other targets are the named `core`, `themes`, `custom_templates` aliases or
+an integration domain whose `reload` service Core currently registers.
+Old plural aliases such as `automations` are refused with available targets
+and a singular suggestion. Both backends return the service Core ran.
+
+YAML edits advertise `<key>.reload` only when Core has that service; themes
+retain their performed reload and other edits require a restart. A supplied
+`subentry_id` selects only the child with an omitted or `config_subentry`
+helper type; contradictory helper types are refused before removal.
+Native retains actor admission, owned I/O and uncertain-write/no-replay rules.
+Remote restart acknowledgements lost after dispatch remain uncertain even
+when a proxy returns an error. Historical qualification keeps its original
+source and Core versions.
+
+## Earlier Main contracts integrated on 16 November 2026
+
+The earlier integration target was Main `47c34e6e8635d8d2d4aa280edc0eb5d25ef1e3c1`.
 Its locale and development-app metadata follow the Core contract integration
 from `efe985c3bba739064ac6902b23b3d7a8dfb32d28`. Qualification receipts retain
 their exact tested candidates; the locale/version sync itself adds no live

@@ -1,21 +1,27 @@
 """Frozen standalone restart/reload acquisition; native execution uses Core owners."""
 
-
 from typing import Any
 
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
+from ha_mcp.client.rest_client import (
+    HomeAssistantCommandNotSent,
+    HomeAssistantConnectionError,
+)
 from ha_mcp.errors import ErrorCode, create_error_response
-from ha_mcp.client.rest_client import HomeAssistantCommandNotSent, HomeAssistantConnectionError
 from ha_mcp.runtime.system_values import (
     NAMED_RELOADS,
-    RELOAD_WAIT_SECONDS,
     RELOAD_ALL_FAILED_HINT,
-    reload_service,
+    RELOAD_WAIT_SECONDS,
     reload_entry_result,
+    reload_service,
     reload_target_result,
 )
-from ha_mcp.tools.helpers import exception_to_structured_error, raise_tool_error, raise_core_refusal
 from ha_mcp.tool_api import ToolFailure
+from ha_mcp.tools.helpers import (
+    exception_to_structured_error,
+    raise_core_refusal,
+    raise_tool_error,
+)
 from ha_mcp.tools.system_restart import restart_home_assistant
 
 
@@ -41,9 +47,9 @@ class LegacySystemActions:
             domain, service = reload_service(target, reloadable)
             await self._call_reload(target, domain, service)
             return reload_target_result(target, domain, service)
-        except (ToolError, ToolFailure):
+        except ToolError, ToolFailure:
             raise
-        except Exception as error:  # noqa: BLE001
+        except Exception as error:
             exception_to_structured_error(
                 error,
                 context={"target": target},
@@ -59,7 +65,9 @@ class LegacySystemActions:
                     "type": "call_service",
                     "domain": domain,
                     "service": service,
-                    "_wait_timeout": max(float(self._client.timeout), RELOAD_WAIT_SECONDS),
+                    "_wait_timeout": max(
+                        float(self._client.timeout), RELOAD_WAIT_SECONDS
+                    ),
                 }
             )
         except HomeAssistantCommandNotSent:

@@ -108,8 +108,8 @@ class IntegrationRemovalTools(EntryRemovalTools):
           integration is refused with VALIDATION_INVALID_PARAMETER.
         - helper_type=None + entry_id → direct config entry delete (any
           integration).
-        - helper_type="config_subentry" + parent entry_id + subentry_id →
-          delete one config subentry.
+        - subentry_id + parent entry_id → delete only that config subentry.
+          Omit helper_type or use "config_subentry"; any other type is refused.
 
         A target that cannot be removed raises a structured error rather than
         returning silent success: ENTITY_NOT_FOUND when the entity_id is absent

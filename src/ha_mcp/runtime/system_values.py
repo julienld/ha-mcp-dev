@@ -52,6 +52,7 @@ def reload_target_result(target: str, domain: str, service: str) -> dict[str, An
         "service": f"{domain}.{service}",
     }
 
+
 def reload_entry_result(entry_id: str, require_restart: bool) -> dict[str, Any]:
     if require_restart:
         return {

@@ -24,8 +24,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant.common import MockConfigEntry
 
-from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp._vendor.fastmcp import Client, FastMCP
+from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp.client.rest_client import (
     HomeAssistantClient,
     HomeAssistantCommandNotSent,
@@ -399,9 +399,15 @@ class TestRemoveTodoItem:
         server = FastMCP("todo annotations")
         register_todo_tools(server, core_client)
         async with Client(server) as client:
-            definition = next(t for t in await client.list_tools() if t.name == "ha_remove_todo_item")
+            definition = next(
+                t for t in await client.list_tools() if t.name == "ha_remove_todo_item"
+            )
         assert definition.annotations.idempotentHint is False
-        native = next(t for t in build_initial_catalog(MagicMock()) if t.name == "ha_remove_todo_item")
+        native = next(
+            t
+            for t in build_initial_catalog(MagicMock())
+            if t.name == "ha_remove_todo_item"
+        )
         assert native.annotations["idempotentHint"] is False
 
     @pytest.mark.parametrize(

@@ -15,7 +15,7 @@ async def exercise_system_actions(checks: Any) -> None:
     assert (
         unchanged.get("data", unchanged)["attributes"]["friendly_name"] == seed["name"]
     )
-    reloaded = await checks.call("ha_reload_core", {"target": "scripts"})
+    reloaded = await checks.call("ha_reload_core", {"target": "script"})
     assert reloaded["success"] and reloaded["service"] == "script.reload", reloaded
     state = await checks.call("ha_get_state", {"entity_id": seed["entity_id"]})
     assert state.get("data", state)["attributes"]["friendly_name"] == proposed, state
