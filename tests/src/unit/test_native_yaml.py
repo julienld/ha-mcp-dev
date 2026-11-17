@@ -7,7 +7,10 @@ import pytest
 from homeassistant.core import HomeAssistant
 from pytest_homeassistant.common import async_mock_service
 
-from custom_components.ha_mcp_tools.native_operations.yaml_config import NativeYamlConfig, NativeYamlRead
+from custom_components.ha_mcp_tools.native_operations.yaml_config import (
+    NativeYamlConfig,
+    NativeYamlRead,
+)
 from ha_mcp.tool_api import ToolFailure
 
 from ._native_file_core import core_files as core_files
@@ -75,7 +78,11 @@ async def test_native_yaml_read_glob_uses_shared_lookup_and_never_resolves_secre
 
 
 @pytest.mark.parametrize(
-    "error", ["plain component failure", {"code": "CONFIG_INVALID", "message": "nested failure"}]
+    "error",
+    [
+        "plain component failure",
+        {"code": "CONFIG_INVALID", "message": "nested failure"},
+    ],
 )
 def test_shared_error_preserves_string_and_structured_component_payloads(error):
     from ha_mcp.runtime.errors import raise_failure
@@ -84,19 +91,25 @@ def test_shared_error_preserves_string_and_structured_component_payloads(error):
     with pytest.raises(ToolFailure) as raised:
         raise_failure(payload)
     assert raised.value.data == payload
-    assert raised.value.code == (error["code"] if isinstance(error, dict) else "TOOL_ERROR")
+    assert raised.value.code == (
+        error["code"] if isinstance(error, dict) else "TOOL_ERROR"
+    )
     assert str(raised.value) == (error["message"] if isinstance(error, dict) else error)
 
 
 async def test_native_yaml_theme_reload_carries_the_actual_actor_context(
-    hass: HomeAssistant, yaml_files,
+    hass: HomeAssistant,
+    yaml_files,
 ):
     edit, _read, manager, _target = yaml_files
     manager.policy.flags["enable_yaml_edit_confirm"] = False
     calls = async_mock_service(hass, "frontend", "reload_themes")
     result = await edit.edit(
-        "native-theme", "add", "primary-color: '#ffffff'\n",
-        file="themes/native.yaml", MandatoryBPS=False,
+        "native-theme",
+        "add",
+        "primary-color: '#ffffff'\n",
+        file="themes/native.yaml",
+        MandatoryBPS=False,
     )
     assert result["post_action"] == "reload_performed" and result["written"]
     assert len(calls) == 1 and calls[0].context.user_id == edit.actor.user_id
@@ -104,7 +117,9 @@ async def test_native_yaml_theme_reload_carries_the_actual_actor_context(
 
 @pytest.mark.parametrize("revoke", [False, True])
 async def test_native_yaml_discovery_follows_nested_files_and_rechecks_authority(
-    yaml_files, monkeypatch: pytest.MonkeyPatch, revoke: bool,
+    yaml_files,
+    monkeypatch: pytest.MonkeyPatch,
+    revoke: bool,
 ):
     from custom_components.ha_mcp_tools import yaml_find
 
@@ -127,10 +142,14 @@ async def test_native_yaml_discovery_follows_nested_files_and_rechecks_authority
     monkeypatch.setattr(yaml_find, "async_locate_yaml_key_files", discover)
     if revoke:
         with pytest.raises(ToolFailure):
-            await read.get(yaml_path="mqtt", file="packages/*.yaml", include_parsed=True)
+            await read.get(
+                yaml_path="mqtt", file="packages/*.yaml", include_parsed=True
+            )
         assert spy.await_count == 0
     else:
-        result = await read.get(yaml_path="mqtt", file="packages/*.yaml", include_parsed=True)
+        result = await read.get(
+            yaml_path="mqtt", file="packages/*.yaml", include_parsed=True
+        )
         assert result["files_searched"] == 1 and result["files_unreadable"] == 0
         assert result["matches"][0]["file"] == "packages/nested/child.yaml"
         assert result["matches"][0]["parsed"] == {"password": "!secret mqtt_password"}

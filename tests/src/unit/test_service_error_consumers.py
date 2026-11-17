@@ -86,7 +86,11 @@ async def test_partial_service_consumers_keep_unknown_outcome(
         )
         ws = AsyncMock(side_effect=AssertionError("must not replay"))
         monkeypatch.setattr(client, "send_websocket_message", ws)
-        result: dict[str, Any] = {"success": True, "action": "update", "config_hash": "saved"}
+        result: dict[str, Any] = {
+            "success": True,
+            "action": "update",
+            "config_hash": "saved",
+        }
         if consumer == "update":
             rows, succeeded = await UpdateTools(client)._call_update_service(
                 "install", ["update.test"], False
