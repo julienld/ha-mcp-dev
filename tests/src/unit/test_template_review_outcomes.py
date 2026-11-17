@@ -19,7 +19,7 @@ from homeassistant.helpers import entity_registry as er
 
 from ha_mcp import backup_manager as bm
 from ha_mcp.client.rest_client import HomeAssistantClient, HomeAssistantConnectionError
-from ha_mcp.tools import config_entry_flow
+from ha_mcp.runtime import snapshot_flow_restore as config_entry_flow
 
 from ._command_faults import received
 from ._template_backup_core import degrade_secret_scrub, real_snapshot

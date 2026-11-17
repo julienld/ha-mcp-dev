@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import dataclasses
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from homeassistant.components.todo import (
@@ -24,13 +24,14 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant.common import MockConfigEntry
 
+from ha_mcp._vendor.fastmcp import Client, FastMCP
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp.client.rest_client import (
     HomeAssistantClient,
     HomeAssistantCommandNotSent,
     HomeAssistantConnectionError,
 )
-from ha_mcp.tools.tools_todo import TodoTools
+from ha_mcp.tools.tools_todo import TodoTools, register_todo_tools
 
 from ._backup_todo_core import (
     LIST,
@@ -378,6 +379,36 @@ class TestRemoveTodoItem:
         got = await tools.ha_remove_todo_item(LIST, remove_completed=True)
         assert [i["summary"] for i in got["removed"]] == ["Pay", "Bread"]
         assert [row["summary"] for row in await listed(core_client)] == ["Buy milk"]
+
+    async def test_completed_removal_retry_affects_new_items_and_is_not_advertised_safe(
+        self,
+        hass: HomeAssistant,
+        core_client: HomeAssistantClient,
+        tools: TodoTools,
+        shopping: dict[str, str],
+    ) -> None:
+        from ha_mcp.runtime.catalog import build_initial_catalog
+
+        first = await tools.ha_remove_todo_item(LIST, remove_completed=True)
+        assert [row["summary"] for row in first["removed"]] == ["Pay", "Bread"]
+        await write_item(hass, "update_item", shopping["Buy milk"], status="completed")
+        second = await tools.ha_remove_todo_item(LIST, remove_completed=True)
+        assert [row["summary"] for row in second["removed"]] == ["Buy milk"]
+        assert await listed(core_client) == []
+
+        server = FastMCP("todo annotations")
+        register_todo_tools(server, core_client)
+        async with Client(server) as client:
+            definition = next(
+                t for t in await client.list_tools() if t.name == "ha_remove_todo_item"
+            )
+        assert definition.annotations.idempotentHint is False
+        native = next(
+            t
+            for t in build_initial_catalog(MagicMock())
+            if t.name == "ha_remove_todo_item"
+        )
+        assert native.annotations["idempotentHint"] is False
 
     @pytest.mark.parametrize(
         "target",

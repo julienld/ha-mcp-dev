@@ -21,7 +21,7 @@ from pytest_homeassistant.common import MockModule, mock_integration
 from pytest_homeassistant.components.recorder.common import async_wait_recording_done
 
 from ha_mcp.client.rest_client import HomeAssistantClient, HomeAssistantConnectionError
-from ha_mcp.tools import response_helpers
+from ha_mcp.runtime import projection
 from ha_mcp.tools.response_helpers import add_timezone_metadata
 
 NEW_YORK = "America/New_York"
@@ -199,7 +199,7 @@ class TestConversion:
         def no_tzdata(key: str) -> None:
             raise ZoneInfoNotFoundError(key)
 
-        monkeypatch.setattr(response_helpers, "ZoneInfo", no_tzdata)
+        monkeypatch.setattr(projection, "ZoneInfo", no_tzdata)
         state = await _state_at(hass, client, "climate.hall", SUMMER)
 
         result = await add_timezone_metadata(client, state)

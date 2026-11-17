@@ -4,7 +4,7 @@ A confirmable single call goes to the component as one frame that fires one
 ``async_call`` and returns the real transition. Everything else, and every
 case where the frame provably never reached the component, is one REST POST
 followed by the state-change wait. A frame that was sent but never answered is
-reported partial and never sent again (at most once).
+reported as an unknown outcome and never sent again (at most once).
 
 The services are handlers in Core's ``hass.services`` that switch entity
 states as a device would (``_switched_states``); the states, events and
@@ -14,6 +14,7 @@ transitions are Core's.
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
 from typing import Any
@@ -340,21 +341,20 @@ async def test_a_downgraded_component_is_dropped_and_the_call_posted_once(
     assert len(devices.calls) == 1
 
 
-async def test_a_call_core_refuses_through_the_frame_is_posted_once(
+async def test_a_service_error_frame_does_not_authorize_a_second_dispatch(
     component_core_client: HomeAssistantClient, devices: SwitchedStates
 ) -> None:
-    """The service raised inside the component, before it changed anything:
-    the REST POST is the call's first and only landing."""
+    """An error frame does not establish whether the handler already acted."""
     devices.behaviour["light.a"] = "fail_once"
 
-    with _rest(component_core_client) as (post, _):
-        resp = await _tools(component_core_client).ha_call_service(
+    with _rest(component_core_client) as (post, _), pytest.raises(ToolError) as exc:
+        await _tools(component_core_client).ha_call_service(
             domain="light", service="turn_on", entity_id="light.a"
         )
 
-    assert (resp["success"], resp["verified_state"]) == (True, "on")
-    post.assert_awaited_once()
-    assert len(devices.calls) == 2
+    assert json.loads(str(exc.value))["write_outcome_unknown"] is True
+    post.assert_not_awaited()
+    assert len(devices.calls) == 1
 
 
 async def test_a_socket_that_cannot_connect_sends_one_rest_post(
@@ -403,27 +403,26 @@ async def test_a_frame_never_sent_falls_to_one_rest_post(
     assert len(devices.calls) == 1
 
 
-async def test_a_socket_that_drops_after_the_send_is_partial_and_never_posted(
+async def test_a_socket_that_drops_after_the_send_is_unknown_and_never_posted(
     hass: HomeAssistant,
     component_core_client: HomeAssistantClient,
     devices: SwitchedStates,
 ) -> None:
     """The frame went out, so the call may have landed: re-posting it could apply
-    it twice. Its answer is lost too, and the null response says so."""
+    it twice. The tool reports that uncertain outcome."""
     assert await get_component_caps(component_core_client) is not None
     socket = await pooled_socket(component_core_client)
 
     with (
         dropped_on(hass, CALL_SERVICE, socket),
         _rest(component_core_client) as (post, _),
+        pytest.raises(ToolError) as exc,
     ):
-        resp = await _tools(component_core_client).ha_call_service(
+        await _tools(component_core_client).ha_call_service(
             domain="light", service="turn_on", entity_id="light.a", return_response=True
         )
 
-    assert (resp["success"], resp["partial"]) == (True, True)
-    assert resp["service_response"] is None
-    assert any(NOT_PROOF in w for w in _warnings(resp))
+    assert json.loads(str(exc.value))["write_outcome_unknown"] is True
     post.assert_not_awaited()
 
 
@@ -572,3 +571,37 @@ async def test_an_unanswered_read_before_the_post_still_posts(
     assert resp["success"] is True
     post.assert_awaited_once()
     assert len(devices.calls) == 1
+
+
+@pytest.mark.parametrize("failure", ["handler", "unauthorized", "invalid"])
+async def test_a_core_error_after_effect_never_dispatches_again(
+    hass: HomeAssistant,
+    component_core_client: HomeAssistantClient,
+    failure: str,
+) -> None:
+    import voluptuous as vol
+    from homeassistant.core import ServiceCall
+    from homeassistant.exceptions import HomeAssistantError, Unauthorized
+
+    calls: list[ServiceCall] = []
+
+    async def execute(call: ServiceCall) -> None:
+        calls.append(call)
+        hass.states.async_set("light.a", "on", context=call.context)
+        if failure == "unauthorized":
+            raise Unauthorized(context=call.context)
+        if failure == "invalid":
+            raise vol.Invalid("downstream refused after the effect")
+        raise HomeAssistantError("downstream refused after the effect")
+
+    hass.states.async_set("light.a", "off")
+    hass.services.async_register("light", "turn_on", execute)
+    with _rest(component_core_client) as (post, _), pytest.raises(ToolError) as exc:
+        await _tools(component_core_client).ha_call_service(
+            domain="light", service="turn_on", entity_id="light.a"
+        )
+    assert json.loads(str(exc.value))["write_outcome_unknown"] is True
+    assert len(calls) == 1
+    state = hass.states.get("light.a")
+    assert state is not None and state.state == "on"
+    post.assert_not_awaited()

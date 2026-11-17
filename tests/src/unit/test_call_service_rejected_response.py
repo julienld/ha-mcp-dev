@@ -11,6 +11,8 @@ writes a state and returns nothing.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 import voluptuous as vol
 from homeassistant.core import (
@@ -24,7 +26,7 @@ from homeassistant.exceptions import HomeAssistantError
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp.client import websocket_client
 from ha_mcp.client.rest_client import HomeAssistantClient
-from ha_mcp.tools.component_api import COMPONENT_INSTALL_HINT, COMPONENT_VIA_HACS
+from ha_mcp.tools.component_api import COMPONENT_INSTALL_HINT
 from ha_mcp.tools.device_control import DeviceControlTools
 from ha_mcp.tools.service_response import (
     RESPONSE_CALL_FAILED_HINT,
@@ -171,12 +173,11 @@ async def test_a_failed_response_call_does_not_wait_for_its_target_to_change(
     assert SERVICE_FAILED_AFTER_DISPATCH_HINT in error_of(exc)["suggestions"]
 
 
-async def test_a_response_call_core_refuses_by_schema_stays_a_validation_error(
+async def test_a_component_error_frame_does_not_authorize_a_service_replay(
     hass: HomeAssistant, component_core_client: HomeAssistantClient
 ) -> None:
-    """Core checks the schema before the service runs, so nothing ran. The
-    error tells a user who has the component to update an older one, not to
-    install it."""
+    """This Core refuses before dispatch, but its error frame alone is not a
+    general proof that a service never ran; keep Native's conservative outcome."""
     calls: list[ServiceCall] = []
 
     async def _handle(call: ServiceCall) -> ServiceResponse:
@@ -196,11 +197,9 @@ async def test_a_response_call_core_refuses_by_schema_stays_a_validation_error(
             component_core_client, DeviceControlTools(component_core_client)
         ).ha_call_service(domain="counter", service="strict", return_response=True)
 
-    assert error_of(exc)["code"] == "VALIDATION_FAILED"
+    assert error_of(exc)["code"] == "SERVICE_CALL_FAILED"
+    assert json.loads(str(exc.value))["write_outcome_unknown"] is True
     assert calls == []
-    (hint,) = _may_have_run_hints(exc)
-    assert COMPONENT_INSTALL_HINT not in hint
-    assert f"update an older one {COMPONENT_VIA_HACS}" in hint
 
 
 async def test_a_rejected_response_inside_the_service_is_its_failure(

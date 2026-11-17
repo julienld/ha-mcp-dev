@@ -19,11 +19,11 @@ from homeassistant.core import HomeAssistant
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp.client import rest_client
 from ha_mcp.client.rest_client import (
-    RENDER_NO_VERDICT_WITHOUT_REPORT_ERRORS,
     HomeAssistantClient,
     HomeAssistantCommandTimeout,
     HomeAssistantConnectionError,
 )
+from ha_mcp.client.template_verdict import RENDER_NO_VERDICT_WITHOUT_REPORT_ERRORS
 from ha_mcp.client.websocket_client import (
     HomeAssistantWebSocketClient,
     websocket_manager,
