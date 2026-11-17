@@ -8,7 +8,6 @@ options so they get the same handling as schema password fields.
 import copy
 from collections.abc import Callable
 from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
 from homeassistant.core import HomeAssistant
@@ -22,7 +21,7 @@ from ha_mcp.redaction import (
     known_secret_values,
     redact_addon_options,
 )
-from ha_mcp.tools.tools_addons import get_addon_info, register_addon_tools
+from ha_mcp.tools.tools_addons import AddOnTools, get_addon_info
 
 from ._redaction_registry import clean_registry as clean_registry
 from ._supervisor_core import load_supervisor_api
@@ -326,13 +325,7 @@ async def test_password_written_to_a_listed_key_is_registered_for_the_scrub(
 ) -> None:
     _settings(monkeypatch, f"{BACKUP_SLUG}:backup_password")
     serve_info(BACKUP_INFO)
-    registered: dict[str, Any] = {}
-    mcp = MagicMock(
-        tool=lambda *a, **k: lambda fn: registered.setdefault(fn.__name__, fn)
-    )
-    register_addon_tools(mcp, core_client)
-
-    await registered["ha_manage_app"](
+    await AddOnTools(core_client).ha_manage_app(
         slug=BACKUP_SLUG, options={"backup_password": "a-brand-new-password"}
     )
 
