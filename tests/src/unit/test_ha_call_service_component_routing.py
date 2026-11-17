@@ -424,18 +424,18 @@ async def test_a_socket_that_drops_after_the_send_is_partial_and_never_posted(
     devices: Devices,
 ) -> None:
     """The frame went out, so the call may have landed: re-posting it could apply
-    it twice. Its answer is lost too, and the null response says so."""
+    it twice. The tool reports an unknown outcome without claiming success."""
     assert await get_component_caps(component_core_client) is not None
     socket = await pooled_socket(component_core_client)
 
     with (
         dropped_on(hass, CALL_SERVICE, socket),
         _rest(component_core_client) as (post, _),
+        pytest.raises(ToolError) as error,
     ):
-        with pytest.raises(ToolError) as error:
-            await _tools(component_core_client).ha_call_service(
-                domain="light", service="turn_on", entity_id="light.a", return_response=True
-            )
+        await _tools(component_core_client).ha_call_service(
+            domain="light", service="turn_on", entity_id="light.a", return_response=True
+        )
 
     assert json.loads(str(error.value))["write_outcome_unknown"] is True
     post.assert_not_awaited()

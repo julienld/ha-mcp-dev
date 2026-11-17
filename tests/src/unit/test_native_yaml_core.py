@@ -85,3 +85,21 @@ async def test_native_file_restore_keeps_safety_with_automatic_captures_disabled
     assert world.store.read_snapshot(restored["safety_backup"])["config"] == before
     assert "saved" in target.read_text()
     assert len(world.store.list_snapshots(domain=domain)) == 2
+
+@pytest.mark.parametrize("gap", ["", "\n"], ids=["directly-above", "blank-line-between"])
+async def test_native_remove_preserves_the_next_sections_comments(
+    hass: HomeAssistant, core_files: SimpleNamespace, gap: str
+) -> None:
+    world = core_files
+    head = "automation: !include automations.yaml\n\n"
+    removed = "utility_meter:\n  original:\n    source: sensor.before\n\n"
+    tail = "# Phone notifications\n# Set up by hand\n" + gap + "notify: []\n"
+    await hass.async_add_executor_job(world.config_file.write_text, head + removed + tail)
+    edit = NativeYamlConfig(world.manager, world.actor)
+    preview = await edit.edit("utility_meter", "remove", MandatoryBPS=False)
+    assert world.config_file.read_text() == head + removed + tail
+    result = await edit.edit(
+        "utility_meter", "remove", confirm_token=preview["confirm_token"], MandatoryBPS=False
+    )
+    assert result["written"] is True
+    assert world.config_file.read_text() == head + tail

@@ -648,16 +648,14 @@ async def test_all_types_reads_the_helper_flows_afresh(
     hass: HomeAssistant, client: HomeAssistantClient
 ) -> None:
     """The cached read does not replace a fresh Core flow-handler lookup."""
-    from ha_mcp.runtime import helper_flows as shared_flows
-
     await setup_every_simple_type(hass)
     assert await helper_flows.helper_flow_types(client)
     with patch.object(
-        shared_flows, "_fetch_helper_flow_types", wraps=shared_flows._fetch_helper_flow_types
+        tools_config_helpers, "helper_flow_types", wraps=tools_config_helpers.helper_flow_types
     ) as fetch:
         resp = await list_helpers(client, helper_type="all")
     assert resp["success"] is True
-    fetch.assert_awaited_once()
+    fetch.assert_awaited_once_with(client, refresh=True)
 
 async def test_all_types_with_an_unreadable_helper_flow_list_is_a_connection_error(
     hass: HomeAssistant, client: HomeAssistantClient, monkeypatch: pytest.MonkeyPatch
