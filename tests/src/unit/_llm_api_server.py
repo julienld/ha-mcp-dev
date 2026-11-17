@@ -13,14 +13,12 @@ from __future__ import annotations
 import asyncio
 import copy
 import socket
-import sys
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from types import ModuleType
 from typing import Any
 
-import pytest
 import uvicorn
 import voluptuous as vol
 from homeassistant.core import HomeAssistant
@@ -38,6 +36,7 @@ from custom_components.ha_mcp_tools.const import (
     DOMAIN,
     EXPOSURE_FULL,
     EXPOSURE_TOOL_SEARCH,
+    OPT_ENABLE_LLM_API,
     OPT_LLM_API_EXPOSURE,
 )
 
@@ -210,7 +209,7 @@ async def register(
         entry = MockConfigEntry(domain=DOMAIN, title="HA-MCP Server", entry_id=ENTRY_ID)
         entry.add_to_hass(hass)
     hass.config_entries.async_update_entry(
-        entry, options={OPT_LLM_API_EXPOSURE: exposure}
+        entry, options={OPT_ENABLE_LLM_API: True, OPT_LLM_API_EXPOSURE: exposure}
     )
     await llm_api.async_register_llm_api(
         hass, entry, port=port, secret_path=SECRET_PATH
@@ -247,19 +246,10 @@ def mirrored_tool(port: int) -> llm_api.HaMcpTool:
     )
 
 
-def use_sdk_v2(monkeypatch: pytest.MonkeyPatch) -> ModuleType:
-    """Home Assistant's shared ``mcp`` on the 2.x line, for the next session.
+def private_transport() -> ModuleType:
+    """Return the component's private client transport without replacing Core's SDK."""
+    from ha_mcp._vendor.mcp.client import streamable_http
 
-    The 2.x SDK is ha-mcp's vendored copy: the component finds the SDK by the
-    ``mcp.*`` names, so those names are pointed at it. Returns its transport
-    module.
-    """
-    import ha_mcp._vendor.mcp as sdk
-    from ha_mcp._vendor.mcp.client import session, streamable_http
-
-    monkeypatch.setitem(sys.modules, "mcp", sdk)
-    monkeypatch.setitem(sys.modules, "mcp.client.session", session)
-    monkeypatch.setitem(sys.modules, "mcp.client.streamable_http", streamable_http)
     return streamable_http
 
 

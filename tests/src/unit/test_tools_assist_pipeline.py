@@ -340,8 +340,8 @@ async def test_process_warns_when_handling_the_intent_failed(
     assert result["success"] is True
     assert result["error_code"] == "failed_to_handle"
     assert result["warnings"] == [
-        "Assist matched the intent but handling it failed. The command was "
-        "understood and not carried out."
+        "Assist matched the intent but handling it failed. Some actions may already "
+        "have occurred; inspect Home Assistant before repeating the command."
     ]
 
 

@@ -9,28 +9,37 @@ nodes are the library's real models built from the state the server sends, and
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+import asyncio
+from collections.abc import AsyncIterator, Iterator
 from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
+from homeassistant.auth.models import User
+from homeassistant.components.zwave_js import helpers as zwave_helpers
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.setup import async_setup_component
 from pytest_homeassistant.common import MockConfigEntry
 from zwave_js_server.const import (
     CommandClass,
+    ExclusionStrategy,
     InclusionState,
     InclusionStrategy,
     NodeStatus,
+    Protocols,
     QRCodeVersion,
     SecurityClass,
 )
 from zwave_js_server.model.driver import Driver
 from zwave_js_server.model.version import VersionInfo
 
+from custom_components.ha_mcp_tools.native_backend import NativeBackend
+from custom_components.ha_mcp_tools.native_operations.radio_manager import NativeRadios
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp.client.rest_client import HomeAssistantClient
+from ha_mcp.runtime.radio_tools import RadioFacade
+from ha_mcp.tool_api import CallContext, ToolFailure
 from ha_mcp.tools.tools_radio import RadioTools
 
 from ._command_faults import received
@@ -114,6 +123,10 @@ def server(nodes: list[dict[str, Any]]) -> Iterator[MagicMock]:
         client.server_logging_enabled = False
 
         async def answer(message: dict[str, Any], *_: Any, **__: Any) -> Any:
+            if message["command"] == "driver.hard_reset":
+                client.driver.emit(
+                    "driver ready", {"event": "driver ready", "source": "driver"}
+                )
             return SERVER_ANSWERS.get(message["command"], {})
 
         client.async_send_command.side_effect = answer
@@ -146,6 +159,30 @@ async def without_zwave(hass: HomeAssistant) -> None:
 @pytest.fixture
 def radio(core_client: HomeAssistantClient) -> RadioTools:
     return RadioTools(core_client)
+
+
+@pytest.fixture
+async def native_radio(
+    hass: HomeAssistant,
+    hass_admin_user: User,
+    entry: MockConfigEntry,
+) -> AsyncIterator[RadioFacade]:
+    backend = NativeBackend(hass)
+    try:
+        yield RadioFacade(
+            NativeRadios(hass, CallContext(hass_admin_user.id), backend.authorize)
+        )
+    finally:
+        await backend.stop()
+
+
+@pytest.fixture(params=["legacy", "native"])
+async def radio_path(
+    request: pytest.FixtureRequest,
+    radio: RadioTools,
+    native_radio: RadioFacade,
+) -> RadioTools | RadioFacade:
+    return native_radio if request.param == "native" else radio
 
 
 def sent_to_server(server: MagicMock) -> list[dict[str, Any]]:
@@ -296,6 +333,51 @@ async def test_add_with_only_a_qr_code_starts_inclusion(
     )
 
 
+async def test_native_qr_only_inclusion_uses_cores_secure_strategy(
+    hass: HomeAssistant,
+    hass_admin_user: User,
+    server: MagicMock,
+    entry: MockConfigEntry,
+) -> None:
+    backend = NativeBackend(hass)
+    radio = RadioFacade(
+        NativeRadios(hass, CallContext(hass_admin_user.id), backend.authorize)
+    )
+    try:
+        result = await radio.ha_manage_radio(
+            radio="zwave", action="add", params={"qr_code_string": QR_CODE}
+        )
+        assert result["mode"] == "add_node"
+        assert any(
+            message["command"] == "controller.begin_inclusion"
+            and message["options"]["strategy"] == InclusionStrategy.SECURITY_S2
+            for message in sent_to_server(server)
+        )
+    finally:
+        await backend.stop()
+
+
+async def test_force_security_with_s2_credential_is_rejected_before_inclusion(
+    radio_path: RadioTools | RadioFacade,
+    server: MagicMock,
+) -> None:
+    with pytest.raises((ToolError, ToolFailure)) as caught:
+        await radio_path.ha_manage_radio(
+            radio="zwave",
+            action="add",
+            params={"qr_code_string": QR_CODE, "force_security": True},
+        )
+
+    assert "forceSecurity" in str(caught.value)
+    if isinstance(caught.value, ToolFailure):
+        assert caught.value.code == "VALIDATION_INVALID_PARAMETER"
+        assert caught.value.status == "not_started"
+    assert not any(
+        message["command"] == "controller.begin_inclusion"
+        for message in sent_to_server(server)
+    )
+
+
 async def test_add_with_smart_start_needs_the_provisioning_information(
     radio: RadioTools, entry: MockConfigEntry
 ) -> None:
@@ -308,7 +390,7 @@ async def test_add_with_smart_start_needs_the_provisioning_information(
 
 
 async def test_add_with_smart_start_provisions_the_node(
-    radio: RadioTools, server: MagicMock, entry: MockConfigEntry
+    radio_path: RadioTools | RadioFacade, server: MagicMock, entry: MockConfigEntry
 ) -> None:
     dsk = "11111-22222-33333-44444-55555-66666-77777-88888"
     provisioning = {
@@ -324,10 +406,14 @@ async def test_add_with_smart_start_provisions_the_node(
         "applicationVersion": "1.0",
     }
 
-    out = await radio.ha_manage_radio(
+    out = await radio_path.ha_manage_radio(
         radio="zwave",
         action="add",
-        params={"smart_start": True, "qr_provisioning_information": provisioning},
+        params={
+            "smart_start": True,
+            "qr_provisioning_information": provisioning,
+            "protocol": Protocols.ZWAVE_LONG_RANGE,
+        },
     )
 
     assert out["mode"] == "smart_start"
@@ -337,6 +423,134 @@ async def test_add_with_smart_start_provisions_the_node(
         if message["command"] == "controller.provision_smart_start_node"
     ]
     assert provisioned == [dsk]
+    (sent,) = [
+        message["entry"]
+        for message in sent_to_server(server)
+        if message["command"] == "controller.provision_smart_start_node"
+    ]
+    assert sent["protocol"] == Protocols.ZWAVE_LONG_RANGE
+
+
+async def test_exclusion_forwards_the_requested_unprovision_strategy(
+    radio_path: RadioTools | RadioFacade,
+    server: MagicMock,
+) -> None:
+    await radio_path.ha_manage_radio(
+        radio="zwave",
+        action="remove_device",
+        params={"strategy": ExclusionStrategy.UNPROVISION},
+        confirm=True,
+    )
+    (sent,) = [
+        message
+        for message in sent_to_server(server)
+        if message["command"] == "controller.begin_exclusion"
+    ]
+    assert sent["options"]["strategy"] == ExclusionStrategy.UNPROVISION
+
+
+async def test_native_library_input_error_is_known_to_precede_inclusion_dispatch(
+    native_radio: RadioFacade,
+    server: MagicMock,
+) -> None:
+    with pytest.raises(ToolFailure) as caught:
+        await native_radio.ha_manage_radio(
+            radio="zwave",
+            action="add",
+            params={"qr_code_string": "xx" + "0" * 50},
+        )
+    assert caught.value.code == "VALIDATION_INVALID_PARAMETER"
+    assert caught.value.status == "not_started"
+    assert not any(
+        message["command"] == "controller.begin_inclusion"
+        for message in sent_to_server(server)
+    )
+
+
+async def test_native_value_error_from_the_command_layer_retains_unknown_outcome(
+    native_radio: RadioFacade,
+    server: MagicMock,
+) -> None:
+    async def lost_result(message: dict[str, Any], *_: Any, **__: Any) -> Any:
+        if message["command"] == "controller.begin_inclusion":
+            raise ValueError("device response could not be decoded")
+        return SERVER_ANSWERS.get(message["command"], {})
+
+    server.async_send_command.side_effect = lost_result
+    with pytest.raises(ToolFailure) as caught:
+        await native_radio.ha_manage_radio(
+            radio="zwave",
+            action="add",
+            params={"qr_code_string": QR_CODE},
+        )
+    assert caught.value.code == "OUTCOME_UNKNOWN"
+    assert (
+        sum(
+            message["command"] == "controller.begin_inclusion"
+            for message in sent_to_server(server)
+        )
+        == 1
+    )
+
+
+async def test_native_reset_accepts_cores_driver_ready_entry_reload(
+    native_radio: RadioFacade,
+    server: MagicMock,
+    hass: HomeAssistant,
+    entry: MockConfigEntry,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    before = entry.runtime_data
+
+    async def version_from_server(*_: Any, **__: Any) -> VersionInfo:
+        await hass.async_block_till_done()
+        return server.version
+
+    monkeypatch.setattr(zwave_helpers, "get_server_version", version_from_server)
+    result = await asyncio.wait_for(
+        native_radio.ha_manage_radio(radio="zwave", action="hard_reset", confirm=True),
+        5,
+    )
+    assert result["success"] is True
+    await hass.async_block_till_done()
+    assert entry.runtime_data is not before
+    assert (
+        sum(
+            message["command"] == "driver.hard_reset"
+            for message in sent_to_server(server)
+        )
+        == 1
+    )
+
+
+async def test_native_reset_keeps_the_concurrent_entry_options_guard(
+    native_radio: RadioFacade,
+    server: MagicMock,
+    hass: HomeAssistant,
+    entry: MockConfigEntry,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def version_from_server(*_: Any, **__: Any) -> VersionInfo:
+        await hass.async_block_till_done()
+        hass.config_entries.async_update_entry(entry, options={"other_actor": True})
+        return server.version
+
+    monkeypatch.setattr(zwave_helpers, "get_server_version", version_from_server)
+    with pytest.raises(ToolFailure) as caught:
+        await asyncio.wait_for(
+            native_radio.ha_manage_radio(
+                radio="zwave", action="hard_reset", confirm=True
+            ),
+            5,
+        )
+    assert caught.value.code == "OUTCOME_UNKNOWN"
+    assert (
+        sum(
+            message["command"] == "driver.hard_reset"
+            for message in sent_to_server(server)
+        )
+        == 1
+    )
 
 
 async def test_add_with_two_credentials_refuses_before_reaching_core(
@@ -531,15 +745,6 @@ async def test_hard_reset_resets_the_controller(
 ) -> None:
     """The controller is reset; Core answers once the reset controller is back,
     which the server announces with ``driver ready``."""
-
-    async def answer(message: dict[str, Any], *_: Any, **__: Any) -> Any:
-        if message["command"] == "driver.hard_reset":
-            server.driver.emit(
-                "driver ready", {"event": "driver ready", "source": "driver"}
-            )
-        return SERVER_ANSWERS.get(message["command"], {})
-
-    server.async_send_command.side_effect = answer
 
     out = await radio.ha_manage_radio(radio="zwave", action="hard_reset", confirm=True)
 
