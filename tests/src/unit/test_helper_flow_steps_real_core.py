@@ -328,8 +328,7 @@ async def test_an_open_form_names_the_later_forms_and_the_last_one_none(
 async def test_a_flow_is_continued_after_the_server_forgot_it(
     hass: HomeAssistant, component_tools: HelperConfigTools, opened_flows: Any
 ) -> None:
-    """An ha-mcp restart empties its own list of open flows; Home Assistant
-    still holds the flow, and its record says what the flow is for."""
+    """Core rebinds the target cache while the caller still owns these flows."""
     entry_id = await _template_sensor(component_tools)
     create = await component_tools.ha_config_set_helper(helper_type="min_max")
     update = await component_tools.ha_config_set_helper(
@@ -381,8 +380,8 @@ async def test_a_forgotten_flow_is_not_continued_for_another_target(
 async def test_without_the_component_a_forgotten_flow_is_refused_unanswered(
     hass: HomeAssistant, tools: HelperConfigTools, opened_flows: Any
 ) -> None:
-    """Core's REST API does not say what a flow is for, so the answer is not
-    sent to a flow the server cannot bind to the call's target."""
+    """Ownership alone cannot recover a lost target binding from Core REST;
+    no answer is sent without authoritative target metadata."""
     shown = await tools.ha_config_set_helper(helper_type="min_max")
     opened_flows.clear()
 

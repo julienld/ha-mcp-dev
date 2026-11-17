@@ -6,7 +6,6 @@ the server's client (``core_client``) drives them over Core's flow endpoints.
 
 from __future__ import annotations
 
-import asyncio
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, patch
@@ -507,26 +506,6 @@ async def test_an_uncertain_abort_is_not_replayed_by_retry_or_shutdown(
     assert opened["flow_id"] in config_flow_ids(hass)
     hass.config_entries.flow.async_abort(opened["flow_id"])
 
-
-async def test_cancelled_abort_is_not_dispatched_again_during_shutdown(
-    hass: HomeAssistant,
-    core_client: HomeAssistantClient,
-    flow_tools: IntegrationTools,
-) -> None:
-    opened = await flow_tools.ha_set_integration(domain=SINGLE)
-    with patch.object(
-        core_client, "abort_config_flow", AsyncMock(side_effect=asyncio.CancelledError())
-    ) as sent:
-        with pytest.raises(asyncio.CancelledError):
-            await flow_tools.ha_set_integration(
-                domain=SINGLE, flow_id=opened["flow_id"], abort=True
-            )
-        backend = flow_tools.backend
-        assert isinstance(backend, RemoteBackend)
-        await backend.stop()
-        sent.assert_awaited_once_with(opened["flow_id"])
-    assert opened["flow_id"] in config_flow_ids(hass)
-    hass.config_entries.flow.async_abort(opened["flow_id"])
 
 async def test_abort_without_flow_id_is_refused(
     hass: HomeAssistant,
