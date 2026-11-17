@@ -16,7 +16,7 @@ from ha_mcp.tool_api import CallContext, ToolFailure
 
 
 @pytest.fixture
-def actions(hass: HomeAssistant, hass_admin_user: User) -> SystemActionsFacade:
+async def actions(hass: HomeAssistant, hass_admin_user: User) -> SystemActionsFacade:
     owner = NativeSystemActions(
         SimpleNamespace(hass=hass, backend=NativeBackend(hass)),
         CallContext(hass_admin_user.id),
