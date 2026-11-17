@@ -10,9 +10,28 @@ changes. The 6 November compatibility pass below restores the installation
 floor and automatic entity-history contracts; historical audit entries remain
 evidence of their original candidate, rather than current behavior.
 
+## Area, floor and registry contracts integrated on 17 November 2026
+
+The integration target is Main `3accc57e25ee0243e138dc2a1b2d29db6d1d9a52`.
+`ha_set_area_or_floor(order=...)` reorders all IDs of the selected kind through
+Core. Listing preserves Core's order instead of sorting floors by level.
+The reply records `previous_order`; reorder has no automatic backup. A floor
+level omitted from an update stays unchanged, while explicit null clears it.
+
+Registry rows use Core's serializers. Restore payload fields, unordered sets
+and timestamps come from the running Core's registered schemas and declared
+entry fields. Values a restore cannot send are disclosed in warnings, including
+in the settings panel. Historical partial Main entity snapshots retain their
+recorded comparison shape and durable identity; stored evidence is unchanged.
+
+Native retains actor admission and compared before-images. Callback failures
+after reorder dispatch remain uncertain without replay, including a failure
+when the order already matched the requested order. A matching readback alone
+does not establish that the callback never ran.
+
 ## Core reload contracts integrated on 16 November 2026
 
-The current integration target is Main
+The preceding integration target was Main
 `3bcc7b9bdeb9c0ded1eea5910519ff7cc170132f`, with stable Core 2026.11.2.
 `ha_reload_core(target="all")` now calls Core's `homeassistant.reload_all`
 once, letting Core validate configuration and choose its reload services.
