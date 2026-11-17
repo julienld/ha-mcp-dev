@@ -16,8 +16,6 @@ import logging
 import sys
 from typing import Any, Literal
 
-import httpx
-
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp._vendor.fastmcp.tools import tool
 
@@ -51,6 +49,7 @@ from .helpers import (
     raise_tool_error,
     register_tool_methods,
 )
+from .system_restart import _restart_connection_closed
 from .server_version import running_version_report
 from .tool_hints import write_hints
 
@@ -488,15 +487,12 @@ def schedule_deferred_entry_reload(client: Any, entry_id: str) -> None:
             )
             logger.info("Deferred reload of entry %s requested", entry_id)
         except Exception as exc:
-            # A lost reply means the request reached HA and the shielded reload
-            # then killed this client — the expected end of a self-restart, not
-            # a failure. A connect error or timeout may never have dispatched,
-            # so those stay loud. WARNING, not INFO: HA surfaces this package
-            # at WARNING and above, so INFO here would log nothing at all.
-            if isinstance(exc.__cause__, httpx.ReadError | httpx.RemoteProtocolError):
+            # Service-attempt errors add a cause around the transport failure.
+            # A closed connection leaves the reload unconfirmed, without replay.
+            if _restart_connection_closed(exc):
                 logger.warning(
-                    "Deferred reload of entry %s dispatched; it tore down this "
-                    "connection before the reply arrived (expected)",
+                    "Deferred reload of entry %s outcome is unknown; the connection "
+                    "closed before acknowledgement. Inspect Core before another reload.",
                     entry_id,
                 )
             else:

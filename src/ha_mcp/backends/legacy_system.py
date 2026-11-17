@@ -7,7 +7,13 @@ from ha_mcp.client.rest_client import (
     HomeAssistantCommandNotSent,
     HomeAssistantConnectionError,
 )
-from ha_mcp.errors import ErrorCode, create_error_response
+from ha_mcp.errors import (
+    ErrorCode,
+    HomeAssistantWebSocketServiceError,
+    create_error_response,
+    is_service_outcome_unknown,
+)
+from ha_mcp.runtime.error_text import core_error_message
 from ha_mcp.runtime.system_values import (
     NAMED_RELOADS,
     RELOAD_ALL_FAILED_HINT,
@@ -78,7 +84,11 @@ class LegacySystemActions:
                     ErrorCode.SERVICE_CALL_FAILED,
                     f"{domain}.{service} got no answer, so whether Home Assistant "
                     f"reloaded is unknown: {error}",
-                    context={"target": target, "write_outcome_unknown": True},
+                    context={
+                        "target": target,
+                        "write_outcome_unknown": True,
+                        "execution_status": "outcome_unknown",
+                    },
                     suggestions=[
                         "Home Assistant may still be reloading: check its log before reloading again"
                     ],
@@ -92,8 +102,22 @@ class LegacySystemActions:
         ]
         if target == "all":
             suggestions.append(RELOAD_ALL_FAILED_HINT)
+        context: dict[str, Any] = {"target": target}
+        error = HomeAssistantWebSocketServiceError(
+            core_error_message(reply.get("error", "Unknown error")),
+            code=reply.get("error_code"),
+        )
+        if is_service_outcome_unknown(error):
+            context.update(
+                write_outcome_unknown=True, execution_status="outcome_unknown"
+            )
+            suggestions.insert(
+                0,
+                "Inspect the integration state and Home Assistant logs before another reload; "
+                "the handler may already have acted. No reload was repeated.",
+            )
         raise_core_refusal(
-            f"{domain}.{service} failed", reply, {"target": target}, suggestions
+            f"{domain}.{service} failed", reply, context, suggestions
         )
 
     async def _reload_config_entry(self, entry_id: str) -> dict[str, Any]:

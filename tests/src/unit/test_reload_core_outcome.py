@@ -25,7 +25,8 @@ async def test_reload_error_after_effect_keeps_uncertainty_without_replay(
     with pytest.raises(ToolError) as caught:
         await SystemTools(core_client).ha_reload_core(target="reload_probe")
     assert len(calls) == 1
-    assert hass.states.get("sensor.reload_effect").state == "after"
+    state = hass.states.get("sensor.reload_effect")
+    assert state is not None and state.state == "after"
     result = json.loads(str(caught.value))
     assert result["write_outcome_unknown"] is True
     assert result["execution_status"] == "outcome_unknown"

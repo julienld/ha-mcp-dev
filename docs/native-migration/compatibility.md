@@ -30,6 +30,13 @@ Remote restart acknowledgements lost after dispatch remain uncertain even
 when a proxy returns an error. Historical qualification keeps its original
 source and Core versions.
 
+Reload errors retain Core's native error code while the shared service-attempt
+classifier preserves possible handler effects. Deferred Legacy self-reloads
+recognize closed connections through wrapped transport errors and report an
+unknown outcome without repeating the request. YAML confirmation and safety
+restore regressions use Core's actual service registry and config entries;
+the original frozen catalogue remains an immutable historical witness.
+
 ## Earlier Main contracts integrated on 16 November 2026
 
 The earlier integration target was Main `47c34e6e8635d8d2d4aa280edc0eb5d25ef1e3c1`.
