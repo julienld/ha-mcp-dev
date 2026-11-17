@@ -1162,30 +1162,28 @@ class TestYamlModeDashboardRegistration:
         assert f"{self.URL_PATH}:" not in read_after["content"]
 
     async def test_rejects_reserved_url_path(self, mcp_client_with_yaml_config):
-        data = await safe_call_tool(
-            mcp_client_with_yaml_config,
-            TOOL_NAME,
-            {
-                "yaml_path": "lovelace.dashboards.lovelace",
-                "action": "add",
-                "content": "mode: yaml\ntitle: x\nfilename: dashboards/x.yaml\n",
-            },
-        )
-        assert data.get("success") is False
-        assert "reserved" in (data.get("error") or "").lower()
+        async with MCPAssertions(mcp_client_with_yaml_config) as mcp:
+            await mcp.call_tool_failure(
+                TOOL_NAME,
+                {
+                    "yaml_path": "lovelace.dashboards.lovelace",
+                    "action": "add",
+                    "content": "mode: yaml\ntitle: x\nfilename: dashboards/x.yaml\n",
+                },
+                expected_error="reserved",
+            )
 
     async def test_rejects_filename_traversal(self, mcp_client_with_yaml_config):
-        data = await safe_call_tool(
-            mcp_client_with_yaml_config,
-            TOOL_NAME,
-            {
-                "yaml_path": "lovelace.dashboards.bad-dash",
-                "action": "add",
-                "content": "mode: yaml\ntitle: x\nfilename: ../secrets.yaml\n",
-            },
-        )
-        assert data.get("success") is False
-        assert "filename" in (data.get("error") or "").lower()
+        async with MCPAssertions(mcp_client_with_yaml_config) as mcp:
+            await mcp.call_tool_failure(
+                TOOL_NAME,
+                {
+                    "yaml_path": "lovelace.dashboards.bad-dash",
+                    "action": "add",
+                    "content": "mode: yaml\ntitle: x\nfilename: ../secrets.yaml\n",
+                },
+                expected_error="filename",
+            )
 
     async def test_rejects_lovelace_mode_dotted_path(self, mcp_client_with_yaml_config):
         """Confirm we did not unlock other lovelace.* keys."""

@@ -29,6 +29,7 @@ from ha_mcp import backup_manager as bm
 from ha_mcp import config
 from ha_mcp._vendor.fastmcp import FastMCP
 from ha_mcp.client.rest_client import HomeAssistantClient
+from ha_mcp.runtime import snapshot_files
 from ha_mcp.tools import backup
 
 from ._core_setup import set_up_tools_entry
@@ -109,9 +110,9 @@ def snapshot_clock(monkeypatch: pytest.MonkeyPatch) -> SnapshotClock:
     def epoch() -> float:
         return clock.moment.timestamp()
 
-    monkeypatch.setattr(bm, "datetime", _Moment)
+    monkeypatch.setattr(snapshot_files, "datetime", _Moment)
     monkeypatch.setattr(
-        bm, "time", SimpleNamespace(time=epoch, monotonic=time.monotonic)
+        snapshot_files, "time", SimpleNamespace(time=epoch, monotonic=time.monotonic)
     )
     return clock
 

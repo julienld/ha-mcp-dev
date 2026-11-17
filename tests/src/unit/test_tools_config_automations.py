@@ -246,6 +246,28 @@ class TestGetAutomation:
 class TestPythonTransform:
     """`ha_config_set_automation` python_transform on the stored body."""
 
+    async def test_an_explicit_compatible_read_hash_still_guards_a_transform(
+        self,
+        tools: AutomationConfigTools,
+        core_client: HomeAssistantClient,
+    ) -> None:
+        viewed = await tools.ha_config_get_automation(
+            entity_id=CONFIG_ID, config_format="compatible"
+        )
+        assert "actions" in viewed["config"] and "action" not in viewed["config"]
+
+        result = await _transform(
+            tools,
+            config_hash=viewed["config_hash"],
+            python_transform="config['actions'] = [{'delay': 1}]",
+            wait=False,
+            MandatoryBPS=False,
+        )
+
+        assert result["success"] is True
+        stored = await core_client.get_automation_config(CONFIG_ID)
+        assert stored["actions"] == [{"delay": 1}]
+
     async def test_a_transform_by_config_id_reports_the_entity_id(
         self, tools: AutomationConfigTools
     ) -> None:

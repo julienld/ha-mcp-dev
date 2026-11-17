@@ -6,6 +6,7 @@ exists only where a test registers it with ``async_mock_service``.
 """
 
 import asyncio
+import os
 import threading
 from pathlib import Path
 
@@ -14,7 +15,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ServiceNotFound
 from pytest_homeassistant.common import async_mock_service
 
-from custom_components.ha_mcp_tools.file_ops import file_lock, write_text_atomic
+from custom_components.ha_mcp_tools.file_ops import file_lock
 
 from ._edit_yaml import EditYaml, make_edit_yaml
 
@@ -75,7 +76,7 @@ class TestThemeEditHandler:
             return file_lock(hass)
 
         monkeypatch.setattr(
-            "custom_components.ha_mcp_tools.file_ops.file_lock", _asked_lock
+            "custom_components.ha_mcp_tools.file_access.file_lock", _asked_lock
         )
         async with file_lock(hass):
             edit = asyncio.ensure_future(
@@ -90,7 +91,10 @@ class TestThemeEditHandler:
             )
             # The edit either finishes, or asks for the lock and waits on it.
             asked = asyncio.ensure_future(lock_asked.wait())
-            await asyncio.wait({edit, asked}, return_when=asyncio.FIRST_COMPLETED)
+            done, _ = await asyncio.wait(
+                {edit, asked}, timeout=5, return_when=asyncio.FIRST_COMPLETED
+            )
+            assert asked in done
             asked.cancel()
             assert not edit.done()
             assert not (tmp_path / "themes" / "dark.yaml").exists()
@@ -110,14 +114,18 @@ class TestThemeEditHandler:
         writing = asyncio.Event()
         release = threading.Event()
 
-        def _blocked_write(path: Path, text: str) -> None:
-            hass.loop.call_soon_threadsafe(writing.set)
-            release.wait(timeout=30)
-            write_text_atomic(path, text)
+        replace = os.replace
 
-        monkeypatch.setattr(
-            "custom_components.ha_mcp_tools.write_text_atomic", _blocked_write
-        )
+        def blocked_replace(source: Path, target: Path) -> None:
+            if target == tmp_path / "themes" / "dark.yaml":
+                hass.loop.call_soon_threadsafe(writing.set)
+                if not release.wait(timeout=30):
+                    raise TimeoutError(
+                        "the test did not release the atomic replacement"
+                    )
+            replace(source, target)
+
+        monkeypatch.setattr(os, "replace", blocked_replace)
         edit = asyncio.ensure_future(
             edit_yaml(
                 {

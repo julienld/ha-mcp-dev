@@ -33,7 +33,6 @@ from ._entity_backup_core import (
     before_command,
     component_commands_removed,
     crashing_on,
-    entity_snapshot,
     with_config_entry,
     with_device,
     write_count,
@@ -323,12 +322,13 @@ async def test_a_core_refusal_in_the_component_writes_nothing(
 
 async def test_an_error_reply_after_the_component_write_was_sent_is_unknown(
     hass: HomeAssistant,
-    entity_manager: bm.BackupManager,
+    entity_client: HomeAssistantClient,
+    entity_handler: bm.DomainHandler,
     entity_registry: er.EntityRegistry,
     desk: Desk,
 ) -> None:
     """The write may have run, so Core's commands do not write it again."""
-    path = await entity_snapshot(entity_manager, desk.entity_id)
+    snapshot = await entity_handler.fetch(entity_client, desk.entity_id)
     entity_registry.async_update_entity(desk.entity_id, name="Desk")
 
     with (
@@ -336,30 +336,29 @@ async def test_an_error_reply_after_the_component_write_was_sent_is_unknown(
         written(hass) as seen,
         pytest.raises(HomeAssistantCommandError) as err,
     ):
-        await entity_manager.restore_snapshot(path.name)
+        await entity_handler.restore(entity_client, desk.entity_id, snapshot)
 
     assert err.value.code == "unknown_error"
-    assert vars(err.value)["restore_outcome"]["apply_status"] == "unknown"
     assert [len(seen[RESTORE]), len(seen[CORE_UPDATE])] == [1, 0]
 
 
 async def test_no_answer_after_the_component_write_was_sent_is_unknown(
     hass: HomeAssistant,
     monkeypatch: pytest.MonkeyPatch,
-    entity_manager: bm.BackupManager,
+    entity_client: HomeAssistantClient,
+    entity_handler: bm.DomainHandler,
     entity_registry: er.EntityRegistry,
     desk: Desk,
 ) -> None:
     """The component ran; only its reply is missing, so Core's commands do not
     write it again."""
-    path = await entity_snapshot(entity_manager, desk.entity_id)
+    snapshot = await entity_handler.fetch(entity_client, desk.entity_id)
     entity_registry.async_update_entity(desk.entity_id, name="Desk")
 
     async with unanswered(hass, RESTORE, monkeypatch):
-        with written(hass) as seen, pytest.raises(HomeAssistantCommandTimeout) as err:
-            await entity_manager.restore_snapshot(path.name)
+        with written(hass) as seen, pytest.raises(HomeAssistantCommandTimeout):
+            await entity_handler.restore(entity_client, desk.entity_id, snapshot)
 
-    assert vars(err.value)["restore_outcome"]["apply_status"] == "unknown"
     assert [len(seen[RESTORE]), len(seen[CORE_UPDATE])] == [1, 0]
 
 

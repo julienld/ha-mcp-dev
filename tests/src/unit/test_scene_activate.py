@@ -218,8 +218,9 @@ async def test_write_whose_activation_fails_still_reports_the_write(
     )
 
     assert result["success"] is True
-    assert result["activated"] is False
-    assert any("could not be activated" in w for w in result["warnings"])
+    assert result["activated"] is None
+    assert result["write_outcome_unknown"] is True
+    assert any("outcome" in w and "unknown" in w for w in result["warnings"])
     stored = await ConfigSceneTools(core_client).ha_config_get_scene(
         scene_id="movie_night"
     )
