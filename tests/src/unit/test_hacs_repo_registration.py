@@ -14,6 +14,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from ha_mcp.tools.hacs_backend import HACS_API
+
 # Arbitrary repo slug for the waiter to watch; the value itself is not
 # meaningful to the helper (any owner/repo string works).
 WATCHED_REPO = "homeassistant-ai/ha-mcp-integration"
@@ -485,7 +487,6 @@ class TestResolveHacsRepoIdUsesWait:
     @pytest.mark.asyncio
     async def test_numeric_id_short_circuits(self):
         """Pre-resolved numeric ids must NOT subscribe — just pass through."""
-        from ha_mcp.tools.hacs_backend import HACS_API
         from ha_mcp.tools.tools_hacs import _resolve_hacs_repo_id
 
         ws_client = MagicMock()
@@ -502,7 +503,6 @@ class TestResolveHacsRepoIdUsesWait:
     @pytest.mark.asyncio
     async def test_github_path_uses_subscribe_based_wait(self):
         """Github-path identifiers route through ``wait_for_repo_registration``."""
-        from ha_mcp.tools.hacs_backend import HACS_API
         from ha_mcp.tools.tools_hacs import _resolve_hacs_repo_id
 
         queue: asyncio.Queue = asyncio.Queue()

@@ -45,6 +45,9 @@ from .client.rest_client import (
 )
 from .config import OAUTH_MODE_TOKEN, get_global_settings
 from .config_overrides import _read_feature_flag_override_file
+from .runtime.hacs_ownership import (
+    CANDIDATE_REPO_FULL_NAMES as CANDIDATE_REPO_FULL_NAMES,
+)
 from .update_check import UpdateInfo, get_update_info, is_update_check_disabled
 from .utils.data_paths import get_data_dir
 
@@ -53,10 +56,6 @@ logger = logging.getLogger(__name__)
 # The repository full_names HACS may track the ha_mcp_tools component under:
 # the main repository (the documented one) and the mirror that earlier installs
 # came from, which keeps receiving the same releases.
-CANDIDATE_REPO_FULL_NAMES = (
-    "homeassistant-ai/ha-mcp-integration",
-    "homeassistant-ai/ha-mcp",
-)
 
 # Marker file (in the ha-mcp data dir) recording the state the last completed
 # nudge ran against. Written only on a completed pass, so a failed pass (HA
