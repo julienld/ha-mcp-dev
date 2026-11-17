@@ -27,7 +27,7 @@ async def test_native_file_restore_does_not_rebase_after_safety_capture(
     )
     entered, release = threading.Event(), threading.Event()
     original = SnapshotStore.capture
-    captured = []
+    captured: list[bool] = []
 
     def pause_capture(store, *args, **kwargs):
         result = original(store, *args, **kwargs)

@@ -34,7 +34,7 @@ async def test_native_yaml_change_during_safety_capture_never_rebases_or_writes(
     )
     target.write_text("custom_domain:\n  source: sensor.before\n")
     capture = manager.snapshots.file_backup
-    captured = []
+    captured: list[bool] = []
 
     async def capture_then_change(*args):
         await capture(*args)
