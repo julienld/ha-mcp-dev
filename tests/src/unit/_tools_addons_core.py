@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import Any
@@ -400,9 +400,11 @@ def quick_retry(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture
-def fresh_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
+def fresh_secrets() -> Iterator[None]:
     """An empty set of remembered secret values, restored after the test."""
-    monkeypatch.setattr(redaction, "_known_secrets", set())
+    redaction.clear_known_secret_values()
+    yield
+    redaction.clear_known_secret_values()
 
 
 def timers(hass: HomeAssistant) -> set[asyncio.TimerHandle]:

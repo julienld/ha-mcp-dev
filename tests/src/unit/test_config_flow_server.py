@@ -17,6 +17,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType, UnknownFlow
 from pytest_homeassistant.common import MockConfigEntry
 
+from custom_components.ha_mcp_tools import config_flow
 from custom_components.ha_mcp_tools.config_flow import (
     REMOTE_ACCESS_DISABLED,
     SETUP_ADMIN_TOKEN,
@@ -59,7 +60,8 @@ from ._server_entry import add_server_entry, replace_server
 
 @pytest.fixture(autouse=True)
 def server(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
-    """A finished setup flow sets the entry up; no server starts."""
+    """Exercise Legacy credential setup on real Core without starting a server."""
+    monkeypatch.setattr(config_flow, "MIN_NATIVE_HOME_ASSISTANT_VERSION", "9999.1.0")
     return replace_server(monkeypatch)
 
 
