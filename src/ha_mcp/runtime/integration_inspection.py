@@ -59,8 +59,8 @@ async def fetch_entry_options_with_status(
     flow_id: str | None = None
     try:
         flow = await client.start_options_flow(entry_id)
-        flow_id = flow.get("flow_id")
         flow_type = flow.get("type")
+        flow_id = flow.get("flow_id") if flow_type not in {"abort", "create_entry"} else None
         if flow_type != "form":
             log_probe_failure(
                 f"OptionsFlow for {entry_id} returned type={flow_type!r}, "

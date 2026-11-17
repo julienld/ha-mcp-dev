@@ -17,12 +17,16 @@ from ha_mcp.utils.python_sandbox import (
     validate_expression,
 )
 
+from ._automation_enabled_core import (
+    ENTITY_ID,
+    config_hash,
+    morning_tools,
+    set_automation,
+)
+
 
 def _actions(*aliases: str) -> dict[str, Any]:
     return {"actions": [{"alias": a, "data": {"v": 1}} for a in aliases]}
-
-
-from ._automation_enabled_core import ENTITY_ID, config_hash, morning_tools, set_automation
 
 
 class TestGuards:
@@ -80,7 +84,7 @@ class TestGuards:
     ) -> None:
         tools = await morning_tools(hass, core_client, monkeypatch)
         path = Path(hass.config.path("automations.yaml"))
-        before = path.read_bytes()
+        before = await hass.async_add_executor_job(path.read_bytes)
         revision = await config_hash(tools, ENTITY_ID)
         with (
             patch.object(
@@ -97,7 +101,7 @@ class TestGuards:
                 python_transform=self.ONE_MATCH,
             )
         write.assert_not_awaited()
-        assert path.read_bytes() == before
+        assert await hass.async_add_executor_job(path.read_bytes) == before
 
     def test_assert_rejection_points_at_guards(self) -> None:
         valid, error = validate_expression("assert config")

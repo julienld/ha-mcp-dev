@@ -388,7 +388,7 @@ async def describe_step(
             **await describe_form(client, flow.domain, flow.path, step),
         }
     finally:
-        if flow_id:
+        if flow_id and step.get("type") not in {"abort", "create_entry"}:
             await abort_probe_flow(abort, flow_id)
 
 

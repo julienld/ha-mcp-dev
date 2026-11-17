@@ -17,7 +17,9 @@ Its Core-backed tests replace more simulated server responses. Native retains
 its shared owners, actor admission, target identities and at-most-once writes:
 a handler error after dispatch, including authorization or validation errors,
 does not authorize a second call. A service HTTP 401 affects later routing;
-it does not replay the request whose outcome is uncertain.
+it does not replay the request whose outcome is uncertain. A flow opened outside
+the caller session is not adopted from Core target metadata. An interrupted
+abort retains ownership until Core confirms closure or reports the flow gone.
 
 Reconfigure identity now correlates Core's per-entry device rows through their
 actual connections and identifiers, including the singular config_entry_id.
