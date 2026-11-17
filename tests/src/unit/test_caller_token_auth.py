@@ -383,7 +383,7 @@ async def test_a_component_at_or_above_the_minimum_is_accepted(
     assert result["service_response"]["success"] is True
 
 
-@pytest.mark.parametrize("version", ["1.x.0", "1.2.3-beta"])
+@pytest.mark.parametrize("version", ["1.x.0", "1.2.3-not-a-version"])
 async def test_a_malformed_version_is_refused_without_an_update_prompt(
     hass: HomeAssistant,
     core_client: HomeAssistantClient,
