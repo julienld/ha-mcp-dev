@@ -300,6 +300,7 @@ from .yaml_find import SERVICE_FIND_YAML_KEY, register_find_yaml_key
 from .yaml_rt import (
     apply_seq_indent,
     detect_seq_indent,
+    drop_key as drop_key,
     make_yaml,
     yaml_dumps,
     yaml_jsonify,

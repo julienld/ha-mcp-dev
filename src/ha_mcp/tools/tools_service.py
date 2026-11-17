@@ -44,7 +44,7 @@ from ..runtime.bulk_params import (
     _parse_bulk_operations as _shared_parse_bulk_operations,
 )
 from ..runtime.bulk_safety import (
-    _INFRASTRUCTURE_ERROR_SUGGESTIONS,
+    INFRASTRUCTURE_ERROR_SUGGESTIONS,
     _attach_resolution_to_response,
     _selector_only_parameter_message,
     _selector_only_parameter_offender,
@@ -912,9 +912,9 @@ class ServiceTools(LegacyBackendTools, SharedServiceCallTools):
                 exc.cause,
                 exc,
             )
-            message, suggestions = _INFRASTRUCTURE_ERROR_SUGGESTIONS.get(
+            message, suggestions = INFRASTRUCTURE_ERROR_SUGGESTIONS.get(
                 exc.cause,
-                _INFRASTRUCTURE_ERROR_SUGGESTIONS[
+                INFRASTRUCTURE_ERROR_SUGGESTIONS[
                     InfrastructureErrorCause.CONNECTIVITY
                 ],
             )

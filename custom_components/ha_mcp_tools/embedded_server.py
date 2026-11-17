@@ -95,6 +95,7 @@ from .embedded_worker_teardown import (
 from .loopback_url import derive_loopback_url
 from .paired_wheel import paired_wheel_matches
 from .pip_compat import pip_kwargs
+from .purged_modules import release_purged_modules
 from .runtime_generation import RESTART_REQUIRED, native_bound_version
 from .server_credentials import (
     CredentialNeeded,
@@ -1892,6 +1893,7 @@ def _purge_ha_mcp_modules() -> None:
         return
     for name in purged:
         sys.modules.pop(name, None)
+    release_purged_modules()
     _safe_invalidate_caches()
     _LOGGER.debug("Purged %d cached ha_mcp module(s) before worker start", len(purged))
 

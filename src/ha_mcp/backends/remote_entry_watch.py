@@ -64,7 +64,7 @@ class RemoteEntryWatches:
             timeout=min(
                 max(
                     float(
-                        arguments.get("timeout", entry_reload._RELOAD_SETTLE_TIMEOUT)
+                        arguments.get("timeout", entry_reload.RELOAD_SETTLE_TIMEOUT)
                     ),
                     0,
                 ),

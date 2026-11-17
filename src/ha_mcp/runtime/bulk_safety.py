@@ -291,7 +291,7 @@ def _selector_only_parameter_message(offending_parameter: str) -> str:
 # actively unhelpful for a malformed local registry row or a corrupt local
 # visibility config file, so those causes get their own actionable text
 # instead of inheriting the connectivity defaults.
-_INFRASTRUCTURE_ERROR_SUGGESTIONS: dict[
+INFRASTRUCTURE_ERROR_SUGGESTIONS: dict[
     InfrastructureErrorCause, tuple[str, list[str]]
 ] = {
     InfrastructureErrorCause.CONNECTIVITY: (
@@ -346,6 +346,6 @@ def _attach_resolution_to_response(
 
 
 __all__ = [
-    "_INFRASTRUCTURE_ERROR_SUGGESTIONS",
+    "INFRASTRUCTURE_ERROR_SUGGESTIONS",
     "reject_group_member_conflicts",
 ]

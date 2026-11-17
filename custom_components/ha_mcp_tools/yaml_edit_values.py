@@ -12,6 +12,7 @@ from .const import (
     YAML_KEY_DENYLIST,
 )
 from .file_paths import _validate_dashboard_filename
+from .yaml_rt import drop_key
 
 
 def _unified_diff(before: str, after: str, rel_path: str, max_lines: int = 200) -> str:
@@ -157,7 +158,7 @@ def _apply_lovelace_dashboard_action(
                     f"Dashboard '{url_path}' not found under lovelace.dashboards."
                 ),
             }
-        del dashboards[url_path]
+        drop_key(dashboards, url_path)
         # Clean up empty parent containers to keep the file tidy
         if not dashboards:
             del lovelace["dashboards"]
@@ -221,7 +222,7 @@ def _apply_single_key_edit(
                 "success": False,
                 "error": f"{label} '{yaml_key}' not found in '{rel_path}'.",
             }
-        del data[yaml_key]
+        drop_key(data, yaml_key)
     return None
 
 

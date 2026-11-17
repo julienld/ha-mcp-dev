@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from ha_mcp.backends.remote import RemoteBackend
+from ha_mcp.runtime.entry_reload import COMMIT_VISIBLE_TIMEOUT, RELOAD_SETTLE_TIMEOUT
 from ha_mcp.runtime.entry_reload import (
     _TRANSIENT_RECONFIGURE_STATES as _TRANSIENT_RECONFIGURE_STATES,
 )
@@ -36,6 +37,8 @@ async def watch_entry_reload(
 
 
 __all__ = [
+    "COMMIT_VISIBLE_TIMEOUT",
+    "RELOAD_SETTLE_TIMEOUT",
     "_TRANSIENT_RECONFIGURE_STATES",
     "_entry_fragments",
     "_is_transient_reconfigure_state",

@@ -233,7 +233,7 @@ class BulkSelectorInfrastructureError(RuntimeError):
 
     ``cause`` (see ``InfrastructureErrorCause``) distinguishes actionable
     next steps for the response's ``suggestions`` -- see
-    ``tools_service.py``'s ``_INFRASTRUCTURE_ERROR_SUGGESTIONS``.
+    ``tools_service.py``'s ``INFRASTRUCTURE_ERROR_SUGGESTIONS``.
     """
 
     def __init__(
