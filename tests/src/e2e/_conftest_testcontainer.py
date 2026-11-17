@@ -33,6 +33,13 @@ from ._conftest_embedded import (
     _wait_for_embedded_webhook_ready,
 )
 from ._conftest_knobs import pip_cache_flags, pip_cache_mount, resolve_ready_timeout
+from ._conftest_native_runtime import (
+    attest_native_runtime,
+    capture_native_dependencies,
+    native_dependency_command,
+    native_runtime_selected,
+    stage_native_runtime,
+)
 from ._conftest_readiness import (
     _dump_ha_readiness_diagnostics,
     _log_readiness_timing,
@@ -49,12 +56,13 @@ from ._conftest_seed import (
     _seed_non_yaml_package_file,
     _seed_yaml_package_scene,
     _setup_config_permissions,
+    pair_component_library,
 )
 
 logger = logging.getLogger(__name__)
 
 
-# Boot budgets for the embedded path. The wheel + its dependency tree is
+# Boot budgets for paths with the component's checkout library. Its wheel is
 # preinstalled in the container entrypoint BEFORE HA's /init (so bring-up is
 # fast + deterministic), which delays /api/ liveness by the pip window — hence a
 # much larger API-ready timeout than the default 60s. ``_EMBEDDED_BRINGUP_TIMEOUT``
@@ -169,7 +177,7 @@ def _copy_local_blueprint_to_www(config_path: Path) -> dict[str, str]:
     }
 
 
-def _prepare_testcontainer_config(
+def prepare_testcontainer_config(
     embedded: bool, config_path: Path
 ) -> tuple[Path, dict, str | None]:
     """Stage the fresh HA config into ``config_path`` (custom components, seeds, recorder).
@@ -233,14 +241,19 @@ def _prepare_testcontainer_config(
             seed_entry=not no_tools_entry,
         )
 
-    # Embedded backend: build the checkout's wheel into /config, install the
-    # in-process MCP server entry, seed its config entry + feature-flag overrides.
-    # Runs before _setup_config_permissions so the wheel, integration, and the
-    # .ha_mcp data dir all get the same readable perms as the rest of the
-    # config. The wheel's dep tree is preinstalled in the container entrypoint.
-    if embedded:
-        wheel = _build_embedded_server_wheel(config_path)
+    # The component imports shared ha_mcp code even when MCP runs externally.
+    # Pair its source with the checkout library, never the published manifest
+    # pin. Only the embedded topology also receives a server config entry.
+    if embedded or not no_tools_entry:
+        if embedded and native_runtime_selected():
+            # Native staging already pairs the manifest, including its wheel hash.
+            wheel = stage_native_runtime(repo_root, config_path)
+        else:
+            wheel = _build_embedded_server_wheel(config_path)
+            pair_component_library(config_path, wheel.name)
         embedded_wheel_name = wheel.name
+    if embedded:
+        assert embedded_wheel_name is not None
         _install_embedded_server(config_path, embedded_wheel_name)
 
     # Pre-#1579 legacy backups for the legacy-restore e2e: seed before boot so
@@ -302,7 +315,7 @@ def _hand_back_pip_cache_command(container_dir: str) -> str:
     )
 
 
-def _build_ha_testcontainer(
+def build_ha_testcontainer(
     config_path: Path, embedded: bool, embedded_wheel_name: str | None
 ) -> DockerContainer:
     """Construct the HA DockerContainer with ports, mounts, and preinstall entrypoint."""
@@ -366,11 +379,12 @@ def _build_ha_testcontainer(
     # ``no-cache-dir = false`` pip.conf (see ``pip_cache_flags``).
     cache_flags = pip_cache_flags()
 
-    # The embedded lane's wheel supplies the server; see is_server_requirement.
+    # The checkout wheel supplies the component library in either topology.
     manifest_reqs = _collect_manifest_requirements(
         config_path, skip_server=embedded_wheel_name is not None
     )
-    if manifest_reqs:
+    native = embedded and native_runtime_selected()
+    if manifest_reqs and not native:
         quoted = " ".join(shlex.quote(r) for r in manifest_reqs)
         # PyPI-first with wheels-index fallback. The image env pins
         # PIP_EXTRA_INDEX_URL=wheels.home-assistant.io, and when that index
@@ -395,7 +409,9 @@ def _build_ha_testcontainer(
             f"requirement(s) before HA boots: {manifest_reqs}"
         )
 
-    if embedded and embedded_wheel_name is not None:
+    if native:
+        preinit_cmds.append(shlex.join(native_dependency_command("prepare")))
+    elif embedded_wheel_name is not None:
         # Preinstall the ha-mcp wheel + its whole dependency tree (fastmcp etc.)
         # BEFORE HA's /init, so the in-process MCP server bring-up is fast and
         # deterministic — its force-install of the local wheel then finds every
@@ -430,7 +446,7 @@ def _build_ha_testcontainer(
             f"pip list --format=freeze > /config/{EMBEDDED_FREEZE_AFTER}"
         )
         logger.info(
-            "📦 Embedded backend: preinstalling ha-mcp wheel %s (+deps) before "
+            "📦 Component library: preinstalling ha-mcp wheel %s (+deps) before "
             "HA boots",
             embedded_wheel_name,
         )
@@ -511,6 +527,9 @@ def _wait_for_testcontainer_ready(
     embedded: bool,
     CORE_STATE_TIMEOUT: int,
     SUN_WAIT: int,
+    *,
+    package_preinstalled: bool = False,
+    config_path: Path | None = None,
 ) -> str | None:
     """Run every testcontainer readiness gate; return the embedded webhook URL or None."""
     # Check if container is actually running
@@ -539,11 +558,10 @@ def _wait_for_testcontainer_ready(
     # a function-local for the entire ha_container_with_fresh_config,
     # which previously caused UnboundLocalError in the HAOS branch.
 
-    # The embedded backend's entrypoint preinstalls the ha-mcp wheel + its
+    # The component's entrypoint preinstalls the checkout ha-mcp wheel + its
     # dependency tree before HA's /init, so /api/ liveness is delayed by that
     # pip window and needs a much larger budget than the default 60s.
-    # ``HA_E2E_READY_TIMEOUT`` overrides either lane's budget.
-    api_ready_timeout = _container_api_ready_timeout(embedded)
+    api_ready_timeout = _container_api_ready_timeout(embedded or package_preinstalled)
     logger.info("🔄 Waiting for Home Assistant API to become ready...")
     if not _wait_for_ha_api_ready(base_url, headers, timeout=api_ready_timeout):
         _dump_ha_readiness_diagnostics(
@@ -638,4 +656,12 @@ def _wait_for_testcontainer_ready(
                 "registration) failed — check the HA log dump above for the "
                 f"{_EMBEDDED_DOMAIN} config-entry state and any repair issue."
             )
+        if native_runtime_selected():
+            if config_path is None:
+                raise AssertionError(
+                    "Native readiness requires the staged config directory"
+                )
+            observed = attest_native_runtime(base_url, headers, config_path)
+            capture_native_dependencies(container, "after_core_setup")
+            logger.info("Native runtime attested: %s", observed)
     return embedded_webhook_url

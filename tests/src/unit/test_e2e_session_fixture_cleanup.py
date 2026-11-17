@@ -86,6 +86,15 @@ class _FakeDaemon:
         return True
 
 
+def _already_ready(
+    *args: Any,
+    package_preinstalled: bool = False,
+    config_path: Path | None = None,
+) -> None:
+    assert not package_preinstalled
+    assert config_path is not None and config_path.is_dir()
+
+
 def _fixture_world(
     monkeypatch: pytest.MonkeyPatch, prepare: Any, readiness: Any
 ) -> _FakeRequest:
@@ -94,9 +103,9 @@ def _fixture_world(
     The settings/WebSocket reset stays real: it is what makes the fixture's URL
     reach settings-backed clients, and one test asserts exactly that.
     """
-    monkeypatch.setattr(e2e_conftest, "_prepare_testcontainer_config", prepare)
+    monkeypatch.setattr(e2e_conftest, "prepare_testcontainer_config", prepare)
     monkeypatch.setattr(
-        e2e_conftest, "_build_ha_testcontainer", lambda *args: _FakeContainer()
+        e2e_conftest, "build_ha_testcontainer", lambda *args: _FakeContainer()
     )
     monkeypatch.setattr(e2e_conftest, "_is_embedded_backend_selected", lambda: False)
     monkeypatch.setattr(e2e_conftest, "is_haos_backend_selected", lambda: False)
@@ -125,7 +134,7 @@ def _assert_finalizer_removed(request: _FakeRequest, staged: Path) -> None:
 def test_a_staging_failure_still_removes_the_staged_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    real_prepare = _conftest_testcontainer._prepare_testcontainer_config
+    real_prepare = _conftest_testcontainer.prepare_testcontainer_config
     seen: dict[str, Path] = {}
 
     def recording_prepare(embedded: bool, config_path: Path) -> Any:
@@ -136,7 +145,7 @@ def test_a_staging_failure_still_removes_the_staged_config(
         raise RuntimeError("HACS frontend download failed")
 
     monkeypatch.setattr(_conftest_testcontainer, "_ensure_hacs_frontend", staging_fails)
-    request = _fixture_world(monkeypatch, recording_prepare, lambda *args: None)
+    request = _fixture_world(monkeypatch, recording_prepare, _already_ready)
 
     _drive_to_failure(request, "HACS frontend download failed")
 
@@ -147,7 +156,7 @@ def test_a_failure_after_token_injection_still_removes_the_staged_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The leaked directory is the one that matters: it holds an injected token."""
-    real_prepare = _conftest_testcontainer._prepare_testcontainer_config
+    real_prepare = _conftest_testcontainer.prepare_testcontainer_config
     seen: dict[str, Path] = {}
     token = "ghp_staged_token_must_not_survive"
 
@@ -178,7 +187,7 @@ def test_a_failure_after_token_injection_still_removes_the_staged_config(
         _conftest_testcontainer, "_install_custom_component", component_install_fails
     )
     monkeypatch.setenv("GITHUB_TOKEN", token)
-    request = _fixture_world(monkeypatch, recording_prepare, lambda *args: None)
+    request = _fixture_world(monkeypatch, recording_prepare, _already_ready)
 
     _drive_to_failure(request, "install failed")
 
@@ -197,7 +206,13 @@ def test_a_readiness_failure_still_removes_the_staged_config(
         (storage / "core.config_entries").write_text('{"data": {"token": "x"}}')
         return config_path, {}, None
 
-    def unreachable(*args: Any) -> None:
+    def unreachable(
+        *args: Any,
+        package_preinstalled: bool = False,
+        config_path: Path | None = None,
+    ) -> None:
+        assert not package_preinstalled
+        assert config_path is not None and config_path.is_dir()
         raise RuntimeError("Home Assistant API did not become ready")
 
     request = _fixture_world(monkeypatch, fake_prepare, unreachable)
@@ -217,7 +232,7 @@ def test_a_successful_session_removes_the_staged_config_after_the_container_stop
         (config_path / "configuration.yaml").write_text("default_config:\n")
         return config_path, {}, None
 
-    request = _fixture_world(monkeypatch, fake_prepare, lambda *args: None)
+    request = _fixture_world(monkeypatch, fake_prepare, _already_ready)
     fixture = e2e_conftest.ha_container_with_fresh_config.__wrapped__
     generator = fixture(request, None)
 
@@ -254,7 +269,7 @@ def test_the_fixture_builds_the_client_url_from_the_resolved_host(
     def fake_prepare(embedded: bool, config_path: Path) -> Any:
         return config_path, {}, None
 
-    request = _fixture_world(monkeypatch, fake_prepare, lambda *args: None)
+    request = _fixture_world(monkeypatch, fake_prepare, _already_ready)
     if override is None:
         monkeypatch.delenv("HA_E2E_BASE_HOST", raising=False)
     else:

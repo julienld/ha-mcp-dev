@@ -134,7 +134,7 @@ class TestRouteFastmcpLogsToRoot:
     def test_the_import_time_level_is_dropped_so_home_assistant_decides(
         self,
     ) -> None:
-        """FastMCP's INFO level must not outrank the level HA was told to use.
+        """The first handoff drops FastMCP's INFO level so HA decides.
 
         With the level left at INFO, a user who runs ``logger.set_level`` for
         ``fastmcp`` (or sets it in ``logger:``) still sees nothing below INFO.
@@ -148,6 +148,7 @@ class TestRouteFastmcpLogsToRoot:
         saved_level = logger.level
         saved_root = root.level
         try:
+            logger.propagate = False
             root.setLevel(logging.WARNING)
             logger.setLevel(logging.INFO)
             route_fastmcp_logs_to_root()
