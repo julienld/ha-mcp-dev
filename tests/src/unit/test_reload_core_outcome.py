@@ -12,7 +12,8 @@ from ha_mcp.tools.tools_system import SystemTools
 
 
 async def test_reload_error_after_effect_keeps_uncertainty_without_replay(
-    hass: HomeAssistant, core_client: HomeAssistantClient,
+    hass: HomeAssistant,
+    core_client: HomeAssistantClient,
 ) -> None:
     calls: list[ServiceCall] = []
 

@@ -66,9 +66,7 @@ async def test_theme_service_error_keeps_unknown_outcome(
     assert any("action='list'" in s for s in result["error"]["suggestions"])
 
 
-@pytest.mark.parametrize(
-    "consumer", ["update", "enabled", "trigger", "scene"]
-)
+@pytest.mark.parametrize("consumer", ["update", "enabled", "trigger", "scene"])
 async def test_partial_service_consumers_keep_unknown_outcome(
     monkeypatch: pytest.MonkeyPatch,
     consumer: str,
@@ -88,7 +86,7 @@ async def test_partial_service_consumers_keep_unknown_outcome(
         )
         ws = AsyncMock(side_effect=AssertionError("must not replay"))
         monkeypatch.setattr(client, "send_websocket_message", ws)
-        result = {"success": True, "action": "update", "config_hash": "saved"}
+        result: dict[str, Any] = {"success": True, "action": "update", "config_hash": "saved"}
         if consumer == "update":
             rows, succeeded = await UpdateTools(client)._call_update_service(
                 "install", ["update.test"], False

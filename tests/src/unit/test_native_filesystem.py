@@ -258,7 +258,9 @@ async def test_file_lock_keeps_second_snapshot_after_first_write(filesystem):
     assert images == ["before", "first"] and target.read_text() == "second"
 
 
-def test_file_projection_matches_the_frozen_public_contract(core_files: SimpleNamespace):
+def test_file_projection_matches_the_frozen_public_contract(
+    core_files: SimpleNamespace,
+):
     manager = core_files.manager
     module = importlib.import_module(
         "custom_components.ha_mcp_tools.native_filesystem_tools"

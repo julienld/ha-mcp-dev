@@ -103,11 +103,11 @@ class LegacySystemActions:
         if target == "all":
             suggestions.append(RELOAD_ALL_FAILED_HINT)
         context: dict[str, Any] = {"target": target}
-        error = HomeAssistantWebSocketServiceError(
+        service_error = HomeAssistantWebSocketServiceError(
             core_error_message(reply.get("error", "Unknown error")),
             code=reply.get("error_code"),
         )
-        if is_service_outcome_unknown(error):
+        if is_service_outcome_unknown(service_error):
             context.update(
                 write_outcome_unknown=True, execution_status="outcome_unknown"
             )
@@ -116,9 +116,7 @@ class LegacySystemActions:
                 "Inspect the integration state and Home Assistant logs before another reload; "
                 "the handler may already have acted. No reload was repeated.",
             )
-        raise_core_refusal(
-            f"{domain}.{service} failed", reply, context, suggestions
-        )
+        raise_core_refusal(f"{domain}.{service} failed", reply, context, suggestions)
 
     async def _reload_config_entry(self, entry_id: str) -> dict[str, Any]:
         """Reload a single config entry via the REST config-entries endpoint.

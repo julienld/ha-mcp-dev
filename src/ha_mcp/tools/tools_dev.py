@@ -49,8 +49,8 @@ from .helpers import (
     raise_tool_error,
     register_tool_methods,
 )
-from .system_restart import _restart_connection_closed
 from .server_version import running_version_report
+from .system_restart import _restart_connection_closed
 from .tool_hints import write_hints
 
 logger = logging.getLogger(__name__)
