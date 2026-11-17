@@ -61,7 +61,7 @@ async def test_native_file_restore_does_not_rebase_after_safety_capture(
     finally:
         release.set()
     with pytest.raises(BackupRestoreError) as raised:
-        await task
+        await asyncio.gather(task)
     assert captured == [True]
     assert raised.value.outcome["apply_status"] == "not_applied"
     assert "restored" not in world.config_file.read_text()
