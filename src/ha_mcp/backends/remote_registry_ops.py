@@ -176,9 +176,7 @@ async def _registry_snapshot(client: Any, arguments: dict[str, Any]) -> dict[str
         from ha_mcp.backends.legacy_labels import LegacyLabels
 
         return {"labels": await LegacyLabels(client)._list_labels()}
-    if arguments.get("registries") == [
-        "category"
-    ]:
+    if arguments.get("registries") == ["category"]:
         from ha_mcp.tools.tools_categories import CategoryTools
 
         scopes = arguments.get("category_scopes")

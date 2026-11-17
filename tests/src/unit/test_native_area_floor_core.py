@@ -60,26 +60,31 @@ async def test_native_floor_omission_preserves_and_null_clears(
     assert cleared.level is None
 
 
+@pytest.mark.parametrize("failure_type", [RuntimeError, ValueError])
+@pytest.mark.parametrize("same_order", [False, True])
 async def test_native_reorder_interruption_remains_unknown(
-    hass: HomeAssistant, locations: AreaWriteTools, monkeypatch: pytest.MonkeyPatch
+    hass: HomeAssistant,
+    locations: AreaWriteTools,
+    monkeypatch: pytest.MonkeyPatch,
+    failure_type: type[Exception],
+    same_order: bool,
 ) -> None:
     registry = ar.async_get(hass)
     first = registry.async_create("First")
     second = registry.async_create("Second")
     calls = 0
+    order = [first.id, second.id] if same_order else [second.id, first.id]
 
     def interrupted_save(self: ar.AreaRegistry) -> None:
         nonlocal calls
         calls += 1
-        raise RuntimeError("save interrupted after reorder")
+        raise failure_type("save interrupted after reorder")
 
     with monkeypatch.context() as patched:
         patched.setattr(ar.AreaRegistry, "async_schedule_save", interrupted_save)
         with pytest.raises(ToolFailure) as failure:
-            await locations.ha_set_area_or_floor(
-                kind="area", order=[second.id, first.id]
-            )
+            await locations.ha_set_area_or_floor(kind="area", order=order)
     assert failure.value.status == "outcome_unknown"
     assert failure.value.data["previous_order"] == [first.id, second.id]
     assert calls == 1
-    assert [entry.id for entry in registry.async_list_areas()] == [second.id, first.id]
+    assert [entry.id for entry in registry.async_list_areas()] == order

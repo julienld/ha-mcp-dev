@@ -189,18 +189,6 @@ async def reorder(hass: HomeAssistant, arguments: dict[str, Any]) -> dict[str, A
         check_mutation_admission(admission.context)
     try:
         registry.async_reorder(data[f"{domain}_ids"])
-    except ValueError as error:
-        current = [
-            entry.id if domain == "area" else entry.floor_id
-            for entry in getattr(registry, f"async_list_{domain}s")()
-        ]
-        if current == previous:
-            return {
-                "success": False,
-                "error_code": "invalid_format",
-                "error": str(error),
-            }
-        return registry_outcome_unknown(domain, "reorder", error)
     except Exception as error:  # noqa: BLE001 - save/listener may fail after dispatch
         return registry_outcome_unknown(domain, "reorder", error)
     return {"success": True, "result": None}
