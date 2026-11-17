@@ -37,11 +37,11 @@ from pytest_homeassistant.common import (
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp.client.rest_client import HomeAssistantClient
 from ha_mcp.client.websocket_client import DEFAULT_COMMAND_WAIT_TIMEOUT
-from ha_mcp.tools.tools_system import (
+from ha_mcp.runtime.system_values import (
     RELOAD_ALL_FAILED_HINT,
     RELOAD_WAIT_SECONDS,
-    SystemTools,
 )
+from ha_mcp.tools.tools_system import SystemTools
 
 from ._held_command import held_command
 
