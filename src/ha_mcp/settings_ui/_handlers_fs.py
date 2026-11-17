@@ -50,8 +50,8 @@ def _component_error_reason(exc: Exception) -> str | None:
     from ..tools.helpers import (
         exception_to_structured_error,
         extract_structured_error_reason,
-        tool_error_from_response,
     )
+    from ..utils.tool_errors import tool_error_from_response
 
     cause = exc.__cause__ if isinstance(exc, HomeAssistantConnectionError) else exc
     if (

@@ -155,7 +155,7 @@ async def test_the_worker_sees_its_config_dir_and_no_secret_in_the_environment(
 async def test_the_worker_is_handed_the_connection_in_memory(
     hass: HomeAssistant,
 ) -> None:
-    options = {OPT_SERVER_URL: f"{HA_URL}/"}  # a trailing slash is trimmed
+    options = {OPT_SERVER_URL: f"{HA_URL}/", OPT_ENABLE_LLM_API: True}
     async with running_server(hass, options=options) as (_mgr, entry):
         config = server_config()
         settings = config.get_global_settings()
