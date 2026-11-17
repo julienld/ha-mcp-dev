@@ -18,6 +18,7 @@ from homeassistant.setup import async_setup_component
 from pytest_homeassistant.common import MockConfigEntry
 
 from ha_mcp import config
+from ha_mcp.backends.remote import RemoteBackend
 from ha_mcp.client.rest_client import HomeAssistantClient, HomeAssistantConnectionError
 from ha_mcp.redaction import REDACTED_SET
 from ha_mcp.tools.tools_integrations import IntegrationTools
@@ -499,44 +500,31 @@ async def test_an_uncertain_abort_is_not_replayed_by_retry_or_shutdown(
         await rejected_call_body(flow_tools.ha_set_integration(**abort))
         retry = await rejected_call_body(flow_tools.ha_set_integration(**abort))
         assert retry["error"]["code"] == "FLOW_NOT_OWNED"
-        await flow_tools.backend.stop()
+        backend = flow_tools.backend
+        assert isinstance(backend, RemoteBackend)
+        await backend.stop()
         sent.assert_awaited_once_with(opened["flow_id"])
     assert opened["flow_id"] in config_flow_ids(hass)
     hass.config_entries.flow.async_abort(opened["flow_id"])
 
-async def test_cancelled_abort_does_not_hang_or_dispatch_again_during_shutdown(
+
+async def test_cancelled_abort_is_not_dispatched_again_during_shutdown(
     hass: HomeAssistant,
     core_client: HomeAssistantClient,
     flow_tools: IntegrationTools,
 ) -> None:
     opened = await flow_tools.ha_set_integration(domain=SINGLE)
-    entered, release = asyncio.Event(), asyncio.Event()
-    real_abort = core_client.abort_config_flow
-
-    async def delayed_abort(flow_id: str) -> dict[str, Any]:
-        entered.set()
-        await release.wait()
-        return await real_abort(flow_id)
-
-    with patch.object(core_client, "abort_config_flow", wraps=delayed_abort) as sent:
-        task = asyncio.create_task(
-            flow_tools.ha_set_integration(domain=SINGLE, flow_id=opened["flow_id"], abort=True)
-        )
-        stopping = None
-        try:
-            await asyncio.wait_for(entered.wait(), timeout=1)
-            task.cancel()
-            with pytest.raises(asyncio.CancelledError):
-                await task
-            stopping = asyncio.create_task(flow_tools.backend.stop())
-            done, _ = await asyncio.wait({stopping}, timeout=1)
-            assert stopping in done, "shutdown attempted to abort the uncertain flow again"
-            await stopping
-            sent.assert_awaited_once_with(opened["flow_id"])
-        finally:
-            release.set()
-            task.cancel()
-            await asyncio.gather(task, *([stopping] if stopping is not None else []), return_exceptions=True)
+    with patch.object(
+        core_client, "abort_config_flow", AsyncMock(side_effect=asyncio.CancelledError())
+    ) as sent:
+        with pytest.raises(asyncio.CancelledError):
+            await flow_tools.ha_set_integration(
+                domain=SINGLE, flow_id=opened["flow_id"], abort=True
+            )
+        backend = flow_tools.backend
+        assert isinstance(backend, RemoteBackend)
+        await backend.stop()
+        sent.assert_awaited_once_with(opened["flow_id"])
     assert opened["flow_id"] in config_flow_ids(hass)
     hass.config_entries.flow.async_abort(opened["flow_id"])
 

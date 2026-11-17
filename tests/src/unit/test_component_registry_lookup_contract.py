@@ -48,7 +48,11 @@ async def test_flow_delete_finds_all_subentities_via_real_component(
         entity_registry.async_get_or_create(
             domain, "utility_meter", unique_id, config_entry=entry
         ).entity_id
-        for domain, unique_id in [("sensor", "peak"), ("sensor", "offpeak"), ("select", "tariff")]
+        for domain, unique_id in [
+            ("sensor", "peak"),
+            ("sensor", "offpeak"),
+            ("select", "tariff"),
+        ]
     }
     other = MockConfigEntry(domain="light")
     other.add_to_hass(hass)
@@ -60,12 +64,18 @@ async def test_flow_delete_finds_all_subentities_via_real_component(
     with (
         on_receipt(hass, LOOKUP, lambda msg: frames.append(dict(msg))),
         on_receipt(
-            hass, "config/entity_registry/list", lambda msg: whole_lists.append(dict(msg))
+            hass,
+            "config/entity_registry/list",
+            lambda msg: whole_lists.append(dict(msg)),
         ),
     ):
         result = await IntegrationTools(client).ha_remove_helpers_integrations(
-            target=sorted(entity_id for entity_id in members if entity_id.startswith("sensor."))[0],
-            helper_type="utility_meter", confirm=True, wait=False
+            target=sorted(
+                entity_id for entity_id in members if entity_id.startswith("sensor.")
+            )[0],
+            helper_type="utility_meter",
+            confirm=True,
+            wait=False,
         )
     assert result["success"] is True
     assert result["entry_id"] == entry.entry_id
@@ -73,7 +83,10 @@ async def test_flow_delete_finds_all_subentities_via_real_component(
     assert hass.config_entries.async_get_entry(entry.entry_id) is None
     assert all(entity_registry.async_get(entity_id) is None for entity_id in members)
     assert entity_registry.async_get(noise.entity_id) is not None
-    assert len([msg for msg in frames if msg.get("config_entry_id") == entry.entry_id]) == 1
+    assert (
+        len([msg for msg in frames if msg.get("config_entry_id") == entry.entry_id])
+        == 1
+    )
     assert whole_lists == []
 
 
@@ -126,7 +139,10 @@ async def test_an_entity_the_component_misses_is_not_deleted_by_its_object_id(
         pytest.raises(ToolError) as error,
     ):
         await IntegrationTools(client).ha_remove_helpers_integrations(
-            target="input_button.my_button", helper_type="input_button", confirm=True, wait=False
+            target="input_button.my_button",
+            helper_type="input_button",
+            confirm=True,
+            wait=False,
         )
     assert error_of(error)["code"] == "RESOURCE_NOT_FOUND"
     assert deletes == []
