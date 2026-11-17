@@ -13,12 +13,21 @@ import logging
 from typing import Any
 
 import pytest
+from homeassistant.auth.models import User
 from homeassistant.components.lovelace.const import LOVELACE_DATA
 from homeassistant.const import EVENT_LOVELACE_UPDATED
 from homeassistant.core import Event, HomeAssistant
 from homeassistant.setup import async_setup_component
+from pytest_homeassistant.common import MockConfigEntry
 
+from custom_components.ha_mcp_tools.const import DATA_WEBHOOK_ID, DOMAIN
+from custom_components.ha_mcp_tools.native_backend import NativeBackend
+from custom_components.ha_mcp_tools.native_dashboard_tools import build_dashboard_tools
+from custom_components.ha_mcp_tools.native_server import NativeServerManager
+from custom_components.ha_mcp_tools.native_snapshots import NativeSnapshots
 from ha_mcp.client.rest_client import HomeAssistantClient
+from ha_mcp.runtime import Engine
+from ha_mcp.tool_api import CallContext
 from ha_mcp.tools.tools_config_dashboards import DashboardConfigTools
 from ha_mcp.utils.config_hash import compute_config_hash
 
@@ -29,6 +38,38 @@ from ._tool_errors import rejected_call_body
 
 _LOGGER_NAME = "ha_mcp.tools.tools_config_dashboards"
 _STRATEGY = {"strategy": {"type": "map"}}
+
+
+@pytest.mark.usefixtures("lovelace")
+async def test_native_dashboard_creation_does_not_invent_a_missing_title(
+    hass: HomeAssistant,
+    hass_admin_user: User,
+) -> None:
+    backend = NativeBackend(hass)
+    manager = NativeServerManager(
+        hass, MockConfigEntry(domain=DOMAIN, data={DATA_WEBHOOK_ID: "test-dashboard"})
+    )
+    manager.backend = backend
+    manager.snapshots = NativeSnapshots(manager)
+    try:
+        result = await Engine(backend, build_dashboard_tools(manager)).call(
+            "ha_config_set_dashboard",
+            {
+                "url_path": "new-map",
+                "icon": "",
+                "require_admin": True,
+                "show_in_sidebar": False,
+                "MandatoryBPS": False,
+            },
+            CallContext(hass_admin_user.id),
+        )
+        assert result.is_error, result.data
+        assert result.data["error"]["code"] == "VALIDATION_FAILED"
+        assert "title" in result.data["error"]["message"]
+        assert result.status == "not_started"
+        assert "new-map" not in hass.data[LOVELACE_DATA].dashboards
+    finally:
+        await backend.stop()
 
 
 @pytest.fixture

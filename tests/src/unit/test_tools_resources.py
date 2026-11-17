@@ -36,7 +36,7 @@ from ._tool_errors import rejected_call_body
 _REGISTERED_TOOLS = {
     name
     for path in Path(tools_resources.__file__).parent.glob("*.py")
-    for name in re.findall(r'@tool\(\s*name="(ha_[a-z_]+)"', path.read_text())
+    for name in re.findall(r'\btool\(\s*name="(ha_[a-z_]+)"', path.read_text())
 }
 
 # The list tool documents a 150-character preview of each inline resource.

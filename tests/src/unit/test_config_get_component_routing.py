@@ -77,7 +77,9 @@ async def test_the_automation_body_is_the_stored_one_with_its_category(
     with sent_messages(component_core_client) as sent:
         resp = await AutomationConfigTools(
             component_core_client
-        ).ha_config_get_automation(entity_id="automation.morning_routine")
+        ).ha_config_get_automation(
+            entity_id="automation.morning_routine", config_format="stored"
+        )
 
     assert resp["automation_id"] == "automation.morning_routine"
     assert resp["config"] == {**_AUTOMATION, "category": category}
