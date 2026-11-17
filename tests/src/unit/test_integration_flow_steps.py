@@ -373,26 +373,17 @@ async def test_a_flow_not_opened_for_the_calls_target_is_refused(
 
 
 @pytest.mark.parametrize(
-    ("started_for", "continued"),
-    [
-        ("hub-reconfigure", True),
-        ("annex-reconfigure", False),
-        ("user-setup", True),
-        ("hub-reauth", False),
-    ],
+    "started_for", ["hub-reconfigure", "annex-reconfigure", "user-setup", "hub-reauth"]
 )
-async def test_a_flow_the_server_forgot_is_bound_by_cores_record(
+async def test_a_flow_opened_outside_this_session_is_never_adopted(
     hass: HomeAssistant,
     component_core_client: HomeAssistantClient,
     flow_tools: IntegrationTools,
     hub: MockConfigEntry,
     annex: MockConfigEntry,
     started_for: str,
-    continued: bool,
 ) -> None:
-    """After an ha-mcp restart the flow's target is the one Core recorded: a
-    reconfigure flow continues only for its own entry, and a reauth flow Core
-    started for the domain is not a setup flow to answer."""
+    """A Core target record cannot grant this caller session ownership."""
     if started_for == "hub-reconfigure":
         started = await hub.start_reconfigure_flow(hass)
     elif started_for == "annex-reconfigure":
@@ -408,13 +399,13 @@ async def test_a_flow_the_server_forgot_is_bound_by_cores_record(
         if started_for.endswith("setup") or started_for == "hub-reauth"
         else {"entry_id": hub.entry_id, "reconfigure": True, "expected_mac": MAC}
     )
-    call = flow_tools.ha_set_integration(flow_id=started["flow_id"], **named)
-
-    if continued:
-        assert (await call)["flow_id"] == started["flow_id"]
-    else:
-        body = await rejected_call_body(call)
-        assert "of this call's target" in body["error"]["message"]
+    with flow_calls(component_core_client) as calls:
+        body = await rejected_call_body(
+            flow_tools.ha_set_integration(flow_id=started["flow_id"], **named)
+        )
+    assert body["error"]["code"] in {"FLOW_NOT_OWNED", "VALIDATION_INVALID_PARAMETER"}
+    calls["submit_config_flow_step"].assert_not_awaited()
+    assert started["flow_id"] in config_flow_ids(hass)
 
 
 async def test_a_flow_home_assistant_no_longer_has_is_not_found(
