@@ -10,9 +10,31 @@ changes. The 6 November compatibility pass below restores the installation
 floor and automatic entity-history contracts; historical audit entries remain
 evidence of their original candidate, rather than current behavior.
 
+## Core conversions and dependency floors integrated on 17 November 2026
+
+The integration target is Main `d46b3c8491a97064748f04d6f36368aafc5a31dd`.
+Its Core-backed tests replace more simulated server responses. Native retains
+its shared owners, actor admission, target identities and at-most-once writes:
+a handler error after dispatch, including authorization or validation errors,
+does not authorize a second call. A service HTTP 401 affects later routing;
+it does not replay the request whose outcome is uncertain.
+
+Reconfigure identity now correlates Core's per-entry device rows through their
+actual connections and identifiers, including the singular config_entry_id.
+YAML key removal preserves the comments belonging to the following key.
+Python transformations must leave a dict that serializes to finite JSON before
+any write. Legacy worker module purging also releases stale function/model/log
+holders behind the existing worker and Native-version guards.
+
+A later vendored SDK update raises matching declared dependency floors and
+refreshes the lock through the restricted Renovate task. Private Rich remains
+part of the same generator and fixture coverage. This integration itself does
+not bump the private SDK, grant a resolver exception or enable fork publishing.
+Historical catalogues and receipts retain their original identities.
+
 ## Area, floor and registry contracts integrated on 17 November 2026
 
-The integration target is Main `3accc57e25ee0243e138dc2a1b2d29db6d1d9a52`.
+The preceding integration target was Main `3accc57e25ee0243e138dc2a1b2d29db6d1d9a52`.
 `ha_set_area_or_floor(order=...)` reorders all IDs of the selected kind through
 Core. Listing preserves Core's order instead of sorting floors by level.
 The reply records `previous_order`; reorder has no automatic backup. A floor
