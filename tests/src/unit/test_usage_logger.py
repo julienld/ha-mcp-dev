@@ -327,6 +327,7 @@ class TestLogToolUsageDecorator:
         from types import SimpleNamespace
 
         from ha_mcp import redaction
+        from ha_mcp.runtime import redaction as shared_redaction
         from ha_mcp.tools.helpers import log_tool_usage
 
         monkeypatch.setattr(
@@ -334,7 +335,7 @@ class TestLogToolUsageDecorator:
             "get_global_settings",
             lambda: SimpleNamespace(redact_secrets=True, redact_app_option_keys=""),
         )
-        monkeypatch.setattr(redaction, "_known_secrets", {"hunter2-secret"})
+        monkeypatch.setattr(shared_redaction, "_known_secrets", {"hunter2-secret"})
 
         @log_tool_usage
         async def ha_failing_tool():
