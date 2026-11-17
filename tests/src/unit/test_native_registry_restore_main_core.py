@@ -1,5 +1,7 @@
 """Native restores retain Main's recreation behavior on actual Core registries."""
 
+from types import SimpleNamespace
+
 import pytest
 from homeassistant.auth.models import User
 from homeassistant.core import HomeAssistant
@@ -14,6 +16,7 @@ from ha_mcp.runtime.snapshot_registry_restore import current_registry, restore_r
 from ha_mcp.tool_api import CallContext
 
 from ._native_core_backend import backend as backend
+from ._native_file_core import core_files as core_files
 
 
 async def test_native_label_partial_update_clear_and_actual_core_related_set(
@@ -126,3 +129,15 @@ async def test_area_restore_uses_core_fields_and_discloses_omitted_order(
     assert restored.name == "Office"
     assert restored.aliases == {"study", "den"}
     assert any("unsupported_future_field" in message for message in result["warnings"])
+
+
+async def test_native_diff_uses_core_sets_and_timestamp_fields(hass: HomeAssistant, core_files: SimpleNamespace) -> None:
+    registry = ar.async_get(hass)
+    area = registry.async_create("Office", aliases={"study", "den"})
+    row = await core_files.manager.backend.execute("registry.area.read", {"area_id": area.id}, core_files.actor)
+    saved = {"kind": "area", **row, "aliases": list(reversed(row["aliases"]))}
+    saved["modified_at"] = saved["created_at"] = 1.0
+    path = await hass.async_add_executor_job(core_files.store.capture, "area_or_floor", f"area:{area.id}", saved, "fixture")
+    assert path is not None
+    diff = await core_files.manager.snapshots.diff_snapshot(path.name, core_files.actor)
+    assert diff["unchanged"] is True, diff
