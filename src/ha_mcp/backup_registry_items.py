@@ -34,6 +34,7 @@ from .client.rest_client import (
 from .runtime.registry_recovery_values import (
     registry_identity_warning as _other_id_warning,
 )
+from .runtime.snapshot_payloads import _REGISTRY_READONLY_KEYS
 
 logger = logging.getLogger(__name__)
 
@@ -505,7 +506,7 @@ async def compared_row(
             in_order = {key: config[key] for key in lists if key in sets}
             current = {**current, **in_order}
     if stamped is None:
-        readonly = _manager()._REGISTRY_READONLY_KEYS
+        readonly = _REGISTRY_READONLY_KEYS
         if domain in REGISTRY_ITEM_DOMAINS:
             stamped = readonly
         else:

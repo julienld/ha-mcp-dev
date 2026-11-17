@@ -167,8 +167,6 @@ from .utils.registry_update_lock import registry_update_lock
 
 logger = logging.getLogger(__name__)
 
-_REGISTRY_READONLY_KEYS = frozenset({"created_at", "modified_at"})
-
 # Output cap for diff_snapshot. Bounded payload keeps the tool response
 # token-friendly even when the user diffs against a freshly-rewritten
 # automation. Picked to comfortably cover typical edits (a handful of
