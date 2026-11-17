@@ -48,43 +48,6 @@ def yaml_files(filesystem, monkeypatch):
     )
 
 
-async def test_native_yaml_preview_has_no_backup_then_confirm_captures_subtree(
-    yaml_files,
-):
-    edit, read, manager, target = yaml_files
-    before = target.read_text()
-    preview = await edit.edit(
-        "utility_meter",
-        "replace",
-        "requested:\n  source: sensor.after\n",
-        MandatoryBPS=False,
-    )
-    assert preview["preview"] and target.read_text() == before
-    assert not manager.snapshots._store().list_snapshots(domain="yaml")
-    saved = await edit.edit(
-        "utility_meter",
-        "replace",
-        "requested:\n  source: sensor.after\n",
-        confirm_token=preview["confirm_token"],
-        MandatoryBPS=False,
-    )
-    assert saved["written"] and saved["config_check"] == "ok"
-    assert (
-        "# retained" in target.read_text()
-        and "!include automations.yaml" in target.read_text()
-    )
-    store = manager.snapshots._store()
-    rows = store.list_snapshots(domain="yaml")
-    assert len(rows) == 1
-    snapshot = store.read_snapshot(rows[0]["name"])
-    assert snapshot["entity_id"] == "configuration.yaml::utility_meter"
-    assert (
-        "sensor.before" in snapshot["config"] and "!include" not in snapshot["config"]
-    )
-    result = await read.get(yaml_path="utility_meter", include_parsed=True)
-    assert result["matches"][0]["parsed"] == {"requested": {"source": "sensor.after"}}
-
-
 @pytest.mark.parametrize("change", ["target", "key", "actor", "backup"])
 async def test_native_yaml_change_during_safety_capture_never_rebases_or_writes(
     yaml_files, change

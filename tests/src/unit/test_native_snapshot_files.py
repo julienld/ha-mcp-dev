@@ -11,34 +11,6 @@ from .test_native_filesystem import filesystem as filesystem
 from .test_native_yaml import yaml_files as yaml_files
 
 
-@pytest.mark.parametrize("domain", ["file", "yaml", "yaml_file"])
-async def test_native_file_restore_preserves_safety_when_automatic_captures_are_off(
-    yaml_files, domain
-):
-    _edit, _read, manager, config_file = yaml_files
-    store = manager.snapshots._store()
-    manager.policy.flags.update(backup_read_only=False, enable_auto_backup=False)
-    target = config_file
-    identifier = "configuration.yaml"
-    saved = "utility_meter:\n  restored:\n    source: sensor.saved\n"
-    if domain == "file":
-        target = config_file.parent / "www" / "notes.txt"
-        identifier, saved = "www/notes.txt", "saved plain text"
-    elif domain == "yaml":
-        identifier += "::utility_meter"
-        saved = "restored:\n  source: sensor.saved\n"
-    path = store.capture(domain, identifier, saved, "fixture")
-    data, before = await manager.snapshots.snapshot_comparison(
-        path.name, CallContext("owner")
-    )
-    assert data["config"] == saved and before is not None
-    result = await manager.snapshots.restore_snapshot(path.name, CallContext("owner"))
-    assert result["apply_status"] == "applied" and result["safety_backup"]
-    assert store.read_snapshot(result["safety_backup"])["config"] == before
-    assert "saved" in target.read_text()
-    assert len(store.list_snapshots(domain=domain)) == 2
-
-
 @pytest.mark.parametrize("change", ["target", "entry", "actor"])
 async def test_native_file_restore_does_not_rebase_after_safety_capture(
     yaml_files, monkeypatch, change

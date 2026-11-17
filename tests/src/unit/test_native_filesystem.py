@@ -10,6 +10,7 @@ import pytest
 from ha_mcp.tool_api import CallContext, ToolFailure
 
 from ._native_backend_module import native as native
+from ._native_file_core import core_files as core_files
 from .test_native_file_access import files as files
 
 
@@ -257,8 +258,8 @@ async def test_file_lock_keeps_second_snapshot_after_first_write(filesystem):
     assert images == ["before", "first"] and target.read_text() == "second"
 
 
-def test_file_projection_matches_the_frozen_public_contract(filesystem):
-    _service, manager, *_ = filesystem
+def test_file_projection_matches_the_frozen_public_contract(core_files: SimpleNamespace):
+    manager = core_files.manager
     module = importlib.import_module(
         "custom_components.ha_mcp_tools.native_filesystem_tools"
     )
@@ -291,6 +292,13 @@ def test_file_projection_matches_the_frozen_public_contract(filesystem):
             .get("annotations", {}),
         }
         assert definition.annotations == expected_annotations
+        if definition.name == "ha_config_set_yaml":
+            from ha_mcp.tools.tools_yaml_config import YamlConfigTools
+
+            assert " ".join(definition.description.split()) == " ".join(
+                (YamlConfigTools.ha_config_set_yaml.__doc__ or "").split()
+            )
+            continue
         if definition.name == "ha_write_file":
             receipt = json.loads(
                 (

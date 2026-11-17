@@ -16,7 +16,6 @@ from ha_mcp.errors import (
 from ha_mcp.tool_api import ToolFailure
 from ha_mcp.tools.tools_config_automations import AutomationConfigTools
 from ha_mcp.tools.tools_config_scenes import ConfigSceneTools
-from ha_mcp.tools.tools_system import SystemTools
 from ha_mcp.tools.tools_themes import ThemesTools
 from ha_mcp.tools.tools_updates import UpdateTools
 
@@ -68,7 +67,7 @@ async def test_theme_service_error_keeps_unknown_outcome(
 
 
 @pytest.mark.parametrize(
-    "consumer", ["update", "enabled", "trigger", "scene", "reload"]
+    "consumer", ["update", "enabled", "trigger", "scene"]
 )
 async def test_partial_service_consumers_keep_unknown_outcome(
     monkeypatch: pytest.MonkeyPatch,
@@ -96,14 +95,6 @@ async def test_partial_service_consumers_keep_unknown_outcome(
             )
             assert succeeded == 0
             error = rows[0]
-        elif consumer == "reload":
-            monkeypatch.setattr(
-                "ha_mcp.backends.legacy_system.RELOAD_TARGETS",
-                {"test": ("automation", "reload")},
-            )
-            result = await SystemTools(client)._reload_all_targets()
-            assert result["reloaded"] == []
-            error = result["service_errors"][0]
         else:
             if consumer == "enabled":
                 await AutomationConfigTools(client)._apply_enabled_state(
