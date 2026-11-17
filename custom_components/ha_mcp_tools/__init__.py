@@ -59,9 +59,7 @@ from .const import (
     RESERVED_DASHBOARD_URL_PATHS,
     TOOLS_ENTRY_LEGACY_TITLE,
     TOOLS_ENTRY_TITLE,
-    YAML_KEY_DEFAULT_POST_ACTION,
     YAML_KEY_DENYLIST,
-    YAML_KEY_POST_ACTIONS,
 )
 from .entry_device import async_register_entry_device
 from .entry_migration import async_migrate_entry as async_migrate_entry

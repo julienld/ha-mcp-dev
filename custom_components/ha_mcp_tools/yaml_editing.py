@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.config import async_check_ha_config_file
+from homeassistant.const import SERVICE_RELOAD
 from ruamel.yaml import YAMLError
 
 from ha_mcp.tool_api import ToolFailure
@@ -21,9 +22,7 @@ from ha_mcp.utils.registry_update_lock import registry_update_lock
 from .const import (
     ALLOWED_YAML_CONFIG_FILES,
     PACKAGES_ONLY_YAML_KEYS,
-    YAML_KEY_DEFAULT_POST_ACTION,
     YAML_KEY_DENYLIST,
-    YAML_KEY_POST_ACTIONS,
 )
 from .file_access import BeforeWrite, FileAccess, Guard, _current_extra_yaml_keys
 from .file_io import FileImage, FileWriteState, _replace_file_sync, read_file_image
@@ -463,19 +462,18 @@ async def _resolve_post_action(
     hass: HomeAssistant, kind: str, path_parts: tuple[str, ...], context: Any = None
 ) -> dict[str, Any]:
     """Return the post-edit activation info (restart/reload) for the edit kind."""
-    # Surface the post-edit action required to activate the change
-    post_info: dict[str, Any]
-    if kind == "lovelace_dashboard":
-        post_info = {"post_action": "restart_required"}
-    elif kind == "theme":
-        post_info = await reload_after_edit(
+    if kind == "theme":
+        return await reload_after_edit(
             hass, "frontend", "reload_themes", context=context
         )
-    else:
-        post_info = YAML_KEY_POST_ACTIONS.get(
-            path_parts[0], YAML_KEY_DEFAULT_POST_ACTION
-        )
-    return post_info
+    if kind != "lovelace_dashboard" and hass.services.has_service(
+        path_parts[0], SERVICE_RELOAD
+    ):
+        return {
+            "post_action": "reload_available",
+            "reload_service": f"{path_parts[0]}.{SERVICE_RELOAD}",
+        }
+    return {"post_action": "restart_required"}
 
 
 async def _apply_yaml_key_edit(

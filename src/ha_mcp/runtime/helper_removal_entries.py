@@ -26,11 +26,24 @@ logger = logging.getLogger(__name__)
 
 
 def removal_helper_type(kwargs: dict[str, Any]) -> str | None:
-    """An explicit subentry id selects its child even when the type is omitted."""
+    """A subentry id selects its child; contradictory helper kinds are refused."""
     helper_type: str | None = kwargs.get("helper_type")
-    if helper_type is None and kwargs.get("subentry_id") is not None:
+    if kwargs.get("subentry_id") is None or helper_type == "config_subentry":
+        return helper_type
+    if helper_type is None:
         return "config_subentry"
-    return helper_type
+    raise_failure(
+        create_error_response(
+            ErrorCode.VALIDATION_INVALID_PARAMETER,
+            "subentry_id names a config subentry, which "
+            f"helper_type '{helper_type}' does not have",
+            context={"execution_status": "not_started"},
+            suggestions=[
+                "Omit helper_type to remove the named config subentry",
+                "Omit subentry_id to remove the named helper",
+            ],
+        )
+    )
 
 
 class EntryRemovalTools(StorageRemovalTools):

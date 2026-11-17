@@ -1,17 +1,21 @@
 """Frozen standalone restart/reload acquisition; native execution uses Core owners."""
 
-import asyncio
+
 from typing import Any
 
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp.errors import ErrorCode, create_error_response
-from ha_mcp.runtime.service_outcome import project_service_reload_results
+from ha_mcp.client.rest_client import HomeAssistantCommandNotSent, HomeAssistantConnectionError
 from ha_mcp.runtime.system_values import (
-    RELOAD_TARGETS,
+    NAMED_RELOADS,
+    RELOAD_WAIT_SECONDS,
+    RELOAD_ALL_FAILED_HINT,
+    reload_service,
     reload_entry_result,
     reload_target_result,
 )
-from ha_mcp.tools.helpers import exception_to_structured_error, raise_tool_error
+from ha_mcp.tools.helpers import exception_to_structured_error, raise_tool_error, raise_core_refusal
+from ha_mcp.tool_api import ToolFailure
 from ha_mcp.tools.system_restart import restart_home_assistant
 
 
@@ -27,65 +31,62 @@ class LegacySystemActions:
         if entry_id is not None:
             return await self._reload_config_entry(entry_id)
         try:
-            if target == "all":
-                return await self._reload_all_targets()
-
-            else:
-                # Reload specific component
-                service_info = RELOAD_TARGETS[target]
-                if service_info is None:
-                    # This shouldn't happen as we check for "all" above
-                    raise_tool_error(
-                        create_error_response(
-                            ErrorCode.INTERNAL_ERROR,
-                            f"Invalid target configuration for: {target}",
-                            context={"target": target},
-                        )
-                    )
-                domain, service = service_info
-                await self._client.call_service(domain, service, {})
-
-                return reload_target_result(target, domain, service)
-
-        except ToolError:
+            reloadable = []
+            if target not in NAMED_RELOADS:
+                reloadable = [
+                    entry["domain"]
+                    for entry in await self._client.get_services()
+                    if "reload" in entry["services"]
+                ]
+            domain, service = reload_service(target, reloadable)
+            await self._call_reload(target, domain, service)
+            return reload_target_result(target, domain, service)
+        except (ToolError, ToolFailure):
             raise
-        except Exception as e:  # noqa: BLE001
+        except Exception as error:  # noqa: BLE001
             exception_to_structured_error(
-                e,
+                error,
                 context={"target": target},
-                suggestions=[
-                    f"Ensure the {target} integration is loaded",
-                    "Check Home Assistant logs for details",
-                ],
+                suggestions=["Check Home Assistant logs for details"],
             )
-            return None  # unreachable: exception_to_structured_error always raises
+            raise
 
-    async def _reload_all_targets(self) -> dict[str, Any]:
-        """Reload every reloadable subsystem concurrently, capped by a semaphore.
-
-        Extracted verbatim from ``ha_reload_core``'s ``target == "all"`` branch.
-        """
-        # Reload all reloadable components. Fire the calls concurrently
-        # but cap the in-flight count with a semaphore so a large
-        # install doesn't hit HA with ~16 simultaneous service calls.
-        # A single failing target must not cancel its siblings, so the
-        # calls are gathered with ``return_exceptions=True`` and
-        # attributed per target below (preserving RELOAD_TARGETS order).
-        reloadable = [
-            (name, info) for name, info in RELOAD_TARGETS.items() if info is not None
+    async def _call_reload(self, target: str, domain: str, service: str) -> None:
+        """Core owns the reload; WebSocket preserves its refusal code."""
+        try:
+            reply = await self._client.send_websocket_message(
+                {
+                    "type": "call_service",
+                    "domain": domain,
+                    "service": service,
+                    "_wait_timeout": max(float(self._client.timeout), RELOAD_WAIT_SECONDS),
+                }
+            )
+        except HomeAssistantCommandNotSent:
+            raise
+        except HomeAssistantConnectionError as error:
+            raise_tool_error(
+                create_error_response(
+                    ErrorCode.SERVICE_CALL_FAILED,
+                    f"{domain}.{service} got no answer, so whether Home Assistant "
+                    f"reloaded is unknown: {error}",
+                    context={"target": target, "write_outcome_unknown": True},
+                    suggestions=[
+                        "Home Assistant may still be reloading: check its log before reloading again"
+                    ],
+                )
+            )
+        if reply.get("success"):
+            return
+        suggestions = [
+            "Fix what Home Assistant reported, then reload again",
+            "Check Home Assistant logs for details",
         ]
-        semaphore = asyncio.Semaphore(4)
-
-        async def _reload_one(domain: str, service: str) -> None:
-            async with semaphore:
-                await self._client.call_service(domain, service, {})
-
-        outcomes = await asyncio.gather(
-            *(_reload_one(domain, service) for _, (domain, service) in reloadable),
-            return_exceptions=True,
+        if target == "all":
+            suggestions.append(RELOAD_ALL_FAILED_HINT)
+        raise_core_refusal(
+            f"{domain}.{service} failed", reply, {"target": target}, suggestions
         )
-
-        return project_service_reload_results(reloadable, outcomes)
 
     async def _reload_config_entry(self, entry_id: str) -> dict[str, Any]:
         """Reload a single config entry via the REST config-entries endpoint.

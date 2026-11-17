@@ -6,35 +6,51 @@ from ha_mcp.errors import ErrorCode, create_error_response
 
 from .errors import raise_failure
 
-RELOAD_TARGETS = {
-    "all": None,  # Special case - reload all
-    "automations": ("automation", "reload"),
-    "scripts": ("script", "reload"),
-    "scenes": ("scene", "reload"),
-    "groups": ("group", "reload"),
-    "input_booleans": ("input_boolean", "reload"),
-    "input_numbers": ("input_number", "reload"),
-    "input_texts": ("input_text", "reload"),
-    "input_selects": ("input_select", "reload"),
-    "input_datetimes": ("input_datetime", "reload"),
-    "input_buttons": ("input_button", "reload"),
-    "timers": ("timer", "reload"),
-    "templates": ("template", "reload"),
-    "persons": ("person", "reload"),
-    "zones": ("zone", "reload"),
+NAMED_RELOADS = {
+    "all": ("homeassistant", "reload_all"),
     "core": ("homeassistant", "reload_core_config"),
     "themes": ("frontend", "reload_themes"),
+    "custom_templates": ("homeassistant", "reload_custom_templates"),
 }
+RELOAD_WAIT_SECONDS = 120.0
+RELOAD_ALL_FAILED_HINT = (
+    "A failed configuration check stops reload-all before anything reloads. "
+    "Any other failure is one integration's: the other reloads were started "
+    "too and may have finished, still be running or have failed, so check "
+    "Home Assistant's log before reloading again"
+)
+
+
+def reload_service(target: str, reloadable: list[str]) -> tuple[str, str]:
+    """Resolve aliases or an actual Core domain service, without a domain list."""
+    if target in NAMED_RELOADS:
+        return NAMED_RELOADS[target]
+    if target in reloadable:
+        return target, "reload"
+    valid_targets = [*NAMED_RELOADS, *sorted(reloadable)]
+    domain = target.removesuffix("s")
+    raise_failure(
+        create_error_response(
+            ErrorCode.VALIDATION_INVALID_PARAMETER,
+            f"Invalid reload target: Home Assistant has no '{target}.reload' service"
+            + (f". Did you mean '{domain}'?" if domain in reloadable else ""),
+            context={"target": target, "valid_targets": valid_targets},
+            suggestions=[
+                f"Use one of: {', '.join(valid_targets)}",
+                "An integration that is not loaded has no reload service: "
+                "restart Home Assistant (ha_restart) to load its first YAML block",
+            ],
+        )
+    )
 
 
 def reload_target_result(target: str, domain: str, service: str) -> dict[str, Any]:
     return {
         "success": True,
-        "message": f"Successfully reloaded {target}",
+        "message": f"Home Assistant ran {domain}.{service}",
         "target": target,
         "service": f"{domain}.{service}",
     }
-
 
 def reload_entry_result(entry_id: str, require_restart: bool) -> dict[str, Any]:
     if require_restart:
@@ -52,17 +68,6 @@ def reload_entry_result(entry_id: str, require_restart: bool) -> dict[str, Any]:
         "require_restart": False,
         "entry_id": entry_id,
     }
-
-
-def reload_all_result(results: list[str], errors: list[str]) -> dict[str, Any]:
-    response: dict[str, Any] = {
-        "success": True,
-        "message": f"Reloaded {len(results)} components",
-        "reloaded": results,
-    }
-    if errors:
-        response["warnings"] = errors
-    return response
 
 
 def restart_scheduled_result() -> dict[str, Any]:

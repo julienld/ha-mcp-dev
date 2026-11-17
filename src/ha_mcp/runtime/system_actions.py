@@ -8,7 +8,6 @@ from pydantic import Field
 from ha_mcp.errors import ErrorCode, create_error_response
 
 from .errors import raise_failure
-from .system_values import RELOAD_TARGETS
 from .validation import validate_identifier_not_empty
 
 
@@ -74,11 +73,11 @@ class SystemActionsFacade:
             str,
             Field(
                 description=(
-                    "What to reload: 'all', 'automations', 'scripts', 'scenes', "
-                    "'groups', 'input_booleans', 'input_numbers', 'input_texts', "
-                    "'input_selects', 'input_datetimes', 'input_buttons', "
-                    "'timers', 'templates', 'persons', 'zones', 'core' "
-                    "(customize, packages) or 'themes'."
+                    "What to reload: 'all' (Core reload-all), 'core' (customize, "
+                    "packages), 'themes', 'custom_templates', or a loaded "
+                    "integration domain with a reload service, such as "
+                    "'automation', 'script', 'scene', 'template' or 'mqtt'. "
+                    "Other targets are refused with the available domains."
                 )
             ),
         ] = "all",
@@ -103,7 +102,7 @@ class SystemActionsFacade:
         customize.yaml or themes.
 
         EXAMPLES:
-        - ha_reload_core(target="automations")
+        - ha_reload_core(target="automation")
         - ha_reload_core(entry_id="abc123")
         """
         target = target.lower().strip()
@@ -137,18 +136,5 @@ class SystemActionsFacade:
                     )
                 )
             return await self._reload_call(target, entry_id)
-
-        if target not in RELOAD_TARGETS:
-            raise_failure(
-                create_error_response(
-                    ErrorCode.VALIDATION_INVALID_PARAMETER,
-                    f"Invalid reload target: {target}",
-                    context={
-                        "target": target,
-                        "valid_targets": list(RELOAD_TARGETS.keys()),
-                    },
-                    suggestions=[f"Use one of: {', '.join(RELOAD_TARGETS.keys())}"],
-                )
-            )
 
         return await self._reload_call(target, None)

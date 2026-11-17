@@ -5,6 +5,7 @@ from typing import Any
 from uuid import uuid4
 
 from ha_mcp.client.websocket_client import get_websocket_client
+from ha_mcp.runtime import entry_reload
 from ha_mcp.runtime.entry_reload import (
     _ENTRY_SUBSCRIBE_TIMEOUT,
     WS_CONFIG_ENTRIES_SUBSCRIBE,
@@ -60,7 +61,10 @@ class RemoteEntryWatches:
         return await _observe_reload_settled(
             queue,
             arguments["entry_id"],
-            timeout=min(max(float(arguments.get("timeout", 20)), 0), 30),
+            timeout=min(
+                max(float(arguments.get("timeout", entry_reload._RELOAD_SETTLE_TIMEOUT)), 0),
+                30,
+            ),
         )
 
     async def _close(self, key: str) -> None:

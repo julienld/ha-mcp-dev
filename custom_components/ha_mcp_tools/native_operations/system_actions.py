@@ -9,8 +9,7 @@ from homeassistant.core import Context
 from ha_mcp.errors import ErrorCode, create_error_response
 from ha_mcp.runtime.errors import raise_failure
 from ha_mcp.runtime.system_values import (
-    RELOAD_TARGETS,
-    reload_all_result,
+    reload_service,
     reload_entry_result,
     reload_target_result,
     restart_precheck_warnings,
@@ -84,10 +83,14 @@ class NativeSystemActions:
         await admit_registry_write(self.actor, self.manager.backend.authorize)
         if entry_id is not None:
             return await self._entry(entry_id)
-        if target == "all":
-            return await self._all()
-        service = RELOAD_TARGETS[target]
-        assert service is not None
+        service = reload_service(
+            target,
+            [
+                domain
+                for domain, services in self.manager.hass.services.async_services().items()
+                if "reload" in services
+            ],
+        )
         await await_owned_io(self._service(target, *service))
         return reload_target_result(target, *service)
 
@@ -105,48 +108,6 @@ class NativeSystemActions:
             await authorize_actor(self.actor, self.manager.backend.authorize)
         except (Exception, asyncio.CancelledError) as error:
             raise self._unknown(target, error) from error
-
-    async def _all(self) -> dict[str, Any]:
-        targets = [
-            (name, service)
-            for name, service in RELOAD_TARGETS.items()
-            if service is not None and self.manager.hass.services.has_service(*service)
-        ]
-        semaphore = asyncio.Semaphore(4)
-
-        async def reload_target(name: str, service: tuple[str, str]) -> None:
-            async with semaphore:
-                await self._service(name, *service)
-
-        outcomes = await await_owned_io(
-            asyncio.gather(
-                *(reload_target(name, service) for name, service in targets),
-                return_exceptions=True,
-            )
-        )
-        reloaded = []
-        errors = []
-        unknown = False
-        for (name, _service), outcome in zip(targets, outcomes, strict=True):
-            if isinstance(outcome, BaseException):
-                if not isinstance(outcome, ToolFailure):
-                    raise outcome
-                unknown |= outcome.status == "outcome_unknown"
-                errors.append(f"{name}: {outcome}")
-            else:
-                reloaded.append(name)
-        try:
-            await authorize_actor(self.actor, self.manager.backend.authorize)
-        except Exception as error:
-            if reloaded or unknown:
-                raise self._unknown("all", error) from error
-            raise
-        result = reload_all_result(reloaded, errors)
-        if errors:
-            result["partial"] = True
-        if unknown:
-            result["operation_outcome"] = "outcome_unknown"
-        return result
 
     async def _entry(self, entry_id: str) -> dict[str, Any]:
         entries = self.manager.hass.config_entries

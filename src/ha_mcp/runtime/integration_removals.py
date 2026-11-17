@@ -50,7 +50,7 @@ class IntegrationRemovalTools(EntryRemovalTools):
             str | None,
             Field(
                 description=(
-                    "Config subentry ID to remove when helper_type='config_subentry'."
+                    "Config subentry ID to remove; omit helper_type or use 'config_subentry'. Other helper types are refused."
                 ),
                 default=None,
             ),

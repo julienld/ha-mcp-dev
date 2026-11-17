@@ -111,10 +111,11 @@ class YamlConfigTools:
         restart. For ``themes/*.yaml`` this tool *performs* the reload itself
         (``frontend.reload_themes``), so ``post_action`` is ``reload_performed``
         (or ``reload_available`` plus ``reload_error`` if that reload failed).
-        For template, mqtt, group, automation, script, and scene it only
-        *advertises* the reload service (``post_action: reload_available`` with
-        a ``reload_service`` to call yourself); the edit is on disk but not yet
-        live. Preserves YAML comments and HA tags (``!include``,
+        For other keys it advertises ``<key>.reload`` only when that service
+        is registered in Home Assistant (``post_action: reload_available``
+        with a ``reload_service`` to call yourself); otherwise a restart is
+        required. The edit is on disk but not yet live. Preserves YAML
+        comments and HA tags (``!include``,
         ``!secret``) on round-trip; ``replace`` swaps the subtree as-is.
 
         Two-step confirmation (default ON, toggle ENABLE_YAML_EDIT_CONFIRM /

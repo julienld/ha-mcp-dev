@@ -22,6 +22,10 @@ from ha_mcp.backends.legacy_system import LegacySystemActions
 from ha_mcp.runtime.health_results import HealthResults
 from ha_mcp.runtime.health_tools import HealthFacade
 from ha_mcp.runtime.system_actions import SystemActionsFacade
+from ha_mcp.runtime.system_values import (
+    RELOAD_ALL_FAILED_HINT as RELOAD_ALL_FAILED_HINT,
+    RELOAD_WAIT_SECONDS as RELOAD_WAIT_SECONDS,
+)
 
 from ..client.rest_client import (
     HomeAssistantCommandError,
@@ -103,28 +107,6 @@ def _build_system_snapshot_slices(
         states=result["states"],
         registry={"success": True, "result": result["entities"]},
     )
-
-
-# Mapping of reload targets to their service domains and services
-RELOAD_TARGETS = {
-    "all": None,  # Special case - reload all
-    "automations": ("automation", "reload"),
-    "scripts": ("script", "reload"),
-    "scenes": ("scene", "reload"),
-    "groups": ("group", "reload"),
-    "input_booleans": ("input_boolean", "reload"),
-    "input_numbers": ("input_number", "reload"),
-    "input_texts": ("input_text", "reload"),
-    "input_selects": ("input_select", "reload"),
-    "input_datetimes": ("input_datetime", "reload"),
-    "input_buttons": ("input_button", "reload"),
-    "timers": ("timer", "reload"),
-    "templates": ("template", "reload"),
-    "persons": ("person", "reload"),
-    "zones": ("zone", "reload"),
-    "core": ("homeassistant", "reload_core_config"),
-    "themes": ("frontend", "reload_themes"),
-}
 
 
 class SystemTools(HealthFacade, HealthResults, LegacySystemActions):
