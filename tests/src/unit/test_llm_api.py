@@ -26,13 +26,14 @@ from homeassistant.helpers import llm
 from mcp import McpError, types
 from pytest_homeassistant.common import MockConfigEntry
 
-from custom_components.ha_mcp_tools import llm_api
+from custom_components.ha_mcp_tools import llm_api, llm_projection
 from custom_components.ha_mcp_tools.const import (
     DATA_LLM_API_UNSUB,
     DOMAIN,
     EXPOSURE_BOTH,
     EXPOSURE_FULL,
     EXPOSURE_TOOL_SEARCH,
+    OPT_ENABLE_LLM_API,
     OPT_LLM_API_EXPOSURE,
 )
 
@@ -175,7 +176,7 @@ def _warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
     return [
         record.getMessage()
         for record in caplog.records
-        if record.name == llm_api.__name__ and record.levelno == logging.WARNING
+        if record.name == llm_projection.__name__ and record.levelno == logging.WARNING
     ]
 
 
@@ -183,7 +184,7 @@ def _warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
 def test_the_voluptuous_openapi_converter_is_used_without_a_warning(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    with caplog.at_level(logging.DEBUG, logger=llm_api.__name__):
+    with caplog.at_level(logging.DEBUG, logger=llm_projection.__name__):
         converted = llm_api.convert_to_voluptuous(_SCHEMA)
 
     assert isinstance(converted, vol.Schema)
@@ -221,7 +222,7 @@ def test_the_fallback_announces_which_codec_is_converting(
     """
     monkeypatch.setitem(sys.modules, "voluptuous_openapi", None)
 
-    with caplog.at_level(logging.DEBUG, logger=llm_api.__name__):
+    with caplog.at_level(logging.DEBUG, logger=llm_projection.__name__):
         llm_api.convert_to_voluptuous(_SCHEMA)
 
     [warning] = _warnings(caplog)
@@ -250,7 +251,11 @@ async def test_the_converter_is_imported_once_and_off_the_event_loop(
 ) -> None:
     """Importing it on the loop would trip Home Assistant's blocking-call check."""
     loop_thread = threading.get_ident()
-    watched = {"mcp.client.session", "mcp.client.streamable_http", "voluptuous_openapi"}
+    watched = {
+        "ha_mcp._vendor.mcp.client.session",
+        "ha_mcp._vendor.mcp.client.streamable_http",
+        "voluptuous_openapi",
+    }
     imports: list[tuple[str, int]] = []
     real_import_module = importlib.import_module
 
@@ -266,8 +271,8 @@ async def test_the_converter_is_imported_once_and_off_the_event_loop(
     llm_api.convert_to_voluptuous(_SCHEMA)
 
     assert [name for name, _ in imports] == [
-        "mcp.client.session",
-        "mcp.client.streamable_http",
+        "ha_mcp._vendor.mcp.client.session",
+        "ha_mcp._vendor.mcp.client.streamable_http",
         "voluptuous_openapi",
     ]
     assert all(thread != loop_thread for _, thread in imports)
@@ -288,7 +293,7 @@ def _add_entry(
         domain=DOMAIN,
         title="HA-MCP Server",
         entry_id="entry-1745",
-        options=options or {},
+        options={OPT_ENABLE_LLM_API: True, **(options or {})},
     )
     entry.add_to_hass(hass)
     return entry
@@ -312,6 +317,13 @@ async def _register(
     await llm_api.async_register_llm_api(
         hass, entry, port=port, secret_path=secret_path
     )
+
+
+async def test_an_explicitly_disabled_export_registers_no_api(
+    hass: HomeAssistant,
+) -> None:
+    await _register(hass, _add_entry(hass, {OPT_ENABLE_LLM_API: False}))
+    assert _ours(hass) == {}
 
 
 async def test_default_exposure_registers_only_the_tool_search_api(
@@ -424,7 +436,7 @@ async def test_a_build_without_the_mcp_sdk_skips_the_feature_with_a_warning(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """The SDK arrives with the runtime-installed server package."""
-    monkeypatch.setitem(sys.modules, "mcp.client.session", None)
+    monkeypatch.setitem(sys.modules, "ha_mcp._vendor.mcp.client.session", None)
 
     with caplog.at_level(logging.WARNING):
         await _register(hass, _add_entry(hass))
