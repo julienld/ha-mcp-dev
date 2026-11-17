@@ -18,6 +18,18 @@ _USER_FIELDS = (
 )
 
 
+def entity_comparison_row(domain: str, stored: Any, current: Any) -> Any:
+    """Keep the recorded field coverage of historical Main registry snapshots."""
+    if (
+        domain == "entity"
+        and isinstance(stored, dict)
+        and "id" in stored
+        and isinstance(current, dict)
+    ):
+        return {key: current.get(key) for key in stored}
+    return current
+
+
 def entity_registry_identity(row: dict[str, Any]) -> dict[str, Any]:
     if any(
         not isinstance(row.get(key), str) or not row[key] for key in ("id", "entity_id")

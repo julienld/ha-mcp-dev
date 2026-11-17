@@ -113,6 +113,7 @@ from .client.rest_client import (
 from .errors import get_error_code
 from .runtime import snapshot_flow_restore as _shared_flow_restore
 from .runtime.entity_snapshot_values import (
+    entity_comparison_row,
     entity_registry_identity,
     entity_snapshot_target,
 )
@@ -1118,11 +1119,7 @@ class BackupManager(SnapshotFilesMixin):
         """Read a snapshot and the live config for its stable target identity."""
         data = await asyncio.to_thread(self.read_snapshot, name)
         _validate_snapshot_envelope(data)
-        historical_entity = (
-            data["domain"] == "entity"
-            and isinstance(data["config"], dict)
-            and "id" in data["config"]
-        )
+        original_domain = data["domain"]
         data = entity_snapshot_target(data)
         data["warnings"] = []
         domain = data["domain"]
@@ -1159,9 +1156,7 @@ class BackupManager(SnapshotFilesMixin):
                 data["config"],
                 current,
             )
-        if historical_entity and isinstance(current, dict):
-            # Historical Main captures recorded a smaller registry row.
-            current = {key: current.get(key) for key in data["config"]}
+        current = entity_comparison_row(original_domain, data["config"], current)
         return comparison_values(data, current)
 
     async def diff_snapshot(self, name: str) -> DiffResponse | DiffResponseText:

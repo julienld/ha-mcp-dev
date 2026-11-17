@@ -408,8 +408,12 @@ class NativeSnapshots:
         await self.manager.backend.authorize(actor)
         data = await self._io(self._store().read_snapshot, name)
         validate_snapshot_identity(data)
-        from ha_mcp.runtime.entity_snapshot_values import entity_snapshot_target
+        from ha_mcp.runtime.entity_snapshot_values import (
+            entity_comparison_row,
+            entity_snapshot_target,
+        )
 
+        original_domain = data["domain"]
         data = entity_snapshot_target(data)
         if _is_flow_helper_domain(data["domain"]):
             data["entity_id"] = _flow_entry_id(
@@ -461,6 +465,7 @@ class NativeSnapshots:
                 actor,
             )
             current = compare_core_registry_row(current, data["config"], fields)
+        current = entity_comparison_row(original_domain, data["config"], current)
         return comparison_values(data, current)
 
     async def diff_snapshot(self, name: str, actor: CallContext) -> Any:

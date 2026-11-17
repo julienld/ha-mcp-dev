@@ -7,11 +7,14 @@ from homeassistant.auth.models import User
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import category_registry as cr
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import label_registry as lr
 from homeassistant.setup import async_setup_component
 
 from custom_components.ha_mcp_tools.native_backend import NativeBackend
 from custom_components.ha_mcp_tools.native_operations.labels import NativeLabels
+from ha_mcp.backup_entities import fetch_entity
+from ha_mcp.client.rest_client import HomeAssistantClient
 from ha_mcp.runtime.snapshot_registry_restore import current_registry, restore_registry
 from ha_mcp.tool_api import CallContext
 
@@ -143,6 +146,22 @@ async def test_native_diff_uses_core_sets_and_timestamp_fields(
     saved["modified_at"] = saved["created_at"] = 1.0
     path = await hass.async_add_executor_job(
         core_files.store.capture, "area_or_floor", f"area:{area.id}", saved, "fixture"
+    )
+    assert path is not None
+    diff = await core_files.manager.snapshots.diff_snapshot(path.name, core_files.actor)
+    assert diff["unchanged"] is True, diff
+
+
+async def test_native_diff_preserves_historical_main_entity_field_coverage(
+    hass: HomeAssistant,
+    core_files: SimpleNamespace,
+    core_client: HomeAssistantClient,
+) -> None:
+    entity = er.async_get(hass).async_get_or_create("light", "test", "desk")
+    saved = await fetch_entity(core_client, entity.entity_id)
+    assert saved is not None
+    path = await hass.async_add_executor_job(
+        core_files.store.capture, "entity", entity.entity_id, saved, "fixture"
     )
     assert path is not None
     diff = await core_files.manager.snapshots.diff_snapshot(path.name, core_files.actor)
