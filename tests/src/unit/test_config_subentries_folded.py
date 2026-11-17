@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock, patch
 
 import probatio
 import pytest
+from homeassistant.auth.models import User
 from homeassistant.config_entries import (
     ConfigEntry,
     ConfigFlow,
@@ -32,14 +33,18 @@ from pytest_homeassistant.common import (
     mock_platform,
 )
 
+from custom_components.ha_mcp_tools.native_backend import NativeBackend
+from ha_mcp.backends.remote import RemoteBackend
 from ha_mcp.client.rest_client import (
     HomeAssistantClient,
     HomeAssistantConnectionError,
 )
+from ha_mcp.tool_api import CallContext
 from ha_mcp.tools.tools_config_helpers import HelperConfigTools
 from ha_mcp.tools.tools_integrations import IntegrationTools
 
 from ._mock_flow_integration import open_flow_ids
+from ._native_test_engine import native_engine
 from ._tool_errors import rejected_call_body
 
 _DOMAIN = "subentries_folded"
@@ -395,6 +400,49 @@ async def test_a_subentry_menu_is_answered_with_menu_choice(
     }
 
 
+async def test_another_client_cannot_continue_an_owned_subentry_flow(
+    parent: MockConfigEntry,
+    client: HomeAssistantClient,
+    second_client: HomeAssistantClient,
+) -> None:
+    shown = await _set_subentry(
+        client, parent, "staged", config={"name": "Local Model"}
+    )
+    denied = await rejected_call_body(
+        _set_subentry(
+            second_client,
+            parent,
+            "staged",
+            flow_id=shown["flow_id"],
+            config={"model": "gemma3:27b"},
+        )
+    )
+    assert denied["error"]["code"] == "FLOW_NOT_OWNED"
+    created = await _set_subentry(
+        client,
+        parent,
+        "staged",
+        flow_id=shown["flow_id"],
+        config={"model": "gemma3:27b"},
+    )
+    assert parent.subentries[created["subentry_id"]].title == "Local Model"
+
+
+async def test_backend_shutdown_aborts_flows_opened_by_another_tool_instance(
+    hass: HomeAssistant,
+    parent: MockConfigEntry,
+    client: HomeAssistantClient,
+) -> None:
+    shown = await _set_subentry(
+        client, parent, "staged", config={"name": "Local Model"}
+    )
+    assert shown["flow_id"] in open_flow_ids(hass)
+    backend = IntegrationTools(client).backend
+    assert isinstance(backend, RemoteBackend)
+    await backend.stop()
+    assert shown["flow_id"] not in open_flow_ids(hass)
+
+
 async def test_a_rejected_subentry_submit_shows_the_form_and_keeps_the_flow(
     hass: HomeAssistant, parent: MockConfigEntry, client: HomeAssistantClient
 ) -> None:
@@ -530,6 +578,25 @@ async def test_a_subentry_id_without_the_helper_type_never_removes_the_whole_ent
     kept = hass.config_entries.async_get_entry(parent.entry_id)
     assert kept is not None
     assert _EXISTING not in kept.subentries
+
+
+async def test_native_subentry_id_without_helper_type_keeps_the_parent(
+    hass: HomeAssistant,
+    hass_admin_user: User,
+    parent: MockConfigEntry,
+) -> None:
+    engine = native_engine(NativeBackend(hass), {"ha_remove_helpers_integrations"})
+    try:
+        result = await engine.call(
+            "ha_remove_helpers_integrations",
+            {"target": parent.entry_id, "subentry_id": _EXISTING, "confirm": True},
+            CallContext(hass_admin_user.id),
+        )
+        assert not result.is_error, result.data
+        kept = hass.config_entries.async_get_entry(parent.entry_id)
+        assert kept is not None and _EXISTING not in kept.subentries
+    finally:
+        await engine.stop()
 
 
 async def test_a_refused_subentry_removal_is_a_failure_not_a_missing_subentry(

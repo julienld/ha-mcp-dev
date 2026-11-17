@@ -34,7 +34,7 @@ from pytest_homeassistant.common import (
 )
 
 from ha_mcp.client.rest_client import HomeAssistantClient
-from ha_mcp.tools import config_entry_reload_watch
+from ha_mcp.runtime import entry_reload
 from ha_mcp.tools.config_entry_reload_watch import watch_entry_reload
 
 from ._command_faults import pooled_socket, received
@@ -206,7 +206,7 @@ async def test_a_resubmit_that_changes_nothing_gives_up_at_the_commit_budget(
 ) -> None:
     """Core skips the commit for identical values, so nothing is attributable,
     and waiting out the whole settle budget would only delay that answer."""
-    monkeypatch.setattr(config_entry_reload_watch, "_COMMIT_VISIBLE_TIMEOUT", 0.3)
+    monkeypatch.setattr(entry_reload, "_COMMIT_VISIBLE_TIMEOUT", 0.3)
     entry = await set_up_entry(hass)
     loop = asyncio.get_running_loop()
 
@@ -227,7 +227,7 @@ async def test_a_commit_with_no_reload_after_it_reads_as_unobserved_once_the_bud
     entry_setup: EntrySetup,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(config_entry_reload_watch, "_RELOAD_SETTLE_TIMEOUT", 0.3)
+    monkeypatch.setattr(entry_reload, "_RELOAD_SETTLE_TIMEOUT", 0.3)
     entry = await set_up_entry(hass)
     loop = asyncio.get_running_loop()
 

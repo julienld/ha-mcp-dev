@@ -142,7 +142,7 @@ async def test_cancelled_capture_waits_for_writer_before_next_safety_capture(
     assert loop_errors == []
     if worker_fails:
         assert any(
-            r.name == bm.__name__
+            r.name == "ha_mcp.utils.owned_executor"
             and r.levelname == "WARNING"
             and r.exc_info is not None
             and isinstance(r.exc_info[1], OSError)

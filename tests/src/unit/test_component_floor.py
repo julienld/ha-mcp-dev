@@ -16,6 +16,7 @@ import pytest
 from homeassistant.core import HomeAssistant
 
 import custom_components.ha_mcp_tools as component
+from ha_mcp import component_contract
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp.client.rest_client import HomeAssistantClient
 from ha_mcp.tools import tools_filesystem
@@ -25,7 +26,7 @@ from ._file_services import make_file_service
 from ._tool_errors import error_of
 
 _REPO = Path(__file__).resolve().parents[3]
-_SOURCE = Path(tools_filesystem.__file__).resolve()
+_SOURCE = Path(component_contract.__file__).resolve()
 
 
 def test_floor_is_the_version_the_component_ships_with() -> None:
