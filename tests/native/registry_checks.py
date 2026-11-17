@@ -139,14 +139,22 @@ async def exercise_labels(checks: Any, base: str, area_id: str) -> None:
 
 
 async def exercise_location_ordering(checks: Any, area_id: str, floor_id: str) -> None:
-    floor = await checks.call("ha_set_area_or_floor", {"kind": "floor", "name": "Native reorder floor", "level": -1})
+    floor = await checks.call(
+        "ha_set_area_or_floor",
+        {"kind": "floor", "name": "Native reorder floor", "level": -1},
+    )
     second_floor = floor["floor_id"]
-    area = await checks.call("ha_set_area_or_floor", {"kind": "area", "name": "Native reorder area", "floor_id": floor_id})
+    area = await checks.call(
+        "ha_set_area_or_floor",
+        {"kind": "area", "name": "Native reorder area", "floor_id": floor_id},
+    )
     second_area = area["area_id"]
     topology = await checks.call("ha_list_floors_areas")
     previous = [row["floor_id"] for row in topology["floors"]]
     order = list(reversed(previous))
-    reordered = await checks.call("ha_set_area_or_floor", {"kind": "floor", "order": order})
+    reordered = await checks.call(
+        "ha_set_area_or_floor", {"kind": "floor", "order": order}
+    )
     assert reordered["success"] and reordered["previous_order"] == previous, reordered
     listed = await checks.call("ha_list_floors_areas")
     assert [row["floor_id"] for row in listed["floors"]] == order, listed
@@ -154,20 +162,42 @@ async def exercise_location_ordering(checks: Any, area_id: str, floor_id: str) -
     await checks.call("ha_set_area_or_floor", {"kind": "floor", "order": previous})
     checks.passed("native_floor_reorder_preserves_Core_order_and_previous_order")
 
-    rows = [row for floor in listed["floors"] for row in floor["areas"]] + listed["unassigned_areas"] + listed["orphaned_areas"]
+    rows = (
+        [row for floor in listed["floors"] for row in floor["areas"]]
+        + listed["unassigned_areas"]
+        + listed["orphaned_areas"]
+    )
     order = list(reversed([row["area_id"] for row in rows]))
-    reordered = await checks.call("ha_set_area_or_floor", {"kind": "area", "order": order})
+    reordered = await checks.call(
+        "ha_set_area_or_floor", {"kind": "area", "order": order}
+    )
     assert reordered["success"] and reordered["order"] == order, reordered
     listed = await checks.call("ha_list_floors_areas")
     parent = next(row for row in listed["floors"] if row["floor_id"] == floor_id)
-    assert [row["area_id"] for row in parent["areas"] if row["area_id"] in {area_id, second_area}] == [second_area, area_id], parent
-    await checks.call("ha_set_area_or_floor", {"kind": "area", "order": reordered["previous_order"]})
+    assert [
+        row["area_id"]
+        for row in parent["areas"]
+        if row["area_id"] in {area_id, second_area}
+    ] == [second_area, area_id], parent
+    await checks.call(
+        "ha_set_area_or_floor", {"kind": "area", "order": reordered["previous_order"]}
+    )
     checks.passed("native_area_reorder_uses_Core_owner_and_lists_group_order")
 
-    await checks.call("ha_set_area_or_floor", {"kind": "floor", "id": second_floor, "level": None})
-    await checks.call("ha_set_area_or_floor", {"kind": "floor", "id": second_floor, "name": "Native cleared floor"})
+    await checks.call(
+        "ha_set_area_or_floor", {"kind": "floor", "id": second_floor, "level": None}
+    )
+    await checks.call(
+        "ha_set_area_or_floor",
+        {"kind": "floor", "id": second_floor, "name": "Native cleared floor"},
+    )
     listed = await checks.call("ha_list_floors_areas")
-    assert next(row for row in listed["floors"] if row["floor_id"] == second_floor)["level"] is None, listed
+    assert (
+        next(row for row in listed["floors"] if row["floor_id"] == second_floor)[
+            "level"
+        ]
+        is None
+    ), listed
     checks.passed("native_floor_null_clears_level_and_omission_keeps_it")
     await checks.call("ha_remove_area_or_floor", {"kind": "area", "id": second_area})
     await checks.call("ha_remove_area_or_floor", {"kind": "floor", "id": second_floor})

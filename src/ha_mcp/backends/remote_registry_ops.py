@@ -156,6 +156,38 @@ async def _entity_read(client: Any, operation: str, arguments: dict[str, Any]) -
     return {"entries": {}, "errors": {eid: entities._extract_ws_error(result)}}
 
 
+async def _registry_snapshot(client: Any, arguments: dict[str, Any]) -> dict[str, Any]:
+    if arguments in ({"registries": ["area"]}, {"registries": ["floor"]}):
+        from ha_mcp.tools.component_registries import registry_list_rows
+
+        kind = arguments["registries"][0]
+        return {f"{kind}s": await registry_list_rows(client, kind)}
+    if arguments in (
+        {"registries": ["area", "floor"]},
+        {"registries": ["area"]},
+        {"registries": ["floor"]},
+    ):
+        from ha_mcp.tools.tools_areas import AreaTools
+
+        areas, floors = await AreaTools(client)._fetch_area_floor_registries({})
+        rows = {"area": areas, "floor": floors}
+        return {f"{name}s": rows[name] for name in arguments["registries"]}
+    if arguments == {"registries": ["label"]}:
+        from ha_mcp.backends.legacy_labels import LegacyLabels
+
+        return {"labels": await LegacyLabels(client)._list_labels()}
+    if arguments.get("registries") == [
+        "category"
+    ]:
+        from ha_mcp.tools.tools_categories import CategoryTools
+
+        scopes = arguments.get("category_scopes")
+        if isinstance(scopes, list) and len(scopes) == 1 and isinstance(scopes[0], str):
+            categories = await CategoryTools(client)._list_categories(scopes[0], None)
+            return {"categories": {scopes[0]: categories}}
+    raise UnsupportedOperation("registries.snapshot")
+
+
 async def execute_registry_operation(
     client: Any, operation: str, arguments: dict[str, Any]
 ) -> Any:
@@ -179,34 +211,8 @@ async def execute_registry_operation(
         "devices.list_snapshot",
     }:
         return await _device_read(client, operation, arguments)
-    if operation == "registries.snapshot" and arguments in ({"registries": ["area"]}, {"registries": ["floor"]}):
-        from ha_mcp.tools.component_registries import registry_list_rows
-
-        kind = arguments["registries"][0]
-        return {f"{kind}s": await registry_list_rows(client, kind)}
-    if operation == "registries.snapshot" and arguments in (
-        {"registries": ["area", "floor"]},
-        {"registries": ["area"]},
-        {"registries": ["floor"]},
-    ):
-        from ha_mcp.tools.tools_areas import AreaTools
-
-        areas, floors = await AreaTools(client)._fetch_area_floor_registries({})
-        rows = {"area": areas, "floor": floors}
-        return {f"{name}s": rows[name] for name in arguments["registries"]}
-    if operation == "registries.snapshot" and arguments == {"registries": ["label"]}:
-        from ha_mcp.backends.legacy_labels import LegacyLabels
-
-        return {"labels": await LegacyLabels(client)._list_labels()}
-    if operation == "registries.snapshot" and arguments.get("registries") == [
-        "category"
-    ]:
-        from ha_mcp.tools.tools_categories import CategoryTools
-
-        scopes = arguments.get("category_scopes")
-        if isinstance(scopes, list) and len(scopes) == 1 and isinstance(scopes[0], str):
-            categories = await CategoryTools(client)._list_categories(scopes[0], None)
-            return {"categories": {scopes[0]: categories}}
+    if operation == "registries.snapshot":
+        return await _registry_snapshot(client, arguments)
     if operation == "assist.exposure":
         from ha_mcp.tools.entity_exposure import read_exposure
 

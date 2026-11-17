@@ -168,7 +168,6 @@ class AreaDiscoveryTools(BackendTools):
                 for floor in floors
             ]
 
-
             # Apply per-area projection across all 3 buckets uniformly.
             # Snapshot pre-projection areas for the typo-guard warning.
             _orig_all_areas = list(areas)

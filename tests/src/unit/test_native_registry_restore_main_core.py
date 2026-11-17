@@ -131,13 +131,19 @@ async def test_area_restore_uses_core_fields_and_discloses_omitted_order(
     assert any("unsupported_future_field" in message for message in result["warnings"])
 
 
-async def test_native_diff_uses_core_sets_and_timestamp_fields(hass: HomeAssistant, core_files: SimpleNamespace) -> None:
+async def test_native_diff_uses_core_sets_and_timestamp_fields(
+    hass: HomeAssistant, core_files: SimpleNamespace
+) -> None:
     registry = ar.async_get(hass)
     area = registry.async_create("Office", aliases={"study", "den"})
-    row = await core_files.manager.backend.execute("registry.area.read", {"area_id": area.id}, core_files.actor)
+    row = await core_files.manager.backend.execute(
+        "registry.area.read", {"area_id": area.id}, core_files.actor
+    )
     saved = {"kind": "area", **row, "aliases": list(reversed(row["aliases"]))}
     saved["modified_at"] = saved["created_at"] = 1.0
-    path = await hass.async_add_executor_job(core_files.store.capture, "area_or_floor", f"area:{area.id}", saved, "fixture")
+    path = await hass.async_add_executor_job(
+        core_files.store.capture, "area_or_floor", f"area:{area.id}", saved, "fixture"
+    )
     assert path is not None
     diff = await core_files.manager.snapshots.diff_snapshot(path.name, core_files.actor)
     assert diff["unchanged"] is True, diff

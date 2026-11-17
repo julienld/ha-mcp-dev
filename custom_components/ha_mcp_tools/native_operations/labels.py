@@ -298,7 +298,9 @@ class NativeLabels:
             capture=False,
         )
         assert row is not None
-        return note_restore_omissions(row, config, {**payload, "label_id": label_id}, fields, "label", action)
+        return note_restore_omissions(
+            row, config, {**payload, "label_id": label_id}, fields, "label", action
+        )
 
     async def _write_label(
         self,
