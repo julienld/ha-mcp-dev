@@ -4,10 +4,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import label_registry as lr
 from homeassistant.setup import async_setup_component
 
-from ha_mcp.backends.remote import RemoteBackend
 from ha_mcp.client.rest_client import HomeAssistantClient
-from ha_mcp.runtime.labels import LabelDiscoveryTools
-from ha_mcp.tool_api import CallContext
+from ha_mcp.tools.tools_labels import LabelTools
 
 
 async def test_remote_label_discovery_survives_the_label_facade_migration(
@@ -19,9 +17,9 @@ async def test_remote_label_discovery_survives_the_label_facade_migration(
         {"type": "config/label_registry/list"}
     )
     assert expected["success"]
-    tools = LabelDiscoveryTools(RemoteBackend(core_client), CallContext(None))
+    tools = LabelTools(core_client)
 
-    result = await LabelDiscoveryTools.ha_config_get_label(tools)
+    result = await tools.ha_config_get_label()
 
     assert result["labels"] == expected["result"]
     assert any(row["label_id"] == label.label_id for row in result["labels"])

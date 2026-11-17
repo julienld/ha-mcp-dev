@@ -24,6 +24,12 @@ entry fields. Values a restore cannot send are disclosed in warnings, including
 in the settings panel. Historical partial Main entity snapshots retain their
 recorded comparison shape and durable identity; stored evidence is unchanged.
 
+Category snapshot scopes retain embedded colons throughout capture, recreation
+and comparison. A failed Core category read remains a failure, so the remote
+adapter can use its Core fallback without mistaking the failure for an empty
+registry. The historical catalogues stay frozen; the current contract separately
+records Main's omitted-level semantics and its area/floor reorder title.
+
 Native retains actor admission and compared before-images. Callback failures
 after reorder dispatch remain uncertain without replay, including a failure
 when the order already matched the requested order. A matching readback alone
