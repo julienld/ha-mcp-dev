@@ -1867,10 +1867,8 @@ def _safe_invalidate_caches() -> None:
 def _purge_ha_mcp_modules() -> None:
     """Drop every cached ``ha_mcp`` module so the next import loads fresh code.
 
-    The in-process server runs as a thread of the HA core Python process, and
-    Python resolves imports from the process-wide ``sys.modules`` cache — so
-    after a pip install the next worker would silently reuse the OLD code
-    unless the cache is purged first. This operation is restricted to a
+    Python caches modules across worker restarts, including after pip installs.
+    Purge before importing the installed revision. This is restricted to a
     legacy-only process; native bindings reject it even after entry unload.
     The caller also guarantees no registered worker is mid-import (a worker
     past its imports keeps its already-bound modules regardless);

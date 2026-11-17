@@ -914,9 +914,7 @@ class ServiceTools(LegacyBackendTools, SharedServiceCallTools):
             )
             message, suggestions = INFRASTRUCTURE_ERROR_SUGGESTIONS.get(
                 exc.cause,
-                INFRASTRUCTURE_ERROR_SUGGESTIONS[
-                    InfrastructureErrorCause.CONNECTIVITY
-                ],
+                INFRASTRUCTURE_ERROR_SUGGESTIONS[InfrastructureErrorCause.CONNECTIVITY],
             )
             raise_tool_error(
                 create_connection_error(

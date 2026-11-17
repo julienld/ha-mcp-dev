@@ -14,6 +14,7 @@ and transitions are Core's.
 from __future__ import annotations
 
 import asyncio
+import json
 from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
 from typing import Any
@@ -370,6 +371,7 @@ async def test_a_core_handler_error_never_authorizes_a_second_dispatch(
     post.assert_not_awaited()
     assert len(devices.calls) == 1
 
+
 async def test_a_socket_that_cannot_connect_sends_one_rest_post(
     component_core_client: HomeAssistantClient, devices: Devices
 ) -> None:
@@ -430,13 +432,12 @@ async def test_a_socket_that_drops_after_the_send_is_partial_and_never_posted(
         dropped_on(hass, CALL_SERVICE, socket),
         _rest(component_core_client) as (post, _),
     ):
-        resp = await _tools(component_core_client).ha_call_service(
-            domain="light", service="turn_on", entity_id="light.a", return_response=True
-        )
+        with pytest.raises(ToolError) as error:
+            await _tools(component_core_client).ha_call_service(
+                domain="light", service="turn_on", entity_id="light.a", return_response=True
+            )
 
-    assert (resp["success"], resp["partial"]) == (True, True)
-    assert resp["service_response"] is None
-    assert any(NOT_PROOF in w for w in _warnings(resp))
+    assert json.loads(str(error.value))["write_outcome_unknown"] is True
     post.assert_not_awaited()
 
 

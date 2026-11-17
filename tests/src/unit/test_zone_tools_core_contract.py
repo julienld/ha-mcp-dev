@@ -25,8 +25,7 @@ from homeassistant.setup import async_setup_component
 from custom_components.ha_mcp_tools import websocket_api as component_ws
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp.client.rest_client import HomeAssistantClient, HomeAssistantConnectionError
-from ha_mcp.tools import tools_zones
-from ha_mcp.tools.config_helpers import update as helper_update
+from ha_mcp.tools import ws_waiters
 from ha_mcp.tools.tools_zones import ZoneTools
 
 from ._backup_target_identity_core import create_named
@@ -245,8 +244,8 @@ class TestRemoveWait:
     async def test_the_removal_is_waited_on_only_when_asked(
         self, office_client: HomeAssistantClient, wait: bool
     ) -> None:
-        real = tools_zones.wait_for_entity_removed
-        with patch.object(tools_zones, "wait_for_entity_removed", wraps=real) as waiter:
+        real = ws_waiters.wait_for_entity_removed
+        with patch.object(ws_waiters, "wait_for_entity_removed", wraps=real) as waiter:
             result = await ZoneTools(office_client).ha_remove_zone(
                 zone_id="office", wait=wait
             )
@@ -261,7 +260,7 @@ class TestRemoveWait:
         self, office_client: HomeAssistantClient
     ) -> None:
         with patch.object(
-            tools_zones, "wait_for_entity_removed", AsyncMock(return_value=False)
+            ws_waiters, "wait_for_entity_removed", AsyncMock(return_value=False)
         ):
             result = await ZoneTools(office_client).ha_remove_zone(zone_id="office")
 
@@ -292,9 +291,9 @@ class TestRemoveWait:
         """zone.office would be named and waited on, though no registry entry
         links it to the zone."""
         entity_registry.async_remove("zone.office")
-        real = tools_zones.wait_for_entity_removed
+        real = ws_waiters.wait_for_entity_removed
 
-        with patch.object(tools_zones, "wait_for_entity_removed", wraps=real) as waiter:
+        with patch.object(ws_waiters, "wait_for_entity_removed", wraps=real) as waiter:
             result = await ZoneTools(office_client).ha_remove_zone(
                 zone_id="office", wait=wait
             )
@@ -348,9 +347,9 @@ class TestZoneWrites:
     async def test_the_update_is_waited_on_only_when_asked(
         self, office_client: HomeAssistantClient, wait: bool
     ) -> None:
-        real = helper_update.wait_for_entity_registered
+        real = ws_waiters.wait_for_entity_registered
         with patch.object(
-            helper_update, "wait_for_entity_registered", wraps=real
+            ws_waiters, "wait_for_entity_registered", wraps=real
         ) as waiter:
             await ZoneTools(office_client).ha_set_zone(
                 zone_id="office", radius=250, wait=wait

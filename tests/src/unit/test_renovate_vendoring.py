@@ -45,7 +45,10 @@ _HOOKS = {
         packages=[package.distribution for package in vendor_fastmcp.PACKAGES],
         commands=[_FASTMCP_COMMAND, "uv lock"],
         file_filters=[
-            *[f"src/ha_mcp/_vendor/{package.package}/**" for package in vendor_fastmcp.PACKAGES],
+            *[
+                f"src/ha_mcp/_vendor/{package.package}/**"
+                for package in vendor_fastmcp.PACKAGES
+            ],
             "pyproject.toml",
             "uv.lock",
         ],

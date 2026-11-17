@@ -19,8 +19,8 @@ from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant.common import MockConfigEntry
 
 from ha_mcp.client.rest_client import HomeAssistantClient, HomeAssistantConnectionError
-from ha_mcp.tools import config_entry_flow_progress
 from ha_mcp.runtime import entry_reload as config_entry_reload_watch
+from ha_mcp.tools import config_entry_flow_progress
 from ha_mcp.tools.tools_integrations import IntegrationTools
 
 from ._integration_reconfigure_core import (

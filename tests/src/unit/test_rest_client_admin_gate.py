@@ -32,7 +32,6 @@ from pytest_homeassistant.common import MockUser, async_capture_events
 from pytest_homeassistant.typing import ClientSessionGenerator
 
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
-from ha_mcp.errors import HomeAssistantServiceAuthOutcomeUnknown
 from ha_mcp.client.admin_routes import is_admin_only_route
 from ha_mcp.client.rest_client import (
     NON_ADMIN_TOKEN_WARNING,
@@ -41,6 +40,7 @@ from ha_mcp.client.rest_client import (
     HomeAssistantAuthError,
     HomeAssistantClient,
 )
+from ha_mcp.errors import HomeAssistantServiceAuthOutcomeUnknown
 from ha_mcp.tools.tools_config_automations import AutomationConfigTools
 
 from ._client_spies import sent_messages
@@ -610,9 +610,11 @@ async def test_a_demoted_admins_service_calls_fall_back_to_websocket(
     await core_client.call_service(*ADMIN_SERVICE)
     await _demote(hass, hass_admin_user)
 
-    with sent_messages(core_client) as sent:
-        with pytest.raises(HomeAssistantServiceAuthOutcomeUnknown):
-            await core_client.call_service(*ADMIN_SERVICE)
+    with (
+        sent_messages(core_client) as sent,
+        pytest.raises(HomeAssistantServiceAuthOutcomeUnknown),
+    ):
+        await core_client.call_service(*ADMIN_SERVICE)
     assert "call_service" not in [call.args[0]["type"] for call in sent.call_args_list]
     with pytest.raises(HomeAssistantAdminRequiredError):
         await core_client.call_service(*ADMIN_SERVICE)

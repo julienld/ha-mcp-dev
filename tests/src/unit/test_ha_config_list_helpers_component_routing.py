@@ -36,7 +36,6 @@ from ha_mcp.tools import component_api, helper_flows, tools_config_helpers
 from ha_mcp.tools.component_api import invalidate_caps
 
 from ._client_spies import sent_commands
-from ._core_helper_flows import CORE_HELPER_FLOWS
 from ._core_setup import install_custom_helper
 from ._routing_core import (
     held_command,
@@ -646,28 +645,26 @@ async def test_a_yaml_helper_is_not_listed_as_a_stored_helper(
 
 
 async def test_all_types_reads_the_helper_flows_afresh(
-    hass: HomeAssistant, client: HomeAssistantClient, monkeypatch: pytest.MonkeyPatch
+    hass: HomeAssistant, client: HomeAssistantClient
 ) -> None:
-    """A helper integration uninstalled since the cached read is not reported
-    as missing from the component's listing."""
+    """The cached read does not replace a fresh Core flow-handler lookup."""
+    from ha_mcp.runtime import helper_flows as shared_flows
+
     await setup_every_simple_type(hass)
-    monkeypatch.setattr(
-        "ha_mcp.tools.helper_flows._fetch_helper_flow_types",
-        AsyncMock(side_effect=[CORE_HELPER_FLOWS | {"gone_helper"}, CORE_HELPER_FLOWS]),
-    )
-    assert "gone_helper" in await helper_flows.helper_flow_types(client)
-
-    resp = await list_helpers(client, helper_type="all")
-
+    assert await helper_flows.helper_flow_types(client)
+    with patch.object(
+        shared_flows, "_fetch_helper_flow_types", wraps=shared_flows._fetch_helper_flow_types
+    ) as fetch:
+        resp = await list_helpers(client, helper_type="all")
     assert resp["success"] is True
-
+    fetch.assert_awaited_once()
 
 async def test_all_types_with_an_unreadable_helper_flow_list_is_a_connection_error(
     hass: HomeAssistant, client: HomeAssistantClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     await setup_every_simple_type(hass)
     monkeypatch.setattr(
-        "ha_mcp.tools.helper_flows._fetch_helper_flow_types",
+        "ha_mcp.runtime.helper_flows._fetch_helper_flow_types",
         AsyncMock(side_effect=HomeAssistantConnectionError("flow_handlers down")),
     )
     socket = await pooled_socket(client)
