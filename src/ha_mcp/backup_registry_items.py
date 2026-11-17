@@ -367,8 +367,8 @@ async def restore_label(client: Any, entity_id: str, config: Any) -> Any:
 
 
 async def fetch_category(client: Any, entity_id: str) -> Any:
-    scope, _, cat_id = entity_id.rpartition(":")
-    if not cat_id:
+    scope, separator, cat_id = entity_id.rpartition(":")
+    if not separator or not cat_id:
         return None
     for item in await _category_rows(client, scope):
         if item.get("category_id") == cat_id:
