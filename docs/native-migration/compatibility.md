@@ -18,8 +18,10 @@ its shared owners, actor admission, target identities and at-most-once writes:
 a handler error after dispatch, including authorization or validation errors,
 does not authorize a second call. A service HTTP 401 affects later routing;
 it does not replay the request whose outcome is uncertain. A flow opened outside
-the caller session is not adopted from Core target metadata. An interrupted
-abort retains ownership until Core confirms closure or reports the flow gone.
+the caller session is not adopted from Core target metadata. An abort attempt
+releases the remote ownership slot even when its answer is lost or the caller
+is cancelled. Retry and shutdown cannot replay that abort. Core may still hold
+the flow, which then needs inspection in Home Assistant.
 
 Reconfigure identity now correlates Core's per-entry device rows through their
 actual connections and identifiers, including the singular config_entry_id.

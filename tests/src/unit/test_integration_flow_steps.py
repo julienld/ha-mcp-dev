@@ -6,6 +6,7 @@ the server's client (``core_client``) drives them over Core's flow endpoints.
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, patch
@@ -482,34 +483,62 @@ async def test_a_server_error_on_re_reading_a_flow_is_not_reported_as_applied(
 # --- abort --------------------------------------------------------------------
 
 
-async def test_a_failed_abort_keeps_the_flow_bound_and_a_gone_one_is_not_open(
+async def test_an_uncertain_abort_is_not_replayed_by_retry_or_shutdown(
+    hass: HomeAssistant,
+    core_client: HomeAssistantClient,
+    flow_tools: IntegrationTools,
+) -> None:
+    """A lost abort answer releases the remote slot instead of authorizing replay."""
+    opened = await flow_tools.ha_set_integration(domain=SINGLE)
+    abort = {"domain": SINGLE, "flow_id": opened["flow_id"], "abort": True}
+    with patch.object(
+        core_client,
+        "abort_config_flow",
+        AsyncMock(side_effect=HomeAssistantConnectionError("connection dropped")),
+    ) as sent:
+        await rejected_call_body(flow_tools.ha_set_integration(**abort))
+        retry = await rejected_call_body(flow_tools.ha_set_integration(**abort))
+        assert retry["error"]["code"] == "FLOW_NOT_OWNED"
+        await flow_tools.backend.stop()
+        sent.assert_awaited_once_with(opened["flow_id"])
+    assert opened["flow_id"] in config_flow_ids(hass)
+    hass.config_entries.flow.async_abort(opened["flow_id"])
+
+async def test_cancelled_abort_does_not_hang_or_dispatch_again_during_shutdown(
     hass: HomeAssistant,
     core_client: HomeAssistantClient,
     flow_tools: IntegrationTools,
 ) -> None:
     opened = await flow_tools.ha_set_integration(domain=SINGLE)
-    abort = {"domain": SINGLE, "flow_id": opened["flow_id"], "abort": True}
+    entered, release = asyncio.Event(), asyncio.Event()
+    real_abort = core_client.abort_config_flow
 
-    with patch.object(
-        core_client,
-        "abort_config_flow",
-        AsyncMock(side_effect=HomeAssistantConnectionError("connection dropped")),
-    ):
-        await rejected_call_body(flow_tools.ha_set_integration(**abort))
+    async def delayed_abort(flow_id: str) -> dict[str, Any]:
+        entered.set()
+        await release.wait()
+        return await real_abort(flow_id)
 
-    # Still bound to this target: the abort can be sent again.
-    assert (await flow_tools.ha_set_integration(**abort))["aborted"] is True
-    assert config_flow_ids(hass) == []
-
-    gone = await flow_tools.ha_set_integration(domain=SINGLE)
-    hass.config_entries.flow.async_abort(gone["flow_id"])
-    body = await rejected_call_body(
-        flow_tools.ha_set_integration(
-            domain=SINGLE, flow_id=gone["flow_id"], abort=True
+    with patch.object(core_client, "abort_config_flow", wraps=delayed_abort) as sent:
+        task = asyncio.create_task(
+            flow_tools.ha_set_integration(domain=SINGLE, flow_id=opened["flow_id"], abort=True)
         )
-    )
-    assert body["error"]["code"] == "RESOURCE_NOT_FOUND"
-
+        stopping = None
+        try:
+            await asyncio.wait_for(entered.wait(), timeout=1)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            stopping = asyncio.create_task(flow_tools.backend.stop())
+            done, _ = await asyncio.wait({stopping}, timeout=1)
+            assert stopping in done, "shutdown attempted to abort the uncertain flow again"
+            await stopping
+            sent.assert_awaited_once_with(opened["flow_id"])
+        finally:
+            release.set()
+            task.cancel()
+            await asyncio.gather(task, *([stopping] if stopping is not None else []), return_exceptions=True)
+    assert opened["flow_id"] in config_flow_ids(hass)
+    hass.config_entries.flow.async_abort(opened["flow_id"])
 
 async def test_abort_without_flow_id_is_refused(
     hass: HomeAssistant,

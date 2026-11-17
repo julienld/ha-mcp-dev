@@ -178,11 +178,13 @@ class RemoteFlows:
             )
         kind = owner[0]
         if operation == "config.flow.abort":
-            response: dict[str, Any] = await getattr(
-                self.client, f"abort_{_PREFIXES[kind]}_flow"
-            )(flow_id)
-            self.owned.pop(flow_id, None)
-            return response
+            try:
+                response: dict[str, Any] = await getattr(
+                    self.client, f"abort_{_PREFIXES[kind]}_flow"
+                )(flow_id)
+                return response
+            finally:
+                self.owned.pop(flow_id, None)
         if operation == "config.flow.read":
             result: dict[str, Any] = await self.client._request(
                 "GET",
