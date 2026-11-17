@@ -1,0 +1,287 @@
+{
+  "revision": "40e86d65750ad8cfa4ed5ea933a5fbb82dec6ce2",
+  "scope": "AST-derived public parameters and annotations at upstream; independent of Native implementation",
+  "source_blobs": {
+    "src/ha_mcp/tools/tools_traces.py": {
+      "git_blob": "78e393dfe08142010f8d71d0d53113254912df36",
+      "sha256": "da07e9c10fbf589e0d7bd48f58b52ee453d1420d96ff8f339fddd02a071810a0"
+    },
+    "src/ha_mcp/tools/tools_hacs.py": {
+      "git_blob": "d67e5141b8aa19d0c6b5f419e0e53a10c21b9665",
+      "sha256": "febb25893dc14169157cb77e0dd7ca0a8394a2ff135bac7ce785fbec483cc585"
+    },
+    "src/ha_mcp/tools/tools_config_automations.py": {
+      "git_blob": "00c337a56aab083377a487f007d8979218e0963f",
+      "sha256": "f8a93f446bbda44b37c85cd67462ac2bea09bcf8a944b44fea5ad70891c27a19"
+    },
+    "src/ha_mcp/tools/tools_config_helpers.py": {
+      "git_blob": "d587b17f68aacbf928203a0ff42ed0dca9a510dd",
+      "sha256": "0f1987862e1c4ccff154c80881788145f6a20ce9844047f8fa889ac602965621"
+    },
+    "src/ha_mcp/tools/tools_integrations.py": {
+      "git_blob": "a2b037ba6df21db2a3a6419ae5e12d4c4ec20119",
+      "sha256": "45361d7dea1007546479ff61047e6ab3123679e01f0b9ad56920833d2e446487"
+    }
+  },
+  "tools": {
+    "ha_get_automation_traces": {
+      "parameters": [
+        "entity_id",
+        "domain",
+        "item_id",
+        "run_id",
+        "context_id",
+        "limit",
+        "detailed",
+        "sections",
+        "offset",
+        "order"
+      ],
+      "required": [],
+      "annotations": {
+        "entity_id": "Annotated[str | None, Field(description='Automation or script entity_id. Omit when resolving a context-only lookup.', default=None)]",
+        "domain": "Annotated[Literal['automation', 'script'] | None, Field(description='List recent traces across every automation or script when entity_id is omitted. Required with item_id.', default=None)]",
+        "item_id": "Annotated[str | None, Field(description=\"Core's trace item id from a list row or context resolution. Use with domain and run_id when no entity_id is available.\", default=None)]",
+        "run_id": "Annotated[str | None, Field(description='Specific trace run_id to retrieve detailed trace.', default=None)]",
+        "context_id": "Annotated[str | None, Field(description=\"Context id to resolve to its trace. Accepts the trace run's own `context.id` or, with the ha_mcp_tools component, the context id of the event or service call that triggered it. Mutually exclusive with run_id.\", default=None)]",
+        "limit": "Annotated[int, Field(description='Maximum number of traces to return when listing (default: 10, max: 50).', default=10, ge=1, le=50)]",
+        "detailed": "Annotated[bool, Field(description=\"Include the run's logbook entries in the detail response.\", default=False)]",
+        "sections": "Annotated[str | None, Field(description=\"Comma-separated top-level keys from Core's extended trace dict to return, plus 'logbook' for the run's logbook. Available keys depend on the run; examples: 'trace', 'config', 'context', 'error', 'logbook'. A requested name this run lacks is reported in 'warnings'. Omit, or pass an empty string, to return Core's full extended dict.\", default=None)]",
+        "offset": "Annotated[int, Field(description='Number of traces to skip from the start of the requested order. Use with `limit` to page through stored traces when `total_available > limit`.', default=0, ge=0)]",
+        "order": "Annotated[Literal['newest', 'oldest'], Field(description=\"Order traces are returned in. 'newest' returns most-recent first; 'oldest' returns chronological-first.\", default='newest')]"
+      },
+      "enums": {
+        "order": [
+          "newest",
+          "oldest"
+        ]
+      }
+    },
+    "ha_manage_hacs": {
+      "parameters": [
+        "action",
+        "repository_id",
+        "version",
+        "repository",
+        "category",
+        "confirm_replace_built_in",
+        "confirm"
+      ],
+      "required": [
+        "action"
+      ],
+      "annotations": {
+        "action": "Annotated[Literal['download', 'add_repository', 'remove', 'update_information', 'accept_warning'], Field(description=\"'download' to install/update, 'add_repository' to register a custom repo, 'remove' to uninstall a downloaded repo, 'update_information' to refresh a repository's release data from GitHub, or 'accept_warning' to accept the Marketplace's first-run warning for the user this server connects as\")]",
+        "repository_id": "Annotated[str | None, Field(description=\"Numeric HACS ID or 'owner/repo' path (action='download' / 'remove' / 'update_information')\")]",
+        "version": "Annotated[str | None, Field(description=\"Specific version to install (action='download')\")]",
+        "repository": "Annotated[str | None, Field(description=\"GitHub repo 'owner/repo' to add (action='add_repository')\")]",
+        "category": "Annotated[str | None, Field(description=f\"Repository category (action='add_repository'). {CATEGORY_HELP}\")]",
+        "confirm_replace_built_in": "Annotated[bool | None, Field(description=\"Marketplace only (action='download'): install a repository that replaces the built-in integration of the same domain. Set it only after the user agrees.\")]",
+        "confirm": "Annotated[bool | None, Field(description=\"action='accept_warning': True once the user has said they read the Marketplace's first-run warning and accept it\")]"
+      },
+      "enums": {
+        "action": [
+          "download",
+          "add_repository",
+          "remove",
+          "update_information",
+          "accept_warning"
+        ]
+      }
+    },
+    "ha_config_get_automation": {
+      "parameters": [
+        "entity_id"
+      ],
+      "required": [
+        "entity_id"
+      ],
+      "annotations": {
+        "entity_id": "Annotated[str, Field(description=\"The automation's entity_id (e.g. 'automation.morning_routine') or its config id\")]"
+      }
+    },
+    "ha_config_set_automation": {
+      "parameters": [
+        "config",
+        "entity_id",
+        "python_transform",
+        "config_hash",
+        "take_control_of_blueprint",
+        "category",
+        "wait",
+        "enabled",
+        "run_actions",
+        "MandatoryBPS",
+        "BestPracticeKey"
+      ],
+      "required": [],
+      "annotations": {
+        "config": "Annotated[dict[str, Any] | None, JSON_STRING_COERCION, Field(description=\"Complete automation configuration, written as given. Purpose-specific triggers/conditions (HA 2026.7+ default: 'trigger': '<domain>.<name>' with 'target'/'options') are valid config. Mutually exclusive with python_transform.\", default=None)]",
+        "entity_id": "Annotated[str | None, Field(description=\"The automation's entity_id (automation.x) or its config id; omit to create. An unused config id creates the automation under that id; values such as 'new' are literal ids, not placeholders.\", default=None)]",
+        "python_transform": "Annotated[str | None, Field(description='Python expression to transform existing automation config. Mutually exclusive with config. WARNING: Expressions with infinite loops will hang the server. Examples: Simple: python_transform=\"config[\\'actions\\'][0][\\'data\\'][\\'brightness\\'] = 255\" Pattern: python_transform=\"for a in config[\\'actions\\']: if a.get(\\'alias\\') == \\'My Step\\': a[\\'data\\'][\\'value\\'] = 100\" \\n\\n' + get_security_documentation())]",
+        "config_hash": "Annotated[str | None, Field(description=\"Config hash from ha_config_get_automation for optimistic locking. Required for python_transform and when a config update changes an existing automation's alias; otherwise optional for config updates (validates before full replacement if provided).\")]",
+        "take_control_of_blueprint": "Annotated[bool, Field(description='Convert a blueprint-backed automation into an editable standalone one -- the UI\\'s \"Take control\". Renders the blueprint with its current inputs and saves the result over the same automation, which keeps its entity_id, alias and description and then has its own triggers/conditions/actions and no \\'use_blueprint\\'. Requires entity_id; mutually exclusive with config and python_transform.', default=False)]",
+        "category": "Annotated[str | None, Field(description=\"Category ID to assign to this automation. Use ha_config_get_category(scope='automation') to list available categories, or ha_config_set_category() to create one.\", default=None)]",
+        "wait": "Annotated[bool, Field(description='Wait for automation to be queryable before returning. Set to False for bulk operations.', default=True)]",
+        "enabled": "Annotated[bool | None, Field(description=\"Turn the automation on (True) or off (False) after an optional config update; None leaves it unchanged. Not written into the stored config: Home Assistant keeps the state across restarts, but a config 'initial_state' overrides it whenever the automation is reloaded or HA starts.\", default=None)]",
+        "run_actions": "Annotated[bool, Field(description=\"Run the automation's actions now, skipping its triggers and conditions (automation.trigger, the UI's Run actions). Applied after `enabled` and after any config write. Can be used standalone with entity_id and no config.\", default=False)]",
+        "MandatoryBPS": "Annotated[bool, Field(default=True)]",
+        "BestPracticeKey": "BestPracticeKeyParam"
+      }
+    },
+    "ha_config_remove_automation": {
+      "parameters": [
+        "entity_id",
+        "wait"
+      ],
+      "required": [
+        "entity_id"
+      ],
+      "annotations": {
+        "entity_id": "Annotated[str, Field(description=\"The automation's entity_id (e.g. 'automation.old_automation') or its config id\")]",
+        "wait": "Annotated[bool, Field(description='Wait for automation to be fully removed before returning.', default=True)]"
+      }
+    },
+    "ha_config_set_helper": {
+      "parameters": [
+        "helper_type",
+        "name",
+        "helper_id",
+        "entry_id",
+        "subentry_type",
+        "subentry_id",
+        "show_advanced_options",
+        "icon",
+        "area_id",
+        "labels",
+        "category",
+        "config",
+        "menu_choice",
+        "flow_id",
+        "abort",
+        "wait",
+        "action",
+        "MandatoryBPS",
+        "BestPracticeKey"
+      ],
+      "required": [
+        "helper_type"
+      ],
+      "annotations": {
+        "helper_type": "Annotated[StorageHelperType | Literal['config_subentry'] | str, Field(description='Type of helper to create or update.')]",
+        "name": "Annotated[str | None, Field(description=\"Display name. Home Assistant decides which SIMPLE helper types need one to be created; optional on an update. Creating a FLOW helper, it answers the form's `name` field when the form has one and config sets none; a FLOW update does not use it (rename the entity with ha_set_entity). Not used by config_subentry.\", default=None)]",
+        "helper_id": "Annotated[str | None, Field(description=\"The helper's storage id ('my_button'), not the name of its entity, or its full entity_id ('input_button.my_button'); for a FLOW helper its config entry id. Omit to create a new helper.\", default=None)]",
+        "entry_id": "Annotated[str | None, Field(description=\"Parent config entry ID when helper_type='config_subentry'. Use ha_get_integration() to find entry IDs.\", default=None)]",
+        "subentry_type": "Annotated[str | None, Field(description=\"Integration-defined subentry type when helper_type='config_subentry'.\", default=None)]",
+        "subentry_id": "Annotated[str | None, Field(description=\"Existing config subentry ID to reconfigure when helper_type='config_subentry'.\", default=None)]",
+        "show_advanced_options": "Annotated[bool, Field(description=\"When helper_type='config_subentry', ask older Home Assistant versions to expose advanced flow options. No-op on HA 2026.6+; pending removal before HA 2027.6.\", default=False)]",
+        "icon": "Annotated[str | None, Field(description=\"Material Design Icon (e.g., 'mdi:bell'); '' or ' ' clears it, except a zone's stored icon, which Home Assistant keeps on update as the zone dialog does: it can be changed but not removed. A storage helper's icon goes into its stored config when Home Assistant's schema for the type has an icon field, as the helper's own dialog stores it, and the entity registry is left alone; otherwise (person, tag, or another type without the ha_mcp_tools component) it goes into the entity registry. An icon override in the entity registry is set or cleared with ha_set_entity. Restoring a storage helper's automatic backup also puts back its registry icon, unless the backup predates registry icons being recorded; a flow helper's backup holds no icon, so its restore does not set one\", default=None)]",
+        "area_id": "Annotated[str | None, Field(description=\"Area ID for the helper; '' or ' ' clears it\", default=None)]",
+        "labels": "Annotated[str | list[str] | None, JSON_STRING_COERCION, Field(description='Labels to categorize the helper', default=None)]",
+        "category": "Annotated[str | None, Field(description=\"Category ID for this helper (ha_config_get_category(scope='helpers') lists them, ha_config_set_category() creates one); '' or ' ' clears it.\", default=None)]",
+        "config": "Annotated[dict[str, Any] | list[dict[str, Any]] | None, JSON_STRING_COERCION, Field(description=f\"Type-specific fields. On update it is a patch: a field you omit keeps its current value, and a SIMPLE type's field set to null is removed. SIMPLE types take these keys: {_SIMPLE_CONFIG_KEYS_DESCRIPTION} FLOW types and config_subentry: the answers to the form the flow is at, under the form's own field names (a section's fields nested under the section's name). On an update a field you omit is sent as the form shows it (its `current` value); a field set to null is left empty. Home Assistant validates the answer. A list answers several forms: one object per form, in the order Home Assistant asks for them.\", default=None)]",
+        "menu_choice": "Annotated[str | None, Field(description='FLOW types and config_subentry: the option to pick at a menu step (template and group open with one).', default=None)]",
+        "flow_id": "Annotated[str | None, Field(description='Continue an open flow: the flow_id a previous call returned, with the same helper_type and helper_id (or entry_id, subentry_type and subentry_id).', default=None)]",
+        "abort": "Annotated[bool, Field(description='With flow_id: end the open flow without saving.', default=False)]",
+        "wait": "Annotated[bool, Field(description='Wait for helper entity to be queryable before returning. Set to False for bulk operations.', default=True)]",
+        "action": "Annotated[Literal['create', 'update'] | None, Field(description=\"Explicit intent: 'create' a new helper or 'update' an existing one. Pass it so a helper_id typo fails as 'helper not found' instead of creating a helper.\", default=None)]",
+        "MandatoryBPS": "Annotated[bool, Field(default=True)]",
+        "BestPracticeKey": "BestPracticeKeyParam"
+      }
+    },
+    "ha_get_integration": {
+      "parameters": [
+        "entry_id",
+        "query",
+        "domain",
+        "integration_type",
+        "include_options",
+        "include_schema",
+        "include_subentries",
+        "include_subentry_schema",
+        "subentry_type",
+        "subentry_id",
+        "show_advanced_options",
+        "exact_match",
+        "limit",
+        "offset",
+        "include_diagnostics",
+        "include_ws_commands",
+        "device_id",
+        "diagnostics_fields",
+        "diagnostics_truncate_at_bytes",
+        "diagnostics_data_path",
+        "diagnostics_data_offset",
+        "diagnostics_data_limit"
+      ],
+      "required": [],
+      "annotations": {
+        "entry_id": "Annotated[str | None, Field(description='Config entry ID to get details for.', default=None)]",
+        "query": "Annotated[str | None, Field(description='When listing, search by domain or title.', default=None)]",
+        "domain": "Annotated[str | None, Field(description=\"Filter by integration domain (e.g. 'template', 'group'). When set, includes the full options/configuration for each entry.\", default=None)]",
+        "integration_type": "Annotated[str | None, Field(description=\"When listing, keep only entries whose integration has this type, matched by Home Assistant itself (the manifest's integration_type, e.g. 'device', 'hub', 'service', 'helper'). Home Assistant does not reject an unknown type: for any type but 'helper' it also keeps entries whose integration it cannot find (e.g. a removed custom integration), so an unknown type returns only those.\", default=None)]",
+        "include_options": "Annotated[bool, Field(description='Include the options object for each entry. Automatically enabled when domain filter is set. For UI-created flow-based helpers (template, group, utility_meter, derivative, ...), the current config \u2014 template body, group members, source entity, etc. \u2014 is here. Read through the ha_mcp_tools custom component; without it an entry that has an options flow comes back without options and a warning, and only include_schema on that entry reads them. With the component, prefer this over include_schema when you only need the current values; use include_schema when you also need the field types or selector metadata.', default=False)]",
+        "include_schema": "Annotated[bool, Field(description=\"When entry_id is set, also describe the options flow form as options_schema.fields: each field's type, current value and Home Assistant's help text. A flow that opens with a menu lists menu_options instead (ha_set_integration(entry_id=..., menu_choice=...) opens one), and a flow Home Assistant aborts gives aborted, plus reason_text when Home Assistant has a string for the reason. Only applies when supports_options=true. The flow is started, described and aborted; starting it runs the integration's own flow code, and some integrations act there (Sonoff LAN signs in to its cloud). For an integration's setup form, use ha_set_integration(domain=...).\", default=False)]",
+        "include_subentries": "Annotated[bool, Field(description='When entry_id is set, include config subentries for the integration entry.', default=False)]",
+        "include_subentry_schema": "Annotated[bool, Field(description=\"When entry_id is set, describe a config subentry flow's form as subentry_schema.fields (same shape as include_schema); the flow is aborted afterwards. Pair with subentry_type, and optionally subentry_id for the reconfigure form.\", default=False)]",
+        "subentry_type": "Annotated[str | None, Field(description='Integration-defined subentry type used with include_subentry_schema=True.', default=None)]",
+        "subentry_id": "Annotated[str | None, Field(description='Existing subentry ID used with include_subentry_schema=True to inspect a reconfigure flow.', default=None)]",
+        "show_advanced_options": "Annotated[bool, Field(description='When include_subentry_schema=True, ask older Home Assistant versions to expose advanced flow options. No-op on HA 2026.6+; pending removal before HA 2027.6.', default=False)]",
+        "exact_match": "Annotated[bool, Field(description='Use exact substring matching for query filter. Set to False for fuzzy matching when the query may contain typos.', default=True)]",
+        "limit": "Annotated[int, Field(default=50, ge=1, le=200, description='Max entries to return per page in list mode')]",
+        "offset": "Annotated[int, Field(default=0, ge=0, description='Number of entries to skip for pagination')]",
+        "include_diagnostics": "Annotated[bool, Field(description=\"When entry_id is set, also fetch the integration's diagnostics dump \u2014 integration-defined JSON (commonly includes redacted config, device list, state snapshots; exact top-level keys vary by integration), the same artifact as the UI's 'Download diagnostics'. Payloads can be large (Hue ~290 KB, ZHA/MQTT/ESPHome several MB) \u2014 pair with diagnostics_fields or diagnostics_truncate_at_bytes.\", default=False)]",
+        "include_ws_commands": "Annotated[bool, Field(description=\"When entry_id is set, also list the integration's own '<domain>/' WebSocket commands (the API its panel uses, e.g. KNX's knx/get_knx_project) under ws_commands, each with the request schema Home Assistant registered for it. Send one with ha_set_integration(entry_id=..., ws_command=...). Needs the ha_mcp_tools custom component; without it a warning says the list is unavailable.\", default=False)]",
+        "device_id": "Annotated[str | None, Field(description='With include_diagnostics=True, return the device-scoped diagnostics dump for this device instead of the full integration dump. Some integrations only expose config-entry-level dumps.', default=None)]",
+        "diagnostics_fields": "Annotated[list[str] | str | None, JSON_STRING_COERCION, Field(description=\"Top-level keys to keep from the diagnostics data payload (e.g. ['home_assistant', 'issues']). Accepts a JSON list or comma-separated string. Only applies when include_diagnostics=True and the data payload is a dict. Unknown keys are dropped and listed under omitted_fields.\", default=None)]",
+        "diagnostics_truncate_at_bytes": "Annotated[int | None, Field(description='Byte cap on the serialized diagnostics payload (after diagnostics_fields and diagnostics_data_path have been applied). On hit, drops data and emits truncated=true, bytes_total, byte_cap, plus available_fields (when the capped value is a dict). Recommended starting point: 20000 bytes. Only applies when include_diagnostics=True.', default=None, ge=1)]",
+        "diagnostics_data_path": "Annotated[str | None, Field(description=\"Dotted path into the diagnostics data sub-tree (e.g. '<list-valued path>' for per-device records, 'home_assistant.version' for HA core version; the exact key path varies by integration version). Walks into the post-fields payload. Resolution failures replace data with null and surface data_path_error. Only applies when include_diagnostics=True.\", default=None)]",
+        "diagnostics_data_offset": "Annotated[int | None, Field(description='Pagination start index for list-valued diagnostics_data_path results. Ignored when diagnostics_data_path is unset, diagnostics_data_limit is unset, or the resolved value is not a list. Only applies when include_diagnostics=True.', default=0, ge=0)]",
+        "diagnostics_data_limit": "Annotated[int | None, Field(description='Pagination window size for list-valued diagnostics_data_path results. When set with a list-resolved path, swaps data for a pagination envelope {path, items, offset, limit, total, has_more}. Default None returns the full resolved value. Only applies when include_diagnostics=True.', default=None, ge=1)]"
+      }
+    },
+    "ha_set_integration": {
+      "parameters": [
+        "entry_id",
+        "enabled",
+        "domain",
+        "config",
+        "reconfigure",
+        "expected_device_id",
+        "expected_unique_id",
+        "expected_mac",
+        "expected_entity_ids",
+        "log_level",
+        "log_persistence",
+        "menu_choice",
+        "subentry_type",
+        "subentry_id",
+        "flow_id",
+        "abort",
+        "ws_command",
+        "ws_data"
+      ],
+      "required": [],
+      "annotations": {
+        "entry_id": "Annotated[str | None, Field(description='Config entry ID of an existing integration.', default=None)]",
+        "enabled": "Annotated[bool | None, Field(description=\"True to enable, False to disable the entry. Mutually exclusive with 'domain' and 'config'.\", default=None)]",
+        "domain": "Annotated[str | None, Field(description=\"Integration domain to add (e.g. 'workday', 'local_calendar').\", default=None)]",
+        "config": "Annotated[dict[str, Any] | list[dict[str, Any]] | None, JSON_STRING_COERCION, Field(description=\"The values for the form the flow is at; a list answers that form and the ones after it, one object per form in order. Without flow_id it answers the new flow's first form (after menu_choice, when the flow opens with a menu). Home Assistant validates each answer. On an existing entry (options, reconfigure) a field you omit keeps its current value, and a field set to null is left empty.\", default=None)]",
+        "reconfigure": "Annotated[bool, Field(default=False, description=\"Use the existing config entry's official reconfigure flow (its connection settings) instead of its options flow. Every call except an abort checks the entry's identity first. Without flow_id and config this opens the flow and returns its first step; nothing is submitted. Continue with the flow_id this entry's call returned: Home Assistant does not say which entry a reconfigure flow edits.\")]",
+        "expected_device_id": "Annotated[str | None, Field(default=None, description='Requires reconfigure=True. Device registry ID the entry must still own.')]",
+        "expected_unique_id": "Annotated[str | None, Field(default=None, description=\"Requires reconfigure=True, AND the ha_mcp_tools custom component: Home Assistant does not expose a config entry's unique_id over its API. Without the component this is rejected \u2014 anchor on expected_device_id, expected_mac or expected_entity_ids instead.\")]",
+        "expected_mac": "Annotated[str | None, Field(default=None, description=\"Requires reconfigure=True. MAC or IEEE the entry's device must still report.\")]",
+        "expected_entity_ids": "Annotated[list[str] | None, JSON_STRING_COERCION, Field(default=None, description='Requires reconfigure=True. Exact entity IDs that must remain associated with the entry.')]",
+        "log_level": "Annotated[Literal['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL', 'DEFAULT'] | None, Field(default=None, description=\"Set the integration's log level, like the integration page's Enable/Disable debug logging: pass the integration with 'domain' (no config flow runs) or 'entry_id', and no other mode's parameters (log_persistence may accompany it). Lasts through the next Home Assistant restart unless log_persistence says otherwise. DEFAULT clears the override: the integration then logs at the inherited default level, and a level set for it in configuration.yaml returns only after a restart.\")]",
+        "log_persistence": "Annotated[str | None, Field(default=None, description=\"Only with log_level: how long Home Assistant keeps the level. 'once' (default) through the next restart, 'permanent' after every restart until changed, 'none' until the next restart. Home Assistant validates the value.\")]",
+        "menu_choice": "Annotated[str | None, Field(default=None, description='The option to pick at a menu step: with flow_id the menu the flow is at, without it the menu a new flow opens with. Refused when the step is not a menu or does not offer the option.')]",
+        "subentry_type": "Annotated[str | None, Field(default=None, description='With entry_id: the integration-defined subentry type whose form to describe as subentry_schema; the flow is aborted afterwards, unless a menu_choice finished it (flow_type create_entry: saved).')]",
+        "subentry_id": "Annotated[str | None, Field(default=None, description='With entry_id and subentry_type: the existing subentry whose reconfigure form to describe.')]",
+        "flow_id": "Annotated[str | None, Field(default=None, description='Continue an open flow: the flow_id a previous call returned, with the same domain or entry_id (and reconfigure=True for a reconfigure flow), until ha-mcp restarts. With config or menu_choice it answers the step; alone it returns the step again.')]",
+        "abort": "Annotated[bool, Field(default=False, description='With flow_id: end the open flow without saving. A flow Home Assistant no longer has, or one ha-mcp did not open (or opened before it restarted), is an error.')]",
+        "ws_command": "Annotated[str | None, Field(default=None, description=\"With entry_id: one of the integration's own '<domain>/' WebSocket commands to send, as its panel in the HA UI does (e.g. 'knx/get_knx_project'). Its result is returned under result. Streaming commands are refused.\")]",
+        "ws_data": "Annotated[dict[str, Any] | None, JSON_STRING_COERCION, Field(default=None, description=\"The ws_command's arguments, without 'type' and 'id'. Home Assistant checks them against the command's registered schema and returns its error when they do not match.\")]"
+      }
+    }
+  }
+}

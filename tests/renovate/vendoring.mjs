@@ -157,8 +157,6 @@ await exercise({
   },
 });
 
-// A floor below what fastmcp-slim 4.0.3 needs (authlib>=1.6.11) must come back
-// raised, and re-locked, in the same update.
 const fixtureProject = `[project]
 name = "fixture"
 version = "0"
@@ -168,30 +166,42 @@ dependencies = [
 ]
 `;
 
-await exercise({
-  script: 'vendor_fastmcp.py',
-  command: 'uv run --no-project --with packaging python -I scripts/vendor_fastmcp.py',
-  depName: 'fastmcp-slim',
-  pins: 'fastmcp-slim==4.0.2\nmcp==2.2.0\nmcp-types==2.2.0\n',
-  bumped: {
-    currentValue: '4.0.2', newValue: '4.0.3', pins: 'fastmcp-slim==4.0.3\nmcp==2.2.0\nmcp-types==2.2.0\n',
-  },
-  vendorDirs: ['src/ha_mcp/_vendor/fastmcp', 'src/ha_mcp/_vendor/mcp', 'src/ha_mcp/_vendor/mcp_types'],
-  extraFiles: {},
-  seedFiles: { 'pyproject.toml': fixtureProject },
-  followUp: ['uv lock'],
-  check: (localDir, artifacts) => {
-    const vendor = join(localDir, 'src/ha_mcp/_vendor');
-    assert.match(readFileSync(join(vendor, 'fastmcp/VENDORED'), 'utf8'), /^fastmcp-slim==4\.0\.3\n/);
-    assert.match(readFileSync(join(vendor, 'fastmcp/__init__.py'), 'utf8'), /__version__ = "4\.0\.3"/);
-    assert.doesNotMatch(readFileSync(join(vendor, 'mcp/__init__.py'), 'utf8'), /^\s*from mcp_types\b/m);
-    if (!artifacts) return;
-    assert.match(String(artifacts.get('pyproject.toml')?.contents), /"authlib>=1\.6\.11",/,
-      'The raised floor must be committed');
-    assert.match(String(artifacts.get('uv.lock')?.contents),
-      /\{ name = "authlib", specifier = ">=1\.6\.11" \}/, 'The lock must follow the raised floor');
-  },
+const sdkPins = 'mcp==2.2.0\nmcp-types==2.2.0\n';
+for (const upgrade of [
+  { depName: 'fastmcp-slim', currentValue: '4.0.2', newValue: '4.0.3',
+    pins: `fastmcp-slim==4.0.2\n${sdkPins}rich==15.0.0\n` },
+  { depName: 'rich', currentValue: '14.3.3', newValue: '15.0.0',
+    pins: `fastmcp-slim==4.0.3\n${sdkPins}rich==14.3.3\n` },
+]) {
+  await exercise({
+    script: 'vendor_fastmcp.py',
+    command: 'uv run --no-project --with packaging python -I scripts/vendor_fastmcp.py',
+    depName: upgrade.depName,
+    pins: upgrade.pins,
+    bumped: {
+      currentValue: upgrade.currentValue, newValue: upgrade.newValue,
+      pins: `fastmcp-slim==4.0.3\n${sdkPins}rich==15.0.0\n`,
+    },
+    vendorDirs: ['src/ha_mcp/_vendor/rich', 'src/ha_mcp/_vendor/fastmcp',
+      'src/ha_mcp/_vendor/mcp', 'src/ha_mcp/_vendor/mcp_types'],
+    extraFiles: {},
+    seedFiles: { 'pyproject.toml': fixtureProject },
+    followUp: ['uv lock'],
+    check: (localDir, artifacts) => {
+      const vendor = join(localDir, 'src/ha_mcp/_vendor');
+      assert.match(readFileSync(join(vendor, 'rich/VENDORED'), 'utf8'), /^rich==15\.0\.0\n/);
+      assert.match(readFileSync(join(vendor, 'fastmcp/VENDORED'), 'utf8'), /^fastmcp-slim==4\.0\.3\n/);
+      assert.match(readFileSync(join(vendor, 'fastmcp/__init__.py'), 'utf8'), /__version__ = "4\.0\.3"/);
+      assert.doesNotMatch(readFileSync(join(vendor, 'mcp/__init__.py'), 'utf8'), /^\s*from mcp_types\b/m);
+      if (!artifacts) return;
+      assert.match(String(artifacts.get('pyproject.toml')?.contents), /"authlib>=1\.6\.11",/,
+        'The raised floor must be committed');
+      assert.match(String(artifacts.get('uv.lock')?.contents),
+        /\{ name = "authlib", specifier = ">=1\.6\.11" \}/, 'The lock must follow the raised floor');
+    },
+
 });
+}
 
 // The Core rule: a copy of this repository whose integration pin blocks are
 // empty must come back with both blocks rewritten from Core's manifests, then
@@ -256,4 +266,4 @@ async function exerciseCorePins() {
 
 await exerciseCorePins();
 
-console.log('Pinned Renovate executor regenerated the websockets and FastMCP/MCP SDK trees, licenses and manifests; raised and re-locked a dependency floor the FastMCP bump needs; collected additions/deletions; rejected unauthorized commands and surfaced generator failures; rewrote the Core integration pins and their Dependabot ignores and re-locked.');
+console.log('Pinned Renovate executor regenerated the websockets and Rich/FastMCP/MCP SDK trees, licenses and manifests; collected additions/deletions; rejected unauthorized commands and surfaced generator failures; rewrote the Core integration pins and their Dependabot ignores and re-locked.');

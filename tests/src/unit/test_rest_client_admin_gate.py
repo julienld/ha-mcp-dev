@@ -40,6 +40,10 @@ from ha_mcp.client.rest_client import (
     HomeAssistantAuthError,
     HomeAssistantClient,
 )
+from ha_mcp.errors import (
+    HomeAssistantServiceAuthOutcomeUnknown,
+    HomeAssistantWebSocketServiceError,
+)
 from ha_mcp.tools.tools_config_automations import AutomationConfigTools
 
 from ._client_spies import sent_messages
@@ -550,13 +554,14 @@ async def test_a_non_admin_service_call_keeps_the_response_shape(
 
 
 @pytest.mark.usefixtures("probe_answered", "admin_service")
-async def test_an_admin_only_service_refused_to_a_non_admin_raises_admin_required(
+async def test_an_admin_only_service_refusal_preserves_cores_service_error(
     read_only_client: HomeAssistantClient, failed_logins: Callable[[], int]
 ) -> None:
-    with pytest.raises(HomeAssistantAdminRequiredError) as exc:
+    with pytest.raises(HomeAssistantWebSocketServiceError) as exc:
         await read_only_client.call_service(*ADMIN_SERVICE)
 
-    assert "automation.reload is admin-only" in str(exc.value)
+    assert not isinstance(exc.value, HomeAssistantAuthError)
+    assert exc.value.code == "home_assistant_error"
     assert failed_logins() == 0
 
 
@@ -592,10 +597,13 @@ async def test_parallel_admin_only_service_calls_on_an_unanswered_probe_cost_one
             return_exceptions=True,
         )
 
-    assert all(isinstance(r, HomeAssistantAdminRequiredError) for r in results)
+    assert (
+        sum(isinstance(r, HomeAssistantServiceAuthOutcomeUnknown) for r in results) == 1
+    )
+    assert sum(isinstance(r, HomeAssistantWebSocketServiceError) for r in results) == 3
     assert failed_logins() == 1
     sent_types = [c.args[0]["type"] for c in sent.call_args_list]
-    assert sent_types == ["call_service"] * 4
+    assert sent_types == ["call_service"] * 3
 
 
 @pytest.mark.usefixtures("probe_answered", "admin_service")
@@ -609,9 +617,34 @@ async def test_a_demoted_admins_service_calls_fall_back_to_websocket(
     await core_client.call_service(*ADMIN_SERVICE)
     await _demote(hass, hass_admin_user)
 
-    for _ in range(2):
-        with pytest.raises(HomeAssistantAdminRequiredError):
-            await core_client.call_service(*ADMIN_SERVICE)
-
+    with (
+        sent_messages(core_client) as sent,
+        pytest.raises(HomeAssistantServiceAuthOutcomeUnknown),
+    ):
+        await core_client.call_service(*ADMIN_SERVICE)
+    assert "call_service" not in [call.args[0]["type"] for call in sent.call_args_list]
+    with pytest.raises(HomeAssistantWebSocketServiceError):
+        await core_client.call_service(*ADMIN_SERVICE)
     assert failed_logins() == 1
     assert core_client.admin_route_refused is True
+
+
+@pytest.mark.usefixtures("probe_answered")
+async def test_generic_unauthorized_handler_text_is_not_an_authentication_failure(
+    hass: HomeAssistant, read_only_client: HomeAssistantClient
+) -> None:
+    from homeassistant.exceptions import HomeAssistantError
+
+    calls: list[ServiceCall] = []
+
+    async def execute(call: ServiceCall) -> None:
+        calls.append(call)
+        raise HomeAssistantError("Unauthorized word from the device handler")
+
+    hass.services.async_register("test_handler", "execute", execute)
+    with pytest.raises(HomeAssistantAPIError) as error:
+        await read_only_client.call_service("test_handler", "execute")
+    assert not isinstance(error.value, HomeAssistantAuthError)
+    assert not isinstance(error.value, HomeAssistantAdminRequiredError)
+    assert "Unauthorized word" in str(error.value)
+    assert len(calls) == 1

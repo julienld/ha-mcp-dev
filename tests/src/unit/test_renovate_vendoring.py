@@ -2,6 +2,7 @@
 
 import json
 import re
+import sys
 from pathlib import Path
 from typing import NamedTuple
 
@@ -9,6 +10,10 @@ import pytest
 import yaml
 
 _ROOT = Path(__file__).resolve().parents[3]
+sys.path.insert(0, str(_ROOT / "scripts"))
+
+import vendor_fastmcp  # noqa: E402
+
 _PIN_FILE = "src/ha_mcp/_vendor/requirements.txt"
 _WEBSOCKETS_COMMAND = "python3 -I scripts/vendor_websockets.py"
 _FASTMCP_COMMAND = (
@@ -37,12 +42,13 @@ _HOOKS = {
     # The generator raises pyproject.toml floors, so the lock must follow; uv
     # lock resolves the dev group's homeassistant, which needs Python 3.14.2 or later.
     _FASTMCP_COMMAND: _Hook(
-        packages=["fastmcp-slim", "mcp", "mcp-types"],
+        packages=[package.distribution for package in vendor_fastmcp.PACKAGES],
         commands=[_FASTMCP_COMMAND, "uv lock"],
         file_filters=[
-            "src/ha_mcp/_vendor/fastmcp/**",
-            "src/ha_mcp/_vendor/mcp/**",
-            "src/ha_mcp/_vendor/mcp_types/**",
+            *[
+                f"src/ha_mcp/_vendor/{package.package}/**"
+                for package in vendor_fastmcp.PACKAGES
+            ],
             "pyproject.toml",
             "uv.lock",
         ],
