@@ -148,7 +148,9 @@ async def test_native_diff_uses_core_sets_and_timestamp_fields(
         core_files.store.capture, "area_or_floor", f"area:{area.id}", saved, "fixture"
     )
     assert path is not None
-    diff = await core_files.manager.snapshots.diff_snapshot(path.name, core_files.actor)
+    diff = await core_files.manager.snapshots.diff_snapshot(
+        path.name, core_files.actor
+    )
     assert diff["unchanged"] is True, diff
 
 
@@ -164,5 +166,7 @@ async def test_native_diff_preserves_historical_main_entity_field_coverage(
         core_files.store.capture, "entity", entity.entity_id, saved, "fixture"
     )
     assert path is not None
-    diff = await core_files.manager.snapshots.diff_snapshot(path.name, core_files.actor)
+    diff = await core_files.manager.snapshots.diff_snapshot(
+        path.name, core_files.actor
+    )
     assert diff["unchanged"] is True, diff
