@@ -28,6 +28,36 @@ def resolve_clearable(value: Any) -> str | None:
     return str(value)
 
 
+def resolve_level(value: Any) -> Any:
+    """Map an omitted level to ``UNSET`` and pass any other value through.
+
+    Core's floor create and update take ``level=None`` as "no level", unlike the
+    params ``resolve_clearable`` maps, which the builders read as None=keep,
+    ""=clear.
+    """
+    if isinstance(value, FieldInfo):
+        return UNSET
+    return value
+
+
+def require_id_not_blank(kind: str, identifier: str | None) -> None:
+    """Refuse an empty id.
+
+    ``None`` is the "create new" sentinel; a blank id would silently route to
+    create and lose the update intent.
+    """
+    if identifier is not None:
+        validate_identifier_not_empty(
+            identifier,
+            "id",
+            suggestions=[
+                "Omit id entirely to create a new entry",
+                "Pass a real area_id/floor_id to update an existing entry",
+            ],
+            context={"kind": kind},
+        )
+
+
 _AREA_PARAMS = (
     "name, id, floor_id, icon, aliases, picture, labels, "
     "temperature_entity_id, humidity_entity_id"
@@ -36,7 +66,7 @@ _AREA_PARAMS = (
 
 def validate_cross_kind_params(
     kind: str,
-    level: int | None,
+    level: Any,
     floor_id: str | None,
     picture: str | None,
     labels: list[str] | None = None,
@@ -48,7 +78,7 @@ def validate_cross_kind_params(
     # (e.g., kind='floor' with picture='...' previously dropped the picture
     # without a diagnostic). Floors have no labels in HA core.
     cross_kind_params: list[str] = []
-    if kind == "area" and level is not None:
+    if kind == "area" and level is not UNSET:
         cross_kind_params.append("level")
     elif kind == "floor":
         if floor_id is not None:
@@ -143,7 +173,7 @@ def build_area_create_payload(
 def build_floor_update_payload(
     floor_id: str,
     name: str | None,
-    level: int | None,
+    level: Any,
     icon: str | None,
     parsed_aliases: list[str] | None,
 ) -> dict[str, Any]:
@@ -153,7 +183,7 @@ def build_floor_update_payload(
     }
     if name is not None:
         message["name"] = name
-    if level is not None:
+    if level is not UNSET:
         message["level"] = level
     if icon is not None:
         message["icon"] = icon if icon else None
@@ -164,7 +194,7 @@ def build_floor_update_payload(
 
 def build_floor_create_payload(
     name: str,
-    level: int | None,
+    level: Any,
     icon: str | None,
     parsed_aliases: list[str] | None,
 ) -> dict[str, Any]:
@@ -172,7 +202,7 @@ def build_floor_create_payload(
     message: dict[str, Any] = {
         "name": name,
     }
-    if level is not None:
+    if level is not None and level is not UNSET:
         message["level"] = level
     if icon:
         message["icon"] = icon

@@ -4,6 +4,7 @@ from typing import Any
 
 from homeassistant.core import HomeAssistant
 
+from ..core_registry_fields import registry_fields as _do_registry_fields
 from ..core_registries import (
     _category_registry,
     registry_snapshot,
@@ -18,4 +19,5 @@ def _do_registries(hass: HomeAssistant, params: dict[str, Any]) -> dict[str, Any
 
 __all__ = [
     "_category_registry",
+    "_do_registry_fields",
 ]

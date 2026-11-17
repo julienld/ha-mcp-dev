@@ -98,7 +98,8 @@ from .backup_registry_items import fetch_label as _fetch_label
 from .backup_registry_items import restore_area_or_floor as _restore_area_or_floor
 from .backup_registry_items import restore_category as _restore_category
 from .backup_registry_items import restore_label as _restore_label
-from .backup_registry_items import restored_item as _restored_item
+from .backup_registry_items import compared_row as _compared_row
+from .backup_registry_items import COMPARED_ROW_DOMAINS as _COMPARED_ROW_DOMAINS
 from .backup_tags import restore_tag, tag_snapshot
 from .backup_todo import current_key as todo_current_key
 from .backup_todo import fetch_todo_item
@@ -114,9 +115,6 @@ from .runtime import snapshot_flow_restore as _shared_flow_restore
 from .runtime.entity_snapshot_values import (
     entity_registry_identity,
     entity_snapshot_target,
-)
-from .runtime.registry_recovery_values import (
-    REGISTRY_ITEM_DOMAINS as _REGISTRY_ITEM_DOMAINS,
 )
 from .runtime.snapshot_compare import comparison_values, diff_snapshot_values
 from .runtime.snapshot_files import (
@@ -941,6 +939,7 @@ class BackupManager(SnapshotFilesMixin):
             data = await asyncio.to_thread(self.read_snapshot, name)
             _validate_snapshot_envelope(data)
             data = entity_snapshot_target(data)
+        data["warnings"] = []
         except FileNotFoundError as err:
             raise BackupRestoreError(
                 f"Backup {name!r} not found",
@@ -1116,26 +1115,12 @@ class BackupManager(SnapshotFilesMixin):
             return todo_current_key(target, data["config"])
         return target
 
-    async def _registry_item_current(
-        self, domain: str, entity_id: str, config: dict[str, Any], current: Any
-    ) -> Any:
-        """Compare Core-restored registry items without timestamp-only drift."""
-        if current is None:
-            return await _restored_item(self._client, domain, entity_id, config)
-        if isinstance(current, dict):
-            keep = {
-                key: value
-                for key, value in config.items()
-                if key in _REGISTRY_READONLY_KEYS
-            }
-            return {**current, **keep}
-        return current
-
     async def snapshot_comparison(self, name: str) -> tuple[dict[str, Any], Any]:
         """Read a snapshot and the live config for its stable target identity."""
         data = await asyncio.to_thread(self.read_snapshot, name)
         _validate_snapshot_envelope(data)
         data = entity_snapshot_target(data)
+        data["warnings"] = []
         domain = data["domain"]
         if _is_flow_helper_domain(domain):
             snapshot = _validate_flow_snapshot(
@@ -1160,9 +1145,9 @@ class BackupManager(SnapshotFilesMixin):
             live = await _dashboard_resource_like(self._client, data["config"])
             if live is not None:
                 current = {**live, "id": data["config"].get("id")}
-        elif domain in _REGISTRY_ITEM_DOMAINS and isinstance(data["config"], dict):
-            current = await self._registry_item_current(
-                domain, data["entity_id"], data["config"], current
+        elif domain in _COMPARED_ROW_DOMAINS and isinstance(data["config"], dict):
+            current, data["warnings"] = await _compared_row(
+                self._client, domain, data["entity_id"], data["config"], current
             )
         return comparison_values(data, current)
 

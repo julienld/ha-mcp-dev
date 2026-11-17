@@ -29,6 +29,7 @@ def panel_diff(name: str, snapshot: dict[str, Any], current: Any) -> dict[str, A
         "success": True,
         "diff": "\n".join(diff),
         "backup_present": current is not None,
+        "warnings": snapshot.get("warnings", []),
     }
 
 

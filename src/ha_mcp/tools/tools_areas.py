@@ -17,7 +17,7 @@ from ..errors import ErrorCode, create_error_response
 from ..runtime.area_writes import AreaWriteTools
 from ..runtime.registries import AreaDiscoveryTools
 from .auto_backup import with_auto_backup
-from .component_registries import fetch_registries_via_component
+from .component_registries import fetch_registries_via_component, registry_list_reply
 from .config_helpers.registry import validate_registry_ids
 from .helpers import (
     exception_to_structured_error,
@@ -58,9 +58,7 @@ class AreaTools(LegacyBackendTools, AreaWriteTools):
         return result
 
     async def _list_area_rows(self) -> dict[str, Any]:
-        result: dict[str, Any] = await self._client.send_websocket_message(
-            {"type": "config/area_registry/list"}
-        )
+        result: dict[str, Any] = await registry_list_reply(self._client, "area")
         return result
 
     def _raise_list_error(self, error: Exception, progress: dict[str, Any]) -> NoReturn:
@@ -168,7 +166,7 @@ class AreaTools(LegacyBackendTools, AreaWriteTools):
         name="ha_set_area_or_floor",
         tags={"Areas & Floors"},
         annotations=write_hints(
-            "Create or Update Area or Floor",
+            "Create, Update or Reorder Areas or Floors",
             destructive=True,
             idempotent=False,
             open_world=False,

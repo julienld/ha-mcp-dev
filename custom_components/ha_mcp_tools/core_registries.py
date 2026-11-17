@@ -1,10 +1,13 @@
-"""The ``registries`` read command (area, floor, label and category registries)."""
+"""The ``registries`` and ``registry_fields`` read commands."""
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers.json import json_bytes
 
 from .core_registry import (
     _all_area_entries,
@@ -13,30 +16,22 @@ from .core_registry import (
     _resolve_registries,
     _safe,
     _substrate_unavailable,
-    _timestamp,
 )
 
 
 # =============================================================================
 # ha_mcp_tools/registries
 # =============================================================================
-def registry_snapshot(
-    hass: HomeAssistant, registries: list[str], category_scopes: list[str] | None = None
-) -> dict[str, Any]:
-    """Return the requested registries as the FULL-FIELD ``config/<x>_registry/list`` shapes.
+def registry_snapshot(hass: HomeAssistant, registries: list[str], category_scopes: list[str] | None = None) -> dict[str, Any]:
+    """Return the requested registries as Core's own ``config/<x>_registry/list`` rows.
 
     ``{areas: [...], floors: [...], labels: [...], categories: {scope: [...]}}`` —
-    only the requested ``registries`` keys are present. Each row is byte-compatible
-    with the legacy WS list response the consumers parse (verified against core's
-    registry serializers): area = aliases / area_id / floor_id / icon / labels /
-    name / picture / created_at / modified_at, plus humidity_entity_id /
-    temperature_entity_id ONLY on core >= 2024.12 (emitted conditionally so an older
-    core's restore does not get None-valued keys it rejects — see
-    :func:`_area_row`); floor = aliases / created_at / floor_id / icon /
-    level / name / modified_at (floor rows carry NO ``labels`` — core omits it);
-    label = color / created_at / description / icon / label_id / name /
-    modified_at; category = category_id / created_at / icon / modified_at / name.
-    Timestamps are floats (``.timestamp()``), matching core.
+    only the requested ``registries`` keys are present. Each row is the one Core's
+    WebSocket list sends (``AreaEntry.json_fragment`` for an area, the config
+    component's ``_entry_dict`` for the rest), so a field Core adds reaches the
+    caller without a change here. Those ``_entry_dict`` functions are private to
+    Core: if a release drops one, the import error fails this command and the
+    server falls back to the WebSocket list.
 
     ``category`` is scoped: ``category_scopes`` names which scopes to list (a
     ``{scope: [rows]}`` map) and is REQUIRED when ``category`` is requested — a
@@ -65,26 +60,34 @@ def registry_snapshot(
     if "floor" in requested:
         if view.floor is None:
             raise _substrate_unavailable("floor registry")
-        result["floors"] = [_floor_row(f) for f in _all_floor_entries(view)]
+        from homeassistant.components.config.floor_registry import (
+            _entry_dict as floor_row,
+        )
+
+        result["floors"] = [floor_row(f) for f in _all_floor_entries(view)]
     if "label" in requested:
         if view.label is None:
             raise _substrate_unavailable("label registry")
-        result["labels"] = [_label_row(x) for x in _all_label_entries(view)]
+        from homeassistant.components.config.label_registry import (
+            _entry_dict as label_row,
+        )
+
+        result["labels"] = [label_row(x) for x in _all_label_entries(view)]
     if "category" in requested:
         result["categories"] = _category_rows(hass, category_scopes)
     return result
 
 
+# =============================================================================
+# ha_mcp_tools/registry_fields
+# =============================================================================
 def _registries_missing_category_scopes() -> Exception:
     """Build a ``HomeAssistantError`` for a scope-less ``category`` request.
 
-    Mirrors :func:`_backup_unavailable`: imported function-locally (test-stubbable)
-    so a ``registries`` request naming ``category`` without a non-empty
-    ``category_scopes`` raises instead of silently returning ``{}`` (a caller
+    Raised so a ``registries`` request naming ``category`` without a non-empty
+    ``category_scopes`` fails instead of silently returning ``{}`` (a caller
     could otherwise mistake that for "no categories in any scope").
     """
-    from homeassistant.exceptions import HomeAssistantError
-
     err: Exception = HomeAssistantError(
         "ha_mcp_tools/registries: category_scopes is required when "
         "'category' is requested"
@@ -93,54 +96,10 @@ def _registries_missing_category_scopes() -> Exception:
 
 
 def _area_row(area: Any) -> dict[str, Any]:
-    """One area as core's ``AreaEntry.json_fragment`` shape (id renamed to area_id)."""
-    row: dict[str, Any] = {
-        "aliases": sorted(str(a) for a in (getattr(area, "aliases", None) or [])),
-        "area_id": getattr(area, "id", None) or getattr(area, "area_id", None),
-        "floor_id": getattr(area, "floor_id", None),
-        "icon": getattr(area, "icon", None),
-        "labels": sorted(str(x) for x in (getattr(area, "labels", None) or [])),
-        "name": getattr(area, "name", None),
-        "picture": getattr(area, "picture", None),
-        "created_at": _timestamp(getattr(area, "created_at", None)),
-        "modified_at": _timestamp(getattr(area, "modified_at", None)),
-    }
-    # humidity_entity_id / temperature_entity_id were added to AreaEntry in core
-    # 2024.12. Emit each ONLY when the running core's AreaEntry actually has the
-    # attribute — a pre-2024.12 core would otherwise get a None-valued key injected
-    # here that the restore path's config/area_registry/update schema rejects
-    # ("extra keys not allowed"). ``hasattr`` (not ``getattr(..., None)``)
-    # distinguishes "core has the field, value is None" from "core has no field".
-    for attr in ("humidity_entity_id", "temperature_entity_id"):
-        if hasattr(area, attr):
-            row[attr] = getattr(area, attr, None)
+    """One area as Core's ``AreaEntry.json_fragment`` row."""
+    # An ``orjson.Fragment`` exposes no bytes; serializing it yields them.
+    row: dict[str, Any] = json.loads(json_bytes(area.json_fragment))
     return row
-
-
-def _floor_row(floor: Any) -> dict[str, Any]:
-    """One floor as core's ``config/floor_registry/list`` shape (NO ``labels`` field)."""
-    return {
-        "aliases": sorted(str(a) for a in (getattr(floor, "aliases", None) or [])),
-        "created_at": _timestamp(getattr(floor, "created_at", None)),
-        "floor_id": getattr(floor, "floor_id", None),
-        "icon": getattr(floor, "icon", None),
-        "level": getattr(floor, "level", None),
-        "name": getattr(floor, "name", None),
-        "modified_at": _timestamp(getattr(floor, "modified_at", None)),
-    }
-
-
-def _label_row(label: Any) -> dict[str, Any]:
-    """One label as core's ``config/label_registry/list`` shape."""
-    return {
-        "color": getattr(label, "color", None),
-        "created_at": _timestamp(getattr(label, "created_at", None)),
-        "description": getattr(label, "description", None),
-        "icon": getattr(label, "icon", None),
-        "label_id": getattr(label, "label_id", None),
-        "name": getattr(label, "name", None),
-        "modified_at": _timestamp(getattr(label, "modified_at", None)),
-    }
 
 
 def _category_rows(hass: HomeAssistant, scopes: list[str]) -> dict[str, Any]:
@@ -154,20 +113,13 @@ def _category_rows(hass: HomeAssistant, scopes: list[str]) -> dict[str, Any]:
     registry = _category_registry(hass)
     if registry is None:
         raise _substrate_unavailable("category registry")
+    from homeassistant.components.config.category_registry import (
+        _entry_dict as category_row,
+    )
+
     return {
-        scope: [_category_row(c) for c in _list_categories(registry, scope)]
+        scope: [category_row(c) for c in _list_categories(registry, scope)]
         for scope in scopes
-    }
-
-
-def _category_row(category: Any) -> dict[str, Any]:
-    """One category as core's ``config/category_registry/list`` shape."""
-    return {
-        "category_id": getattr(category, "category_id", None),
-        "created_at": _timestamp(getattr(category, "created_at", None)),
-        "icon": getattr(category, "icon", None),
-        "modified_at": _timestamp(getattr(category, "modified_at", None)),
-        "name": getattr(category, "name", None),
     }
 
 
@@ -182,10 +134,12 @@ def _category_registry(hass: HomeAssistant) -> Any:
 
 def _list_categories(registry: Any, scope: str) -> list[Any]:
     """``registry.async_list_categories(scope=...)`` guarded (scope is keyword-only)."""
+    if registry is None:
+        return []
     lister = getattr(registry, "async_list_categories", None)
     if not callable(lister):
-        raise _substrate_unavailable("category registry")
+        return []
     try:
         return list(lister(scope=scope))
-    except Exception as error:
-        raise _substrate_unavailable("category registry") from error
+    except Exception:  # pragma: no cover - defensive  # noqa: BLE001
+        return []

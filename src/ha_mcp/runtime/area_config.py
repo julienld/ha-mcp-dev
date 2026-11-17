@@ -25,6 +25,14 @@ def _label_id_set(entry: dict[str, Any] | None) -> set[str]:
 
 
 class AreaConfigTools(AreaDiscoveryTools, RegistryWriteContext):
+    async def _raise_if_unknown(self, kind: str, identifier: str) -> None:
+        snapshot = await self.backend.execute("registries.snapshot", {"registries": [kind]}, self.context)
+        if not any(row.get(f"{kind}_id") == identifier for row in snapshot[f"{kind}s"]):
+            raise_failure(create_error_response(
+                ErrorCode.RESOURCE_NOT_FOUND, f"{kind.capitalize()} not found: {identifier}",
+                context={"kind": kind, f"{kind}_id": identifier, "ha_error_code": "unknown_error"},
+            ))
+
     def _map_area_write_error(
         self, error: Exception, context: dict[str, Any], suggestions: list[str]
     ) -> NoReturn:
@@ -59,7 +67,7 @@ class AreaConfigTools(AreaDiscoveryTools, RegistryWriteContext):
         identifier: str | None,
         name: str | None,
         floor_id: str | None,
-        level: int | None,
+        level: Any,
         icon: str | None,
         parsed_aliases: list[str] | None,
         picture: str | None,

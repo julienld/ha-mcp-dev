@@ -169,7 +169,37 @@ async def floor_delete(
     return await _mutate(hass, arguments, "floor", "delete")
 
 
+async def reorder(hass: HomeAssistant, arguments: dict[str, Any]) -> dict[str, Any]:
+    domain = arguments["kind"]
+    data = _validated_payload(hass, f"config/{domain}_registry/reorder", arguments["data"])
+    registry, _ = _owners(hass, domain)
+    previous = [entry.id if domain == "area" else entry.floor_id for entry in getattr(registry, f"async_list_{domain}s")()]
+    if previous != arguments["expected_order"]:
+        raise ToolFailure("CONFIG_CONFLICT", "Registry order changed before dispatch", status="not_started")
+    if admission := current_admission.get():
+        check_mutation_admission(admission.context)
+    try:
+        registry.async_reorder(data[f"{domain}_ids"])
+    except ValueError as error:
+        current = [entry.id if domain == "area" else entry.floor_id for entry in getattr(registry, f"async_list_{domain}s")()]
+        if current == previous:
+            return {"success": False, "error_code": "invalid_format", "error": str(error)}
+        return registry_outcome_unknown(domain, "reorder", error)
+    except Exception as error:
+        return registry_outcome_unknown(domain, "reorder", error)
+    return {"success": True, "result": None}
+
+
+async def area_reorder(hass: HomeAssistant, arguments: dict[str, Any]) -> dict[str, Any]:
+    return await reorder(hass, {**arguments, "kind": "area"})
+
+
+async def floor_reorder(hass: HomeAssistant, arguments: dict[str, Any]) -> dict[str, Any]:
+    return await reorder(hass, {**arguments, "kind": "floor"})
+
 DIRECT_OPERATIONS = {
+    "registry.area.reorder": (area_reorder, True),
+    "registry.floor.reorder": (floor_reorder, True),
     "registry.area.read": (area_read, False),
     "registry.floor.read": (floor_read, False),
     "registry.area.create": (area_create, True),

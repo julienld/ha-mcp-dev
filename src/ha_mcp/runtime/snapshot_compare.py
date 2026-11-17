@@ -69,4 +69,5 @@ def diff_snapshot_values(
         patch=patch,
         counts=_summarize_patch_counts(patch),
         truncated=truncated,
+        warnings=data.get("warnings", []),
     )

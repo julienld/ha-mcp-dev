@@ -18,6 +18,7 @@ from ha_mcp.runtime.skill_files import read_skill_files
 from ha_mcp.runtime.skills import SkillGuideReader
 from ha_mcp.tool_api import CallContext, ToolFailure, UnsupportedOperation
 
+from .core_registry_fields import read_registry_fields
 from . import core_operation_schemas, helper_collections
 from .core_config_entries import config_entries
 from .core_entity_reads import registry_lookup
@@ -82,6 +83,7 @@ DOMAIN_DIRECT_OPERATIONS = {
     **CONFIG_FINALIZE_OPERATIONS,
     **REGISTRY_MUTATION_OPERATIONS,
     **AREA_FLOOR_OPERATIONS,
+    "registry.fields": (read_registry_fields, False),
     **REMOVAL_DIRECT_OPERATIONS,
     **INTEGRATION_READ_OPERATIONS,
     **INTEGRATION_INSPECTION_OPERATIONS,

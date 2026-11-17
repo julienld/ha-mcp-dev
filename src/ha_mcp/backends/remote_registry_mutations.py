@@ -8,6 +8,8 @@ from ha_mcp.utils.config_hash import json_values_equal
 REGISTRY_MUTATION_OPERATIONS = frozenset(
     {
         "registry.backup.capture",
+        "registry.area.reorder",
+        "registry.floor.reorder",
         *{
             f"registry.{domain}.{action}"
             for domain in ("category", "area", "floor")
@@ -53,6 +55,8 @@ async def execute_registry_mutation(
     data = arguments["data"]
     if {"type", "id"}.intersection(data):
         raise UnsupportedOperation("registry.payload.envelope")
+    if action == "reorder":
+        return await client.send_websocket_message({"type": f"config/{domain}_registry/reorder", **data})
     previous = (
         await _registry_read(client, domain, data) if action != "create" else None
     )

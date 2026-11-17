@@ -291,7 +291,7 @@ def build_initial_catalog(backend: Backend) -> list[ToolDefinition]:
                     AreaWriteTools,
                     "ha_set_area_or_floor",
                     "tools_areas",
-                    "Create or Update Area or Floor",
+                    "Create, Update or Reorder Areas or Floors",
                     "Areas & Floors",
                     False,
                 ),

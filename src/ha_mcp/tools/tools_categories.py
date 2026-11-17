@@ -19,6 +19,7 @@ from ..backends.legacy_config_errors import raise_legacy_classified
 from ..errors import ErrorCode, create_error_response
 from ..runtime.category_writes import CategoryWriteTools
 from ..runtime.labels import CategoryDiscoveryTools
+from .component_registries import category_list_reply
 from .auto_backup import with_auto_backup
 from .helpers import (
     exception_to_structured_error,
@@ -62,9 +63,7 @@ class CategoryTools(LegacyBackendTools, CategoryWriteTools):
     async def _list_categories(
         self, scope: str, category_id: str | None
     ) -> list[dict[str, Any]]:
-        result = await self._client.send_websocket_message(
-            {"type": "config/category_registry/list", "scope": scope}
-        )
+        result = await category_list_reply(self._client, scope)
         if not result.get("success"):
             raise_tool_error(
                 create_error_response(

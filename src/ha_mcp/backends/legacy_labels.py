@@ -2,6 +2,8 @@
 
 import json
 import logging
+from ha_mcp.tools.component_registries import registry_list_reply
+
 from typing import Any, NoReturn
 
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
@@ -56,9 +58,7 @@ class LegacyLabels:
         to an empty registry, or callers would confidently report a real label
         as missing (mirrors ``backup_manager._require_list``).
         """
-        result = await self._client.send_websocket_message(
-            {"type": "config/label_registry/list"}
-        )
+        result = await registry_list_reply(self._client, "label")
         if not result.get("success"):
             raise_tool_error(
                 create_error_response(
@@ -117,9 +117,7 @@ class LegacyLabels:
         self, *, context: dict[str, Any]
     ) -> list[dict[str, Any]]:
         """Return the area registry, failing closed on a degraded envelope."""
-        list_result = await self._client.send_websocket_message(
-            {"type": "config/area_registry/list"}
-        )
+        list_result = await registry_list_reply(self._client, "area")
         areas = list_result.get("result") if list_result.get("success") else None
         if not isinstance(areas, list):
             # An auth rejection, a protocol error and a malformed payload all

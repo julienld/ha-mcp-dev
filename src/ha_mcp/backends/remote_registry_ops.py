@@ -182,6 +182,7 @@ async def execute_registry_operation(
     if operation == "registries.snapshot" and arguments in (
         {"registries": ["area", "floor"]},
         {"registries": ["area"]},
+        {"registries": ["floor"]},
     ):
         from ha_mcp.tools.tools_areas import AreaTools
 

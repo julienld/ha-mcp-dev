@@ -20,10 +20,13 @@ from ...utils.device_registry_semantics import (
 )
 from ...utils.fuzzy_search import apply_hidden_penalty
 from ...visibility.resolver import (
+    core_device_list_reply,
     device_registry_needed_for_visibility,
     load_hidden_set,
 )
 from ..coercion import parse_string_list_param
+from ..component_devices import device_list_reply
+from ..component_registries import registry_list_reply
 from ..helpers import (
     raise_tool_error,
 )
@@ -358,9 +361,7 @@ async def _exact_match_search(
         )
         fetch_slots.append("registry")
     if need_device:
-        fetch_coros.append(
-            client.send_websocket_message({"type": "config/device_registry/list"})
-        )
+        fetch_coros.append(core_device_list_reply(client))
         fetch_slots.append("device")
     fetched = (
         await asyncio.gather(*fetch_coros, return_exceptions=True)
@@ -452,7 +453,7 @@ class EntityEnrichmentMixin(SearchToolsBase):
         those ids to NAMES (the device registry supplies device-inherited
         area/labels, matching the component's ``_registry_enrichment``). Only the
         registries a requested field actually needs are fetched — an aliases-only
-        request skips the four ``*_registry/list`` reads, and a caller that already
+        request skips the four registry list reads, and a caller that already
         holds the registry entries (the area-mode haystack fetch) passes them as
         ``prefetched_entries`` so no second ``get_entries`` round-trip is made.
         Each fetch is fault-tolerant (``return_exceptions=True`` + the ``_ws_*``
@@ -478,14 +479,10 @@ class EntityEnrichmentMixin(SearchToolsBase):
             )
         if need_names:
             coros.extend(
-                self._client.send_websocket_message({"type": command})
-                for command in (
-                    "config/area_registry/list",
-                    "config/floor_registry/list",
-                    "config/label_registry/list",
-                    "config/device_registry/list",
-                )
+                registry_list_reply(self._client, kind)
+                for kind in ("area", "floor", "label")
             )
+            coros.append(device_list_reply(self._client))
         fetched = await asyncio.gather(*coros, return_exceptions=True)
         failed_reads: list[str] = []
         if prefetched_entries is None:
