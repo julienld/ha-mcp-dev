@@ -372,9 +372,9 @@ async def test_a_flow_not_opened_for_the_calls_target_is_refused(
     assert open_flow_ids(hass) == [flow_id]
 
 
-@pytest.mark.parametrize("started_for", [
-    "hub-reconfigure", "annex-reconfigure", "user-setup", "hub-reauth"
-])
+@pytest.mark.parametrize(
+    "started_for", ["hub-reconfigure", "annex-reconfigure", "user-setup", "hub-reauth"]
+)
 async def test_a_flow_opened_outside_this_session_is_never_adopted(
     hass: HomeAssistant,
     component_core_client: HomeAssistantClient,
@@ -406,6 +406,7 @@ async def test_a_flow_opened_outside_this_session_is_never_adopted(
     assert body["error"]["code"] in {"FLOW_NOT_OWNED", "VALIDATION_INVALID_PARAMETER"}
     calls["submit_config_flow_step"].assert_not_awaited()
     assert started["flow_id"] in config_flow_ids(hass)
+
 
 async def test_a_flow_home_assistant_no_longer_has_is_not_found(
     hass: HomeAssistant, flow_tools: IntegrationTools

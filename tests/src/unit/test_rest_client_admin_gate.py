@@ -597,7 +597,9 @@ async def test_parallel_admin_only_service_calls_on_an_unanswered_probe_cost_one
             return_exceptions=True,
         )
 
-    assert sum(isinstance(r, HomeAssistantServiceAuthOutcomeUnknown) for r in results) == 1
+    assert (
+        sum(isinstance(r, HomeAssistantServiceAuthOutcomeUnknown) for r in results) == 1
+    )
     assert sum(isinstance(r, HomeAssistantWebSocketServiceError) for r in results) == 3
     assert failed_logins() == 1
     sent_types = [c.args[0]["type"] for c in sent.call_args_list]
