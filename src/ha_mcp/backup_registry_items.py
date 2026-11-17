@@ -32,6 +32,8 @@ from .client.rest_client import (
     HomeAssistantConnectionError,
 )
 
+from .runtime.registry_recovery_values import registry_identity_warning as _other_id_warning
+
 logger = logging.getLogger(__name__)
 
 
@@ -240,18 +242,6 @@ def _noting(row: Any, *warnings: str) -> Any:
     return {**row, "warnings": [*(row.get("warnings") or []), *warnings]}
 
 
-def _other_id_warning(row: Any, id_key: str, item_id: str) -> str | None:
-    """The warning for a restore that gave the item an id other than its own."""
-    new_id = row.get(id_key)
-    if new_id == item_id:
-        return None
-    noun = id_key.removesuffix("_id")
-    return (
-        f"The {noun} came back as {new_id}, not {item_id}: anything that refers "
-        f"to the {noun} by {item_id} still matches nothing."
-    )
-
-
 async def _restore_item(
     client: Any,
     id_key: str,
@@ -330,7 +320,7 @@ async def _restore_item(
             )
         except HomeAssistantCommandError as err:
             # Import cycle, as _rows.
-            from .tools.helpers import core_error_message
+            from .runtime.error_text import core_error_message
 
             core = core_error_message(err)
             holder = (

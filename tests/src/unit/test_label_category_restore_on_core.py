@@ -19,7 +19,7 @@ from homeassistant.helpers import category_registry as cr
 from homeassistant.helpers import floor_registry as fr
 from homeassistant.helpers import label_registry as lr
 
-from custom_components.ha_mcp_tools.websocket_api import registries
+from custom_components.ha_mcp_tools import core_registry_fields as registries
 from custom_components.ha_mcp_tools.websocket_api.constants import WS_REGISTRY_FIELDS
 from ha_mcp.backup_manager import BackupManager, BackupRestoreError
 from ha_mcp.client.rest_client import (

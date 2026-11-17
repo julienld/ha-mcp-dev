@@ -9,9 +9,10 @@ from typing import Any
 from pydantic.fields import FieldInfo
 
 from ha_mcp.errors import ErrorCode, create_error_response
-from ha_mcp.tools.coercion import UNSET
+from ha_mcp.tools.coercion import UNSET, parse_string_list_param
 
 from .errors import raise_failure
+from .validation import validate_identifier_not_empty
 
 
 def resolve_clearable(value: Any) -> str | None:
@@ -214,3 +215,10 @@ def build_floor_create_payload(
 # ============================================================
 # AREA & FLOOR LISTING
 # ============================================================
+
+
+def parse_string_list_field(value: str | list[str] | None, field: str) -> list[str] | None:
+    try:
+        return parse_string_list_param(value, field)
+    except ValueError as error:
+        return raise_failure(create_error_response(ErrorCode.VALIDATION_INVALID_PARAMETER, f"Invalid {field} parameter: {error}"))

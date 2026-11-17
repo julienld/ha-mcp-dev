@@ -104,17 +104,25 @@ async def test_deleted_category_restores_once_without_reusing_its_old_identity(
     assert len(list(registry.async_list_categories(scope="automation"))) == 1
 
 
-async def test_area_restore_uses_core_fields_and_discloses_omitted_order(hass: HomeAssistant, hass_admin_user: User, backend: NativeBackend) -> None:
+async def test_area_restore_uses_core_fields_and_discloses_omitted_order(
+    hass: HomeAssistant, hass_admin_user: User, backend: NativeBackend
+) -> None:
     registry = ar.async_get(hass)
     area = registry.async_create("Office", aliases={"study", "den"})
     actor = CallContext(hass_admin_user.id)
     target = f"area:{area.id}"
-    saved = await current_registry(backend, actor, "area_or_floor", target, {"kind": "area", "area_id": area.id})
+    saved = await current_registry(
+        backend, actor, "area_or_floor", target, {"kind": "area", "area_id": area.id}
+    )
     assert saved is not None
     saved["unsupported_future_field"] = "snapshot value"
     registry.async_update(area.id, name="Changed")
     before = await current_registry(backend, actor, "area_or_floor", target, saved)
-    result = await restore_registry(backend, actor, "area_or_floor", target, saved, before)
-    assert registry.async_get_area(area.id).name == "Office"
-    assert registry.async_get_area(area.id).aliases == {"study", "den"}
+    result = await restore_registry(
+        backend, actor, "area_or_floor", target, saved, before
+    )
+    restored = registry.async_get_area(area.id)
+    assert restored is not None
+    assert restored.name == "Office"
+    assert restored.aliases == {"study", "den"}
     assert any("unsupported_future_field" in message for message in result["warnings"])

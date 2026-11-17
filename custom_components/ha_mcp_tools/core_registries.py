@@ -10,9 +10,6 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.json import json_bytes
 
 from .core_registry import (
-    _all_area_entries,
-    _all_floor_entries,
-    _all_label_entries,
     _resolve_registries,
     _safe,
     _substrate_unavailable,

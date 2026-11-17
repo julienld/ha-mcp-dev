@@ -1,6 +1,6 @@
 """Native location edits use the running Core owners and schemas."""
 
-from typing import Literal
+from typing import Literal, Any
 
 import pytest
 from homeassistant.auth.models import User
@@ -24,7 +24,7 @@ async def locations(hass: HomeAssistant, hass_admin_user: User) -> AreaWriteTool
 async def test_native_reorder_uses_core_and_returns_previous(
     hass: HomeAssistant, locations: AreaWriteTools, kind: Literal["area", "floor"]
 ) -> None:
-    registry = ar.async_get(hass) if kind == "area" else fr.async_get(hass)
+    registry: Any = ar.async_get(hass) if kind == "area" else fr.async_get(hass)
     first = registry.async_create("First")
     second = registry.async_create("Second")
     previous = (
@@ -51,9 +51,13 @@ async def test_native_floor_omission_preserves_and_null_clears(
     await locations.ha_set_area_or_floor(
         kind="floor", id=floor.floor_id, name="Renamed"
     )
-    assert registry.async_get_floor(floor.floor_id).level == 3
+    updated = registry.async_get_floor(floor.floor_id)
+    assert updated is not None
+    assert updated.level == 3
     await locations.ha_set_area_or_floor(kind="floor", id=floor.floor_id, level=None)
-    assert registry.async_get_floor(floor.floor_id).level is None
+    cleared = registry.async_get_floor(floor.floor_id)
+    assert cleared is not None
+    assert cleared.level is None
 
 
 async def test_native_reorder_interruption_remains_unknown(
