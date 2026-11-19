@@ -314,7 +314,7 @@ def test_main_leaves_live_trees_untouched_when_a_download_fails(tmp_path, monkey
     vendor_dir = tmp_path / "_vendor"
     vendor_dir.mkdir()
     (vendor_dir / "requirements.txt").write_text(
-        "fastmcp-slim==9.9.9\nmcp==8.8.8\nmcp-types==8.8.8\nrich==15.0.0\nrich==15.0.0\n",
+        "fastmcp-slim==9.9.9\nmcp==8.8.8\nmcp-types==8.8.8\nrich==15.0.0\n",
         encoding="utf-8",
     )
     for spec in vendor.PACKAGES:

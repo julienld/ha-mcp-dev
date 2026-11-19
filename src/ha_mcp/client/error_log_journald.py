@@ -33,10 +33,6 @@ from ha_mcp.runtime.error_log_journald import (
 from ha_mcp.runtime.error_log_journald import (
     range_header as range_header,
 )
-from ha_mcp.runtime.error_log_journald import (
-)
-from ha_mcp.runtime.error_log_journald import (
-)
 
 __all__ = [
     "CURSOR_TOKEN_PREFIX",

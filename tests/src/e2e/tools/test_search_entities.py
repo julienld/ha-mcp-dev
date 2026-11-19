@@ -16,6 +16,7 @@ from ..utilities.assertions import (
     parse_mcp_result,
     safe_call_tool,
 )
+from ..utilities.seeded_search_area import seeded_search_area
 from ..utilities.wait_helpers import wait_for_tool_result
 
 logger = logging.getLogger(__name__)
@@ -544,7 +545,8 @@ async def test_ha_search_combined_surface_populated(mcp_client):
     depends on the test-container HA having pre-existing automations
     matching the query term.
     """
-    from ..utilities.wait_helpers import wait_for_tool_result
+    from ..utilities.seeded_search_area import seeded_search_area
+from ..utilities.wait_helpers import wait_for_tool_result
 
     fixture_query = "combined_surface_fixture"
     automation_config = {

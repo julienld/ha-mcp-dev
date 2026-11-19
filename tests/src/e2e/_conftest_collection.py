@@ -160,6 +160,12 @@ def _apply_no_tools_entry_skips(
         item.add_marker(skip_no_tools_only)
 
 
+def _backend_keywords(item: Any) -> Any:
+    if "haos_only" in str(item.fspath):
+        item.add_marker(pytest.mark.haos_only)
+    return item.keywords
+
+
 def pytest_collection_modifyitems(session, config, items):
     """Enforce backend markers and auto-apply ``haos_only`` to its dir.
 
@@ -284,9 +290,7 @@ def pytest_collection_modifyitems(session, config, items):
     for item in items:
         no_tools_entry = item_tools_entry_absent(item)
         component_surface = component_surface_available(no_tools_entry=no_tools_entry)
-        if "haos_only" in str(item.fspath):
-            item.add_marker(pytest.mark.haos_only)
-        keywords = item.keywords
+        keywords = _backend_keywords(item)
         if "haos_only" in keywords and not haos:
             item.add_marker(skip_haos)
         elif "container_only" in keywords and haos:
