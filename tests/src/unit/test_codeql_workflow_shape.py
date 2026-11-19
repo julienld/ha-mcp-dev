@@ -26,6 +26,7 @@ matrix), and the code-scanning suites are the pre-merge security gate.
 from __future__ import annotations
 
 import importlib.util
+import json
 import re
 from pathlib import Path
 from typing import Any, TypeGuard
@@ -268,13 +269,46 @@ def test_no_database_extracts_the_vendored_trees() -> None:
         assert f"--codescanning-config={_CODEQL_CONFIG}" in run
 
 
-def test_extraction_skips_exactly_the_trees_the_gate_ignores() -> None:
-    """A tree only the gate ignores is still scanned for nothing; a tree only
-    the config skips is first-party code that silently stopped being gated."""
+def test_extraction_skips_only_trees_the_gate_unconditionally_ignores(
+    tmp_path: Path,
+) -> None:
+    """Quality-only exclusions must still be extracted for security analysis."""
     spec = importlib.util.spec_from_file_location("codeql_quality_gate", _GATE_SCRIPT)
     assert spec and spec.loader
     gate = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(gate)
 
     config = yaml.safe_load((_REPO_ROOT / _CODEQL_CONFIG).read_text(encoding="utf-8"))
-    assert {f"{path}/" for path in config["paths-ignore"]} == set(gate.PATHS_IGNORE)
+    sarif = tmp_path / "unclassified.sarif"
+    sarif.write_text(
+        json.dumps(
+            {
+                "runs": [
+                    {
+                        "results": [
+                            {
+                                "ruleId": "unclassified-rule",
+                                "locations": [
+                                    {
+                                        "physicalLocation": {
+                                            "artifactLocation": {
+                                                "uri": f"{prefix}probe.py"
+                                            }
+                                        }
+                                    }
+                                ],
+                            }
+                            for prefix in gate.PATHS_IGNORE
+                        ]
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    still_gated = {
+        finding[0].removesuffix("probe.py") for finding in gate.load_findings(sarif)
+    }
+    assert {f"{path}/" for path in config["paths-ignore"]} == (
+        set(gate.PATHS_IGNORE) - still_gated
+    )

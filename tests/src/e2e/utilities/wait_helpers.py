@@ -194,7 +194,7 @@ async def wait_for_logbook_entry(
 
 async def wait_for_condition(
     condition_func: Callable[[], Any],
-    timeout: int = 10,
+    timeout: float = 10,
     poll_interval: float = 0.5,
     condition_name: str = "condition",
 ) -> bool:

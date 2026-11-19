@@ -1,0 +1,14 @@
+{
+  "reason": "Main 5cbb165 adds test_capture_and_restore.py::TestCalendarCaptureRestore::test_calendar_capture_on_delete. Its haos_only and external_only markers restrict the test to external HAOS, so it adds one collection-time skip on each other lane. The container CI observed 107 marker-skipped tests against the previous ceiling of 106 on both amd64 and aarch64. Native lane variants inherit these increments; the baseline and all existing fragments remain unchanged.",
+  "deltas": {
+    "container": 1,
+    "container_no_tools": 1,
+    "embedded": 1,
+    "embedded_no_tools": 1,
+    "haos_stdio": 1,
+    "haos_inaddon": 1,
+    "haos_inaddon_no_tools": 1,
+    "haos_embedded": 1,
+    "haos_embedded_no_tools": 1
+  }
+}

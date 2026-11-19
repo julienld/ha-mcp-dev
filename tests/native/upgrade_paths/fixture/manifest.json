@@ -1,0 +1,7 @@
+{
+  "domain": "upgrade_fixture",
+  "name": "Disposable upgrade evidence",
+  "version": "0.1.0",
+  "dependencies": ["http", "protocol_fixture"],
+  "requirements": []
+}
