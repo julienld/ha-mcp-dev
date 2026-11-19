@@ -37,14 +37,22 @@ pytestmark = pytest.mark.usefixtures("socket_enabled")
 Normalise = Callable[..., Awaitable[list[dict[str, Any]]]]
 
 
+def _wire_schema(schema: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    """MCP requires an object at the root; scalar bounds belong to a property."""
+    if schema.get("type", "object") == "object":
+        return {"type": "object", **schema}, False
+    return {"type": "object", "properties": {"value": schema}}, True
+
+
 @pytest.fixture
 def normalised(hass: HomeAssistant) -> Normalise:
     """Serve each schema as a tool; return the schemas the catalog lists."""
 
     async def run(*schemas: dict[str, Any]) -> list[dict[str, Any]]:
+        wire = [_wire_schema(schema) for schema in schemas]
         tools = [
             ServedTool(f"ha_tool_{i}", input_schema=schema, params=None)
-            for i, schema in enumerate(schemas)
+            for i, (schema, _embedded) in enumerate(wire)
         ]
         async with serve(tools) as srv:
             instance = await api_instance(hass, srv.port, EXPOSURE_TOOL_SEARCH)
@@ -53,7 +61,17 @@ def normalised(hass: HomeAssistant) -> Normalise:
                 tool_named(instance, "ha_search_tools"),
                 {"tools": [tool.name for tool in tools]},
             )
-        return [entry["input_schema"] for entry in payload(result)["results"]]
+        normalized = []
+        for original, (_schema, embedded), entry in zip(
+            schemas, wire, payload(result)["results"], strict=True
+        ):
+            output = entry["input_schema"]
+            if embedded:
+                output = output["properties"]["value"]
+            elif "type" not in original:
+                output.pop("type")
+            normalized.append(output)
+        return normalized
 
     return run
 
@@ -361,6 +379,8 @@ class TestWhatIsReported:
     async def _list(
         self, hass: HomeAssistant, caplog: pytest.LogCaptureFixture, *tools: ServedTool
     ) -> None:
+        for tool in tools:
+            tool.input_schema = _wire_schema(tool.input_schema)[0]
         async with serve(list(tools)) as srv:
             with caplog.at_level(logging.DEBUG, logger=llm_api.__name__):
                 await api_instance(hass, srv.port, EXPOSURE_TOOL_SEARCH)
