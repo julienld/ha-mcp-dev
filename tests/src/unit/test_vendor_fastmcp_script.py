@@ -158,28 +158,25 @@ def test_stage_package_refuses_path_traversal(tmp_path):
 
 
 def test_promote_restores_every_tree_when_a_swap_fails(tmp_path, monkeypatch):
-    live_a, live_b = tmp_path / "a", tmp_path / "b"
-    for live in (live_a, live_b):
-        live.mkdir()
+    vendor_dir = tmp_path / "_vendor"
+    live_trees = [vendor_dir / spec.package for spec in vendor.PACKAGES]
+    for live in live_trees:
+        live.mkdir(parents=True)
         (live / "old").write_text("old")
-        staged = live.with_name(live.name + ".incoming")
-        staged.mkdir()
-        (staged / "new").write_text("new")
+    names = [entry.name for entry in live_trees]
+    failed = vendor_dir / f"{names[1]}.incoming"
     real_rename = Path.rename
 
     def failing_rename(self, target):
-        if self == tmp_path / "b.incoming":
+        if self == failed:
             raise OSError("simulated")
         return real_rename(self, target)
 
     monkeypatch.setattr(Path, "rename", failing_rename)
-    with pytest.raises(OSError):
-        vendor._promote(
-            {live_a: tmp_path / "a.incoming", live_b: tmp_path / "b.incoming"}
-        )
-    monkeypatch.undo()
-    assert (live_a / "old").is_file() and not (live_a / "new").exists()
-    assert (live_b / "old").is_file()
+    with pytest.raises(OSError, match="simulated"):
+        _sync(tmp_path, monkeypatch, _project("authlib>=1.9.5"), {})
+    assert all([file.name for file in live.iterdir()] == ["old"] for live in live_trees)
+    assert not list(vendor_dir.glob("*.incoming"))
 
 
 def test_rewrite_handles_a_backslash_continued_from_import():
@@ -281,7 +278,7 @@ class _Release:
 
 def _vendor_paths(tmp_path):
     vendor_dir = tmp_path / "_vendor"
-    vendor_dir.mkdir()
+    vendor_dir.mkdir(exist_ok=True)
     (vendor_dir / "requirements.txt").write_text(
         "fastmcp-slim==9.9.9\nmcp==8.8.8\nmcp-types==8.8.8\nrich==15.0.0\n",
         encoding="utf-8",
@@ -322,7 +319,7 @@ def test_download_wheel_refuses_a_release_without_a_pure_python_wheel(tmp_path, 
 
 def test_main_leaves_live_trees_untouched_when_a_download_fails(tmp_path, monkeypatch):
     vendor_dir = tmp_path / "_vendor"
-    vendor_dir.mkdir()
+    vendor_dir.mkdir(exist_ok=True)
     (vendor_dir / "requirements.txt").write_text(
         "fastmcp-slim==9.9.9\nmcp==8.8.8\nmcp-types==8.8.8\nrich==15.0.0\n",
         encoding="utf-8",
@@ -387,7 +384,7 @@ def _project(*entries: str, dev: tuple[str, ...] | None = None) -> str:
 def _sync(tmp_path, monkeypatch, pyproject_text, requires_by_distribution):
     """Run the sync with each distribution's wheel declaring the given needs."""
     vendor_dir = tmp_path / "_vendor"
-    vendor_dir.mkdir()
+    vendor_dir.mkdir(exist_ok=True)
     (vendor_dir / "requirements.txt").write_text(
         "fastmcp-slim==9.9.9\nmcp==8.8.8\nmcp-types==8.8.8\nrich==15.0.0\n",
         encoding="utf-8",

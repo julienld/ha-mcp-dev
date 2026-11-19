@@ -438,8 +438,8 @@ await mcp.call_tool("ha_config_get_script", {"script_id": "nonexistent"})
 ```
 
 **Automation views preserve caller compatibility:** writes reach Core as supplied.
-`ha_config_get_automation` defaults to its historical normalized view;
-`config_format="stored"` returns Core's persisted body verbatim. Hashes from
+`ha_config_get_automation` defaults to Core's stored body;
+`config_format="compatible"` selects the historical normalized view. Hashes from
 either view retain the invocation-local raw CAS image. Core renames singular
 root keys and `service` while validating a write and refuses both spellings of
 the same key. Tests must distinguish the selected read view from actual stored

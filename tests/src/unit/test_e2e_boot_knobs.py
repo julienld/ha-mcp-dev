@@ -119,6 +119,9 @@ def _boot_into(script: str, tmp_path: Path) -> tuple[str, Path]:
         f"#!/bin/sh\ntouch {shlex.quote(str(booted))}\nexit 7\n", encoding="utf-8"
     )
     init_stub.chmod(0o755)
+    config = tmp_path / "config"
+    config.mkdir()
+    script = script.replace("/config/", f"{shlex.quote(str(config))}/")
     return script.replace("exec /init", f"exec {shlex.quote(str(init_stub))}"), booted
 
 

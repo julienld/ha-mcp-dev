@@ -36,7 +36,6 @@ from .automation_runtime import (
     _sync_post_write_automation_result,
 )
 from .blueprint_substitute import validate_write_modes
-from .config_reference_rules import ValidationMeta
 from .config_reload import config_reload_waiter
 from .config_reload_status import note_reload_outcome
 from .config_write_context import merge_validation_meta
@@ -569,7 +568,7 @@ class AutomationWriteTools(AutomationRuntimeTools):
         wait: bool,
         bp_warnings: BestPracticeCheckResult,
         MandatoryBPS: bool,
-        validation_meta: ValidationMeta,
+        validation_meta: dict[str, Any],
         conflict_warnings: list[str] | None = None,
         resolved_id: str | None = None,
         detached_blueprint: str | None = None,

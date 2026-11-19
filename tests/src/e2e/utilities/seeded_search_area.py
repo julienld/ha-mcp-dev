@@ -2,10 +2,16 @@
 
 from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
+from functools import partial
 from typing import Any
 
 from .assertions import MCPAssertions
 from .wait_helpers import wait_for_tool_result
+
+
+def _matches_entity_entry(data: dict[str, Any], *, expected: dict[str, Any]) -> bool:
+    entry = data.get("entity_entry", {})
+    return all(entry.get(key) == value for key, value in expected.items())
 
 
 @asynccontextmanager
@@ -74,10 +80,7 @@ async def seeded_search_area(
                         mcp_client,
                         tool_name="ha_get_entity",
                         arguments={"entity_id": eid},
-                        predicate=lambda data, expected=before: all(
-                            data.get("entity_entry", {}).get(key) == value
-                            for key, value in expected.items()
-                        ),
+                        predicate=partial(_matches_entity_entry, expected=before),
                         description=f"original name and area restored for {eid}",
                     )
                 except Exception as exc:  # noqa: BLE001 - finish restoring other owned changes
