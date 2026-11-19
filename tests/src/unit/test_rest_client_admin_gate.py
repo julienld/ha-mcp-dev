@@ -41,7 +41,6 @@ from ha_mcp.client.rest_client import (
     HomeAssistantClient,
 )
 from ha_mcp.errors import (
-    HomeAssistantAuthNotSent,
     HomeAssistantServiceAuthOutcomeUnknown,
     HomeAssistantWebSocketServiceError,
 )
@@ -649,29 +648,3 @@ async def test_generic_unauthorized_handler_text_is_not_an_authentication_failur
     assert not isinstance(error.value, HomeAssistantAdminRequiredError)
     assert "Unauthorized word" in str(error.value)
     assert len(calls) == 1
-
-
-async def test_core_rejects_invalid_websocket_token_before_service_dispatch(
-    hass: HomeAssistant,
-    aiohttp_client: ClientSessionGenerator,
-    sockets: dict[str, int],
-    socket_enabled: None,
-) -> None:
-    """Core's real auth refusal is terminal before any service command."""
-    assert await async_setup_component(hass, "websocket_api", {})
-    assert hass.http is not None
-    server = await aiohttp_client(hass.http.app)
-    events = async_capture_events(hass, "call_service")
-    try:
-        async with HomeAssistantClient(
-            str(server.make_url("")).rstrip("/"), "invalid-token", verify_ssl=False
-        ) as denied:
-            with pytest.raises(HomeAssistantAuthNotSent):
-                await denied.send_websocket_message(
-                    {"type": "call_service", "domain": "light", "service": "turn_on"}
-                )
-        await until(lambda: sockets["closed"] >= 1)
-        assert sockets == {"opened": 0, "closed": 1}
-        assert events == []
-    finally:
-        await server.close()

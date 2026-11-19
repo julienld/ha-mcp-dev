@@ -58,11 +58,9 @@ from ._conftest_seed import (
     _setup_config_permissions,
     pair_component_library,
 )
+from .utilities.topology import combined_topologies
 
 logger = logging.getLogger(__name__)
-
-
-from .utilities.topology import combined_topologies
 
 
 # Boot budgets for paths with the component's checkout library. Its wheel is
@@ -180,6 +178,35 @@ def _copy_local_blueprint_to_www(config_path: Path) -> dict[str, str]:
     }
 
 
+def _stage_mcp_component(
+    repo_root: Path, config_path: Path, *, embedded: bool
+) -> str | None:
+    """Stage the checkout library and whichever entries the lane starts with."""
+    no_tools_entry = _is_no_tools_entry_selected()
+    if no_tools_entry and not embedded:
+        if combined_topologies():
+            # The component is absent until the transition. Preinstall its
+            # checkout library so Core can import the new config flow then.
+            return _build_embedded_server_wheel(config_path).name
+        return None
+
+    _install_custom_component(
+        config_path,
+        repo_root / "custom_components" / "ha_mcp_tools",
+        "ha_mcp_tools",
+        "HA-MCP File & YAML Tools",
+        seed_entry=not no_tools_entry,
+    )
+    if embedded and native_runtime_selected():
+        wheel = stage_native_runtime(repo_root, config_path)
+    else:
+        wheel = _build_embedded_server_wheel(config_path)
+        pair_component_library(config_path, wheel.name)
+    if embedded:
+        _install_embedded_server(config_path, wheel.name)
+    return wheel.name
+
+
 def prepare_testcontainer_config(
     embedded: bool, config_path: Path
 ) -> tuple[Path, dict, str | None]:
@@ -188,8 +215,6 @@ def prepare_testcontainer_config(
     The caller creates and owns the directory, so its cleanup can be registered
     before staging starts and still runs when a step here fails partway.
     """
-    embedded_wheel_name: str | None = None
-
     # Copy initial test state into the staged directory
     initial_state_path = Path(__file__).parent.parent.parent / "initial_test_state"
 
@@ -228,41 +253,9 @@ def prepare_testcontainer_config(
             "webhook_id": "mcp_e2e_test_webhook_proxy",
         }
         (config_path / ".mcp_proxy_config.json").write_text(json.dumps(proxy_config))
-    # No-tools lanes (#2292): the File & YAML Tools entry is absent, in the two
-    # shapes a real install can take. Embedded still needs the component FILES
-    # (its in-process server entry loads from them), so the files are copied
-    # with no tools entry seeded — the exact server-entry-only topology. The
-    # plain container installs nothing at all: a user who never installed the
-    # component. The mcp_proxy install above is untouched either way.
-    no_tools_entry = _is_no_tools_entry_selected()
-    if not no_tools_entry or embedded:
-        _install_custom_component(
-            config_path,
-            repo_root / "custom_components" / "ha_mcp_tools",
-            "ha_mcp_tools",
-            "HA-MCP File & YAML Tools",
-            seed_entry=not no_tools_entry,
-        )
-
-    # The combined external lane installs the component only after its absent
-    # phase. Core still needs the checkout library before loading that flow.
-    if no_tools_entry and not embedded and combined_topologies():
-        embedded_wheel_name = _build_embedded_server_wheel(config_path).name
-
-    # The component imports shared ha_mcp code even when MCP runs externally.
-    # Pair its source with the checkout library, never the published manifest
-    # pin. Only the embedded topology also receives a server config entry.
-    if embedded or not no_tools_entry:
-        if embedded and native_runtime_selected():
-            # Native staging already pairs the manifest, including its wheel hash.
-            wheel = stage_native_runtime(repo_root, config_path)
-        else:
-            wheel = _build_embedded_server_wheel(config_path)
-            pair_component_library(config_path, wheel.name)
-        embedded_wheel_name = wheel.name
-    if embedded:
-        assert embedded_wheel_name is not None
-        _install_embedded_server(config_path, embedded_wheel_name)
+    embedded_wheel_name = _stage_mcp_component(
+        repo_root, config_path, embedded=embedded
+    )
 
     # Pre-#1579 legacy backups for the legacy-restore e2e: seed before boot so
     # the bind-mounted .ha_mcp_tools_backups/ is populated when the component

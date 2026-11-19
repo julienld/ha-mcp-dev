@@ -197,25 +197,27 @@ def _create_tools_entry(env: dict[str, Any]) -> str:
     return step["result"]["entry_id"]
 
 
+def _stage_external_component(env: dict[str, Any]) -> None:
+    config_path = env.get("config_path")
+    if not config_path:
+        return
+    target = Path(config_path) / "custom_components" / "ha_mcp_tools"
+    if target.exists():
+        return
+
+    wheel_name = env.get("component_wheel_name")
+    if not wheel_name:
+        raise RuntimeError("The tools-entry phase needs the checkout wheel")
+    source = Path(__file__).resolve().parents[3] / "custom_components" / "ha_mcp_tools"
+    shutil.copytree(source, target)
+    pair_component_library(Path(config_path), wheel_name)
+    # Restart to reload Core's discovery of the custom-component directory.
+    _restart_core(env)
+
+
 def install_tools_entry(env: dict[str, Any]) -> None:
     """Install the checked-out component, add its tools entry, and restart Core."""
-    config_path = env.get("config_path")
-    if config_path:
-        target = Path(config_path) / "custom_components" / "ha_mcp_tools"
-        if not target.exists():
-            source = (
-                Path(__file__).resolve().parents[3]
-                / "custom_components"
-                / "ha_mcp_tools"
-            )
-            wheel_name = env.get("component_wheel_name")
-            if not wheel_name:
-                raise RuntimeError("The tools-entry phase needs the checkout wheel")
-            shutil.copytree(source, target)
-            pair_component_library(Path(config_path), wheel_name)
-            # Core discovered the initial custom-component directory before
-            # these files existed. Restart before opening the new flow.
-            _restart_core(env)
+    _stage_external_component(env)
     entry_id = _create_tools_entry(env)
     _restart_core(env)
     headers = {"Authorization": f"Bearer {env['token']}"}
