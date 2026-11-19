@@ -1,0 +1,319 @@
+"""Shared pure device-registry projections, filtering and pagination."""
+
+from typing import Any, Literal, NoReturn
+
+from ha_mcp.errors import ErrorCode, create_error_response
+from ha_mcp.utils.device_registry_semantics import EFFECTIVE_AREA_MARKER
+
+from .errors import raise_failure
+from .projection import build_pagination_metadata
+
+
+def _process_device_domain(
+    domain: str,
+    value: str,
+    ieee_address: str | None,
+    is_z2m: bool,
+) -> tuple[str | None, bool]:
+    """Return updated IEEE address and Zigbee2MQTT classification."""
+    # ZHA: identifier is ["zha", "IEEE_ADDRESS"]
+    if domain == "zha":
+        return value, is_z2m
+    # Z2M: identifier is ["mqtt", "zigbee2mqtt_0xIEEE"] or "zigbee2mqtt_bridge_0xIEEE"
+    if domain == "mqtt" and "zigbee2mqtt" in value.lower():
+        extracted = (
+            "0x" + value.rsplit("_0x", maxsplit=1)[-1]
+            if "_0x" in value
+            else ieee_address
+        )
+        return extracted, True
+    return ieee_address, is_z2m
+
+
+def _extract_zigbee_info(
+    identifiers: list[Any],
+) -> tuple[str | None, bool]:
+    """Parse Zigbee identifiers; Z-Wave JS resolves its own node identity."""
+    ieee_address: str | None = None
+    is_z2m = False
+
+    for identifier in identifiers:
+        if isinstance(identifier, (list, tuple)) and len(identifier) >= 2:
+            domain = identifier[0]
+            if isinstance(domain, str):
+                ieee_address, is_z2m = _process_device_domain(
+                    domain,
+                    str(identifier[1]),
+                    ieee_address,
+                    is_z2m,
+                )
+
+    return ieee_address, is_z2m
+
+
+def _first_ieee_from_connections(
+    connections: list[Any], existing_ieee: str | None
+) -> str | None:
+    """Return existing_ieee if already set; otherwise the first 'ieee' connection value, or None."""
+    if not isinstance(connections, list) or existing_ieee:
+        return existing_ieee
+    for connection in connections:
+        if (
+            isinstance(connection, (list, tuple))
+            and len(connection) >= 2
+            and connection[0] == "ieee"
+        ):
+            return str(connection[1])
+    return existing_ieee
+
+
+def _is_z2m_bridge(device: dict[str, Any]) -> bool:
+    """Whether the device carries Zigbee2MQTT's bridge identifier
+    ``("mqtt", "zigbee2mqtt_bridge_<ieee>")``."""
+    return any(
+        isinstance(i, (list, tuple))
+        and len(i) >= 2
+        and i[0] == "mqtt"
+        and str(i[1]).startswith("zigbee2mqtt_bridge_")
+        for i in device.get("identifiers") or []
+    )
+
+
+_SUMMARY_FIELDS = frozenset(
+    {
+        "id",
+        "name",
+        "name_by_user",
+        "manufacturer",
+        "model",
+        "area_id",
+        "disabled_by",
+        "parent_device_id",
+        "via_device_id",
+    }
+)
+
+
+def _get_device_info(
+    device: dict[str, Any], domains: dict[str, str], summary: bool = False
+) -> dict[str, Any]:
+    """Core's device row (in a summary, only its ``_SUMMARY_FIELDS``) plus the
+    effective area, the owning integration and radio hints.
+
+    ``area_id`` is the device's own area; ``effective_area_id`` is the one Core
+    places it in, where a child device without its own area sits in its
+    parent's.
+    """
+    ieee_address, is_z2m = _extract_zigbee_info(device.get("identifiers") or [])
+    ieee_address = _first_ieee_from_connections(
+        device.get("connections") or [], ieee_address
+    )
+    integration_type = (
+        "zigbee2mqtt" if is_z2m else domains.get(device["config_entry_id"])
+    )
+    if summary:
+        row = {k: v for k, v in device.items() if k in _SUMMARY_FIELDS}
+    else:
+        row = {k: v for k, v in device.items() if k != EFFECTIVE_AREA_MARKER}
+    device_info: dict[str, Any] = {
+        **row,
+        "effective_area_id": device.get(EFFECTIVE_AREA_MARKER, device.get("area_id")),
+        "integration_type": integration_type,
+    }
+
+    if ieee_address:
+        device_info["ieee_address"] = ieee_address
+    if is_z2m and not _is_z2m_bridge(device):
+        # Core's ``name`` is the friendly name Zigbee2MQTT discovered the device
+        # with, and its topics use it; ``name_by_user`` stays in Home Assistant.
+        # The bridge publishes under ``<base_topic>/bridge/...``, not its name,
+        # so it gets no hint.
+        friendly_name = device.get("name")
+        device_info["friendly_name"] = friendly_name
+        device_info["mqtt_topic_hint"] = f"zigbee2mqtt/{friendly_name}/..."
+    if integration_type == "zha" and ieee_address:
+        device_info["zha_trigger_hint"] = (
+            f"Use ieee '{ieee_address}' for zha_event triggers"
+        )
+
+    return device_info
+
+
+def _build_entity_maps(
+    all_entities: list[dict[str, Any]], need_full: bool
+) -> tuple[dict[str, str], dict[str, list[dict[str, Any]]]]:
+    """Build entity→device and device→entities lookup maps; the entities are
+    Core's entity-registry rows.
+
+    device_to_entities is only populated when need_full is True; building it for
+    every list-mode request would be wasteful when only entity→device lookup is needed.
+    """
+    entity_to_device: dict[str, str] = {}
+    device_to_entities: dict[str, list[dict[str, Any]]] = {}
+    for e in all_entities:
+        eid = e.get("entity_id")
+        did = e.get("device_id")
+        if eid and did:
+            entity_to_device[eid] = did
+            if need_full:
+                device_to_entities.setdefault(did, []).append(e)
+    return entity_to_device, device_to_entities
+
+
+def _device_config_entries(device: dict[str, Any]) -> list[str]:
+    """Return the exact owning config-entry IDs for a main or child row.
+
+    Ordinary ``DeviceEntry`` rows carry ``config_entries`` while Core 2026.9
+    ``ChildDeviceEntry`` rows carry one singular ``config_entry_id``. Never mix,
+    coerce, or repair malformed ownership evidence: an explicitly present plural
+    field is authoritative and must be a list of non-empty strings.
+    """
+    if "config_entries" in device:
+        raw = device.get("config_entries")
+        if not isinstance(raw, list) or not all(
+            isinstance(entry_id, str) and entry_id for entry_id in raw
+        ):
+            return []
+        return list(raw)
+    entry_id = device.get("config_entry_id")
+    return [entry_id] if isinstance(entry_id, str) and entry_id else []
+
+
+def _filter_devices(
+    all_devices: list[dict[str, Any]],
+    domains: dict[str, str],
+    area_id: str | None,
+    manufacturer_lower: str | None,
+    integration_lower: str | None,
+    device_to_entities: dict[str, list[dict[str, Any]]],
+    detail_level: Literal["summary", "full"],
+) -> list[dict[str, Any]]:
+    """Filter devices for list mode and optionally attach entity lists."""
+    matched: list[dict[str, Any]] = []
+    for device in all_devices:
+        effective_area = device.get(EFFECTIVE_AREA_MARKER, device.get("area_id"))
+        if area_id and effective_area != area_id:
+            continue
+        device_man = (device.get("manufacturer") or "").lower()
+        if manufacturer_lower and manufacturer_lower not in device_man:
+            continue
+        device_info = _get_device_info(device, domains, detail_level == "summary")
+        # "mqtt" also matches Zigbee2MQTT devices, whose entry is MQTT's.
+        if integration_lower and integration_lower not in (
+            device_info["integration_type"],
+            domains.get(device["config_entry_id"]),
+        ):
+            continue
+        if detail_level == "full":
+            device_info["entities"] = device_to_entities.get(device.get("id") or "", [])
+        matched.append(device_info)
+    return matched
+
+
+def _add_integration_hints(
+    result: dict[str, Any],
+    integration_lower: str | None,
+    all_devices: list[dict[str, Any]],
+) -> None:
+    """Add Z2M bridge info and integration-specific usage hints to result in-place.
+
+    The bridge is looked up among all devices, so area and manufacturer filters
+    do not hide it.
+    """
+    if integration_lower == "zigbee2mqtt":
+        bridge = next((d for d in all_devices if _is_z2m_bridge(d)), None)
+        if bridge:
+            result["bridge"] = {
+                "id": bridge.get("id"),
+                "name": bridge.get("name"),
+                "ieee_address": _extract_zigbee_info(bridge["identifiers"])[0],
+            }
+        result["usage_hint"] = (
+            "Use 'friendly_name' for MQTT topics: zigbee2mqtt/{friendly_name}/action"
+        )
+    elif integration_lower == "zha":
+        result["usage_hint"] = (
+            "Use 'ieee_address' for zha_event triggers in automations"
+        )
+    elif integration_lower == "zwave_js":
+        result["usage_hint"] = (
+            "Single device lookup includes Z-Wave JS's node_id and node status "
+            "(security, routing)."
+        )
+
+
+def _list_devices_result(
+    all_devices: list[dict[str, Any]],
+    domains: dict[str, str],
+    device_to_entities: dict[str, list[dict[str, Any]]],
+    integration: str | None,
+    area_id: str | None,
+    manufacturer: str | None,
+    limit: int,
+    offset: int,
+    detail_level: Literal["summary", "full"],
+) -> dict[str, Any]:
+    """Build the paginated device list response."""
+    integration_lower = integration.lower() if integration else None
+    manufacturer_lower = manufacturer.lower() if manufacturer else None
+
+    matched_devices = _filter_devices(
+        all_devices,
+        domains,
+        area_id,
+        manufacturer_lower,
+        integration_lower,
+        device_to_entities,
+        detail_level,
+    )
+    total_matched = len(matched_devices)
+    paginated = matched_devices[offset : offset + limit]
+
+    result: dict[str, Any] = {
+        "success": True,
+        **build_pagination_metadata(total_matched, offset, limit, len(paginated)),
+        "total_devices": len(all_devices),
+        "devices": paginated,
+        "detail_level": detail_level,
+    }
+
+    filters_applied = []
+    if integration:
+        result["integration_filter"] = integration
+        filters_applied.append(f"integration={integration}")
+    if area_id:
+        result["area_filter"] = area_id
+        filters_applied.append(f"area_id={area_id}")
+    if manufacturer:
+        result["manufacturer_filter"] = manufacturer
+        filters_applied.append(f"manufacturer={manufacturer}")
+    if filters_applied:
+        result["filters"] = filters_applied
+
+    _add_integration_hints(result, integration_lower, all_devices)
+    return result
+
+
+def raise_device_not_found(
+    device_id: str, all_rows: list[dict[str, Any]], splits: dict[str, Any]
+) -> NoReturn:
+    context: dict[str, Any] = {
+        "device_id": device_id,
+        "available_device_ids": [row["id"] for row in all_rows[:10] if row.get("id")],
+    }
+    suggestions = ["Use ha_get_device() to find valid device IDs"]
+    if split := splits.get(device_id):
+        context.update(split)
+        suggestions = [
+            "Home Assistant split this device into one device per config entry: "
+            "use one of split_ids; primary_id, when not null, is the device that "
+            "took over its former primary config entry"
+        ]
+    raise_failure(
+        create_error_response(
+            ErrorCode.RESOURCE_NOT_FOUND,
+            f"Device not found: {device_id}",
+            suggestions=suggestions,
+            context=context,
+        )
+    )

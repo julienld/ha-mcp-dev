@@ -44,7 +44,7 @@ from ha_mcp.client.rest_client import (
     HomeAssistantConnectionError,
 )
 from ha_mcp.redaction import REDACTED_SET
-from ha_mcp.tools import integration_schema
+from ha_mcp.runtime import integration_schema
 from ha_mcp.tools.tools_integrations import (
     IntegrationTools,
     fetch_entry_options_with_status,
@@ -84,7 +84,7 @@ _SECRET = vol.Schema(
         ),
     }
 )
-_INTROSPECT_LOG = "ha_mcp.tools.config_entry_flow_introspect"
+_INTROSPECT_LOG = "ha_mcp.runtime.flows.introspect"
 
 OptionsStep = Callable[[OptionsFlow], ConfigFlowResult]
 SubentryStep = Callable[[ConfigSubentryFlow], SubentryFlowResult]
@@ -455,13 +455,14 @@ async def test_a_cancelled_read_still_closes_the_flow_it_opened(
 
 @pytest.mark.parametrize("kind", list(_ABORTS))
 async def test_closing_a_flow_core_already_closed_is_no_warning(
+    hass: HomeAssistant,
     core_client: HomeAssistantClient,
     tools: IntegrationTools,
     mount: Mount,
     kind: str,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A flow that aborts at once is gone: Core answers its abort with 404."""
+    """A terminal Core flow is already closed and requires no extra abort."""
     entry = _mount_first(mount, kind, _not_supported)
 
     with (
@@ -472,8 +473,9 @@ async def test_closing_a_flow_core_already_closed_is_no_warning(
     ):
         await _read(tools, core_client, kind, entry.entry_id)
 
-    aborted.assert_awaited_once()
-    assert _abort_levels(caplog) == ["DEBUG"]
+    aborted.assert_not_awaited()
+    assert _abort_levels(caplog) == []
+    assert open_flow_ids(hass) == []
 
 
 @pytest.mark.parametrize("kind", list(_ABORTS))
@@ -584,11 +586,11 @@ async def test_a_swallowed_options_flow_failure_logs_its_traceback(
 ) -> None:
     entry = mount(options=_options(_broken))
 
-    with caplog.at_level("WARNING", logger="ha_mcp.tools.integration_schema"):
+    with caplog.at_level("WARNING", logger="ha_mcp.runtime.integration_schema"):
         await tools.ha_get_integration(entry_id=entry.entry_id, include_schema=True)
 
     (record,) = [
-        r for r in caplog.records if r.name == "ha_mcp.tools.integration_schema"
+        r for r in caplog.records if r.name == "ha_mcp.runtime.integration_schema"
     ]
     assert isinstance(record.exc_info, tuple)
     assert isinstance(record.exc_info[1], HomeAssistantAPIError)

@@ -14,6 +14,7 @@ from typing import Any
 
 import pytest
 from homeassistant.core import HomeAssistant
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import category_registry as cr
 from homeassistant.helpers import floor_registry as fr
@@ -199,3 +200,47 @@ async def test_an_area_or_floor_capture_keeps_every_field_core_stores(
         "kind": kind,
         **next(r for r in rows if r[id_key] == wanted),
     }
+
+
+async def test_category_read_failure_uses_core_snapshot_instead_of_silent_absence(
+    hass: HomeAssistant,
+    component_core_client: HomeAssistantClient,
+    socket: HomeAssistantWebSocketClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    registry = cr.async_get(hass)
+    category = registry.async_create(name="Lights", scope="automation")
+    (row,) = await _core_rows(
+        component_core_client, "config/category_registry/list", scope="automation"
+    )
+    list_categories = registry.async_list_categories
+    attempts = 0
+
+    def fail_first_read(scope: str) -> Any:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise HomeAssistantError("category registry temporarily unavailable")
+        return list_categories(scope=scope)
+
+    monkeypatch.setattr(registry, "async_list_categories", fail_first_read)
+    snapshot, sent = await _captured(
+        component_core_client, socket, "category", f"automation:{category.category_id}"
+    )
+
+    assert snapshot == {"scope": "automation", **row}
+    assert WS_REGISTRIES in sent
+    assert attempts == 2
+
+
+async def test_genuinely_empty_categories_remain_authoritative_without_fallback(
+    component_core_client: HomeAssistantClient,
+    socket: HomeAssistantWebSocketClient,
+) -> None:
+    snapshot, sent = await _captured(
+        component_core_client, socket, "category", "automation:missing"
+    )
+
+    assert snapshot is None
+    assert WS_REGISTRIES in sent
+    assert "config/category_registry/list" not in sent

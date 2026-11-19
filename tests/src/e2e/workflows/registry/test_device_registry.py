@@ -10,6 +10,7 @@ child-area test here call it as a step.
 import logging
 
 import pytest
+from packaging.version import Version
 
 from ...utilities.assertions import (
     MCPAssertions,
@@ -365,6 +366,12 @@ async def test_core_2026_9_child_devices_inherit_parent_area(mcp_client, ha_clie
     without Core's deprecated mapping use is pinned by
     ``test_component_device_seam.py`` on real Core.
     """
+    # This capability belongs to Core 2026.9, rather than to a transport or
+    # installation topology. Read the live version; a missing fixture on a
+    # capable Core must still fail below instead of silently skipping.
+    config = await ha_client.get_config()
+    if Version(config["version"]).release[:2] < (2026, 9):
+        pytest.skip("Child devices require Home Assistant 2026.9 or newer")
     (
         parent_id,
         child_id,

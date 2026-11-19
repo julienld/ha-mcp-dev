@@ -20,7 +20,7 @@ from homeassistant.setup import async_setup_component
 
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp.client.rest_client import HomeAssistantClient
-from ha_mcp.tools.config_helpers import update
+from ha_mcp.tool_api import CallContext
 from ha_mcp.tools.config_helpers.core_payload import (
     merged_update,
     storage_fields,
@@ -150,24 +150,30 @@ async def test_item_vanishing_before_the_update_reports_like_the_read(
     read reports as CONFIG_NOT_FOUND, so the caller sees one code for it."""
     counter_id = await _stored_counter(hass, core_client)
     deletions: list[dict[str, Any]] = []
-    read = update.stored_item
+    tools = HelperConfigTools(core_client)
+    execute = tools.backend.execute
 
-    async def delete_after_the_read(*args: Any) -> dict[str, Any]:
-        # The tool has read the stored item; Core deletes it before the update
-        # is sent, so Core itself answers the update.
-        stored = await read(*args)
-        deletions.append(
-            await core_client.send_websocket_message(
-                {"type": "counter/delete", "counter_id": counter_id}
+    async def delete_after_the_read(
+        operation: str, arguments: dict[str, Any], actor: CallContext
+    ) -> Any:
+        stored = await execute(operation, arguments, actor)
+        if (
+            operation == "helpers.storage.read"
+            and stored.get("success") is True
+            and not deletions
+        ):
+            deletions.append(
+                await core_client.send_websocket_message(
+                    {"type": "counter/delete", "counter_id": counter_id}
+                )
             )
-        )
         return stored
 
     with (
-        patch.object(update, "stored_item", delete_after_the_read),
+        patch.object(tools.backend, "execute", delete_after_the_read),
         pytest.raises(ToolError) as exc_info,
     ):
-        await HelperConfigTools(core_client).ha_config_set_helper(
+        await tools.ha_config_set_helper(
             helper_type="counter",
             helper_id=f"counter.{counter_id}",
             name="Renamed",

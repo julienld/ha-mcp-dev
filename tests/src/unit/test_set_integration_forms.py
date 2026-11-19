@@ -41,7 +41,7 @@ from pytest_homeassistant.common import (
 )
 
 from ha_mcp.client.rest_client import HomeAssistantClient
-from ha_mcp.tools import config_entry_flow_progress
+from ha_mcp.runtime.flows import progress as config_entry_flow_progress
 from ha_mcp.tools.tools_integrations import IntegrationTools
 
 from ._tool_errors import rejected_call_body

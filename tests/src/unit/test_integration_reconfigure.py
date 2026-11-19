@@ -8,7 +8,7 @@ change is the one Core runs.
 from __future__ import annotations
 
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from homeassistant.config_entries import ConfigEntryState
@@ -19,7 +19,8 @@ from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant.common import MockConfigEntry
 
 from ha_mcp.client.rest_client import HomeAssistantClient, HomeAssistantConnectionError
-from ha_mcp.tools import config_entry_flow_progress, config_entry_reload_watch
+from ha_mcp.runtime import entry_reload as config_entry_reload_watch
+from ha_mcp.runtime.flows import progress as config_entry_flow_progress
 from ha_mcp.tools.tools_integrations import IntegrationTools
 
 from ._integration_reconfigure_core import (
@@ -514,7 +515,10 @@ async def test_each_reconfigure_step_checks_the_identity_again(
         "abort_config_flow",
     )
 
+    trace = Mock()
     with spies(core_client, *methods) as calls:
+        for name, spy in calls.items():
+            trace.attach_mock(spy, name)
         opened = await tools.ha_set_integration(**target)
         done = await tools.ha_set_integration(
             flow_id=opened["flow_id"], config=APPLY, **target
@@ -525,7 +529,11 @@ async def test_each_reconfigure_step_checks_the_identity_again(
 
     assert opened["step_id"] == "reconfigure"
     assert done["message"] == f"{HUB} integration reconfigured"
-    assert calls["get_config_entry"].await_count == 2
+    names = [call[0] for call in trace.mock_calls]
+    start = names.index("start_reconfigure_flow")
+    submit = names.index("submit_config_flow_step")
+    assert "get_config_entry" in names[:start]
+    assert "get_config_entry" in names[start + 1 : submit]
     calls["start_reconfigure_flow"].assert_awaited_once()
     calls["submit_config_flow_step"].assert_awaited_once_with(opened["flow_id"], APPLY)
     calls["abort_config_flow"].assert_not_called()
