@@ -26,8 +26,6 @@ from ha_mcp.tools import (
     tools_service,
     ws_waiters,
 )
-from ha_mcp.tools.config_helpers import create as helper_create
-from ha_mcp.tools.config_helpers import update as helper_update
 from ha_mcp.tools.device_control import DeviceControlTools
 from ha_mcp.tools.tools_config_helpers import HelperConfigTools
 from ha_mcp.tools.tools_service import ServiceTools
@@ -238,7 +236,7 @@ async def test_create_helper_confirms_its_entity_only_when_asked(
 ) -> None:
     await set_up(hass, "input_boolean")
 
-    with spy(helper_create, "wait_for_entity_registered") as waiter:
+    with spy(ws_waiters, "wait_for_entity_registered") as waiter:
         result = await HelperConfigTools(core_client).ha_config_set_helper(
             helper_type="input_boolean", name=fresh_name(), wait=wait
         )
@@ -263,7 +261,7 @@ async def test_update_helper_confirms_its_entity_only_when_asked(
         "input_boolean", "input_boolean", item_id
     )
 
-    with spy(helper_update, "wait_for_entity_registered") as waiter:
+    with spy(ws_waiters, "wait_for_entity_registered") as waiter:
         result = await HelperConfigTools(core_client).ha_config_set_helper(
             helper_type="input_boolean",
             helper_id=entity_id,

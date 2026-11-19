@@ -162,7 +162,8 @@
       }
     },
     {
-      "description": "Regenerate the private FastMCP / MCP SDK trees with their pins; grouped because mcp pins mcp-types exactly. The generator also raises the pyproject.toml floors the new versions need, and uv lock re-locks for them, so the published package makes Home Assistant upgrade a dependency the vendored code outgrew. Python 3.14.2 or later because uv lock resolves the dev group's homeassistant, which requires it.",
+      "description": "Regenerate the private Rich / FastMCP / MCP SDK trees with their pins; grouped because mcp pins mcp-types exactly. The generator also raises the pyproject.toml floors the new versions need, and uv lock re-locks for them, so the published package makes Home Assistant upgrade a dependency the vendored code outgrew. Python 3.14.2 or later because uv lock resolves the dev group's homeassistant, which requires it.",
+
       "matchManagers": [
         "custom.regex"
       ],
@@ -170,6 +171,7 @@
         "pypi"
       ],
       "matchPackageNames": [
+        "rich",
         "fastmcp-slim",
         "mcp",
         "mcp-types"
@@ -187,6 +189,7 @@
           "uv lock"
         ],
         "fileFilters": [
+          "src/ha_mcp/_vendor/rich/**",
           "src/ha_mcp/_vendor/fastmcp/**",
           "src/ha_mcp/_vendor/mcp/**",
           "src/ha_mcp/_vendor/mcp_types/**",

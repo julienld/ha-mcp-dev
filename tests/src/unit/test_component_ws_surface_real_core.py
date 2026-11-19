@@ -128,6 +128,7 @@ async def test_every_command_is_registered_and_config_get_is_not(
         core_contract.COMMAND,
         core_contract.INTEGRATION_COMMAND,
         "ha_mcp_tools/statistics_units",
+        "ha_mcp_tools/hacs_cache",
         card_definitions.WS_DASHBOARD_CARDS,
         todo_items.WS_TODO_ITEM,
         automation_config.WS_AUTOMATION_CONFIG,
