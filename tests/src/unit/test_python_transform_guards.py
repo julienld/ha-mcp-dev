@@ -1,18 +1,27 @@
 """Guards a python_transform can use to refuse an edit (#2995)."""
 
+from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import patch
 
 import pytest
+from homeassistant.core import HomeAssistant
 
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
-from ha_mcp.tools.tools_config_automations import AutomationConfigTools, _Target
+from ha_mcp.client.rest_client import HomeAssistantClient
 from ha_mcp.utils.python_sandbox import (
     PythonSandboxExecutionError,
     format_sandbox_error,
     get_security_documentation,
     safe_execute,
     validate_expression,
+)
+
+from ._automation_enabled_core import (
+    ENTITY_ID,
+    config_hash,
+    morning_tools,
+    set_automation,
 )
 
 
@@ -67,22 +76,32 @@ class TestGuards:
         _, suggestions = format_sandbox_error(exc_info.value, expr)
         assert not any("guard" in s for s in suggestions)
 
-    @pytest.mark.anyio
-    async def test_failed_guard_writes_nothing(self, monkeypatch) -> None:
-        client = AsyncMock()
-        tools = AutomationConfigTools(client)
-
-        async def get_config(_: str) -> tuple[dict[str, Any], str, _Target]:
-            return _actions("X"), "hash", _Target("id", None, None)
-
-        monkeypatch.setattr(tools, "_get_automation_config_internal", get_config)
-
-        with pytest.raises(ToolError, match="unpack"):
-            await tools._run_python_transform(
-                "id", "hash", self.ONE_MATCH, None, False, None, False
+    async def test_failed_guard_writes_nothing(
+        self,
+        hass: HomeAssistant,
+        core_client: HomeAssistantClient,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        tools = await morning_tools(hass, core_client, monkeypatch)
+        path = Path(hass.config.path("automations.yaml"))
+        before = await hass.async_add_executor_job(path.read_bytes)
+        revision = await config_hash(tools, ENTITY_ID)
+        with (
+            patch.object(
+                core_client,
+                "upsert_automation_config",
+                wraps=core_client.upsert_automation_config,
+            ) as write,
+            pytest.raises(ToolError, match="unpack"),
+        ):
+            await set_automation(
+                tools,
+                entity_id=ENTITY_ID,
+                config_hash=revision,
+                python_transform=self.ONE_MATCH,
             )
-
-        client.upsert_automation_config.assert_not_awaited()
+        write.assert_not_awaited()
+        assert await hass.async_add_executor_job(path.read_bytes) == before
 
     def test_assert_rejection_points_at_guards(self) -> None:
         valid, error = validate_expression("assert config")

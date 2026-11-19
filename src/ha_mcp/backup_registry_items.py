@@ -29,6 +29,10 @@ from .client.rest_client import (
     HomeAssistantCommandError,
     HomeAssistantConnectionError,
 )
+from .runtime.registry_recovery_values import (
+    registry_identity_warning as _other_id_warning,
+)
+from .runtime.snapshot_payloads import _REGISTRY_READONLY_KEYS
 
 logger = logging.getLogger(__name__)
 
@@ -238,18 +242,6 @@ def _noting(row: Any, *warnings: str) -> Any:
     return {**row, "warnings": [*(row.get("warnings") or []), *warnings]}
 
 
-def _other_id_warning(row: Any, id_key: str, item_id: str) -> str | None:
-    """The warning for a restore that gave the item an id other than its own."""
-    new_id = row.get(id_key)
-    if new_id == item_id:
-        return None
-    noun = id_key.removesuffix("_id")
-    return (
-        f"The {noun} came back as {new_id}, not {item_id}: anything that refers "
-        f"to the {noun} by {item_id} still matches nothing."
-    )
-
-
 async def _restore_item(
     client: Any,
     id_key: str,
@@ -326,7 +318,7 @@ async def _restore_item(
             )
         except HomeAssistantCommandError as err:
             # Import cycle, as _rows.
-            from .tools.helpers import core_error_message
+            from .runtime.error_text import core_error_message
 
             core = core_error_message(err)
             holder = (
@@ -371,8 +363,8 @@ async def restore_label(client: Any, entity_id: str, config: Any) -> Any:
 
 
 async def fetch_category(client: Any, entity_id: str) -> Any:
-    scope, _, cat_id = entity_id.partition(":")
-    if not cat_id:
+    scope, separator, cat_id = entity_id.rpartition(":")
+    if not separator or not cat_id:
         return None
     for item in await _category_rows(client, scope):
         if item.get("category_id") == cat_id:
@@ -381,7 +373,7 @@ async def fetch_category(client: Any, entity_id: str) -> Any:
 
 
 async def restore_category(client: Any, entity_id: str, config: Any) -> Any:
-    scope, _, cat_id = entity_id.partition(":")
+    scope, _, cat_id = entity_id.rpartition(":")
     scope = scope or config.get("scope")
     return await _restore_item(
         client,
@@ -464,7 +456,7 @@ async def _restored_item(client: Any, domain: str, entity_id: str, config: Any) 
     if domain == "label":
         return _holding_name(await _rows(client, "label"), config)
     if domain == "category":
-        scope = entity_id.partition(":")[0]
+        scope = entity_id.rpartition(":")[0]
         row = _holding_name(await _category_rows(client, scope), config)
         return row and {"scope": scope, **row}
     kind = entity_id.partition(":")[0]
@@ -508,7 +500,7 @@ async def compared_row(
             in_order = {key: config[key] for key in lists if key in sets}
             current = {**current, **in_order}
     if stamped is None:
-        readonly = _manager()._REGISTRY_READONLY_KEYS
+        readonly = _REGISTRY_READONLY_KEYS
         if domain in REGISTRY_ITEM_DOMAINS:
             stamped = readonly
         else:

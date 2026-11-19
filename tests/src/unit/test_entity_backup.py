@@ -485,9 +485,7 @@ async def test_the_current_entity_id_follows_the_entry(
 
 
 class TestStateSnapshotFile:
-    """A state snapshot from an earlier version, as a file in the backup
-    directory: refused before the safety backup and in the diff, since there is
-    nothing to restore and neither may report a change."""
+    """Historical state images retain state recovery without becoming registry writes."""
 
     @pytest.fixture
     def legacy(
@@ -505,37 +503,42 @@ class TestStateSnapshotFile:
         )
         return name
 
-    async def test_restore_writes_no_safety_backup(
+    async def test_restoring_an_absent_state_keeps_its_registry_settings(
         self,
+        hass: HomeAssistant,
         entity_manager: bm.BackupManager,
         backup_settings: config.Settings,
         legacy: str,
+        entity_registry: er.EntityRegistry,
+        desk: Desk,
     ) -> None:
         files = await asyncio.to_thread(backup_files, backup_dir(backup_settings))
+        registered = _entry(entity_registry, desk)
 
-        with pytest.raises(bm.InvalidBackupSnapshotError):
-            await entity_manager.restore_snapshot(legacy)
+        await entity_manager.restore_snapshot(legacy)
 
+        restored = hass.states.get(desk.entity_id)
+        assert restored is not None and restored.state == "on"
+        assert _entry(entity_registry, desk) == registered
         assert (
             await asyncio.to_thread(backup_files, backup_dir(backup_settings)) == files
         )
 
-    async def test_diff_is_refused(
+    async def test_a_historical_state_image_compares_with_the_state_machine(
         self, entity_manager: bm.BackupManager, legacy: str
     ) -> None:
-        with pytest.raises(bm.InvalidBackupSnapshotError):
-            await entity_manager.snapshot_comparison(legacy)
+        stored, current = await entity_manager.snapshot_comparison(legacy)
+        assert stored["config"]["state"] == "on"
+        assert current is None
 
 
-async def test_a_bulk_call_backs_up_no_entity(
+async def test_a_bulk_call_captures_every_entity_before_editing(
     entity_client: HomeAssistantClient,
     entity_registry: er.EntityRegistry,
     backup_settings: config.Settings,
     desk: Desk,
 ) -> None:
-    """Snapshotting the first entity of a list would leave the rest without a
-    backup while looking covered, so a list names no entity. A list of one is
-    a single edit to ha_set_entity."""
+    """Bulk edits must preserve both targets, and a single-item list remains covered."""
     entity_registry.async_get_or_create(
         "light", "hue", "lamp", suggested_object_id="lamp"
     )
@@ -549,5 +552,8 @@ async def test_a_bulk_call_backs_up_no_entity(
     await tools.ha_set_entity(entity_id=["light.desk"], labels=[desk.work])
     after_single = await asyncio.to_thread(backup_files, directory)
 
-    assert after_bulk == []
-    assert [name.split(".20")[0] for name in after_single] == ["entity.light.desk"]
+    assert {name.split(".20")[0] for name in after_bulk} == {
+        "entity.light.desk",
+        "entity.light.lamp",
+    }
+    assert len(after_single) > len(after_bulk)

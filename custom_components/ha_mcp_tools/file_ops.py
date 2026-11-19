@@ -224,7 +224,9 @@ def _apply_edits(
     return result, None
 
 
-def _replace_contents(target_file: Path, data: bytes) -> None:
+def _replace_contents(
+    target_file: Path, data: bytes, *, before_replace: Callable[[], None] | None = None
+) -> None:
     """Swap in ``data`` through a sibling temp file, keeping mode and owner.
 
     A failure before the swap leaves the file as it was. Resolves symlinks first,
@@ -251,6 +253,8 @@ def _replace_contents(target_file: Path, data: bytes) -> None:
             # copy that owner; the file then belongs to Home Assistant's user.
             with contextlib.suppress(PermissionError):
                 os.chown(temp_name, original.st_uid, original.st_gid)
+        if before_replace is not None:
+            before_replace()
         os.replace(temp_name, real_file)
     except BaseException:
         with contextlib.suppress(OSError):
@@ -262,6 +266,9 @@ def edit_file_sync(
     target_file: Path,
     edits: list[dict[str, str]],
     volume_root_for: Callable[[str], str | None] = lambda _path: None,
+    *,
+    before_commit: Callable[[], None] | None = None,
+    after_commit: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     """Bundle edit_file blocking I/O for a single executor offload.
 
@@ -287,7 +294,11 @@ def edit_file_sync(
     data = result.encode("utf-8")
     if len(data) > MAX_EDITABLE_FILE_SIZE:
         return {"_error": "too_large"}
+    if before_commit is not None:
+        before_commit()
     _replace_contents(target_file, data)
+    if after_commit is not None:
+        after_commit()
     stat = target_file.stat()
     return {"size": stat.st_size, "mtime": stat.st_mtime}
 
@@ -354,25 +365,7 @@ def build_edit_file_handler(
         except OSError as err:
             _LOGGER.error("Error editing file %s: %s", rel_path, err)
             return {"success": False, "error": os_error_text(err, rel_path)}
-        reason = result.pop("_error", None)
-        if reason is not None:
-            return {
-                "success": False,
-                "error": refusal_text(reason, rel_path, result),
-                "reason": reason,
-                **result,
-            }
-        _LOGGER.info("Edited file: %s (%d bytes)", rel_path, result["size"])
-        response: dict[str, Any] = {
-            "success": True,
-            "path": rel_path,
-            "size": result["size"],
-            "modified": datetime.fromtimestamp(result["mtime"]).isoformat(),
-            "edits_applied": len(edits),
-            "message": "File updated successfully",
-        }
-        response.update(await after_file_write(hass, rel_path, result["size"]))
-        return response
+        return await edit_file_response(hass, rel_path, edits, result)
 
     return handle_edit_file
 
@@ -400,3 +393,34 @@ def register_edit_file(
         schema=SERVICE_EDIT_FILE_SCHEMA,
         supports_response=SupportsResponse.ONLY,
     )
+
+
+async def edit_file_response(
+    hass: HomeAssistant,
+    rel_path: str,
+    edits: list[dict[str, str]],
+    result: dict[str, Any],
+    *,
+    context: Any = None,
+) -> dict[str, Any]:
+    reason = result.pop("_error", None)
+    if reason is not None:
+        return {
+            "success": False,
+            "error": refusal_text(reason, rel_path, result),
+            "reason": reason,
+            **result,
+        }
+    _LOGGER.info("Edited file: %s (%d bytes)", rel_path, result["size"])
+    response: dict[str, Any] = {
+        "success": True,
+        "path": rel_path,
+        "size": result["size"],
+        "modified": datetime.fromtimestamp(result["mtime"]).isoformat(),
+        "edits_applied": len(edits),
+        "message": "File updated successfully",
+    }
+    response.update(
+        await after_file_write(hass, rel_path, result["size"], context=context)
+    )
+    return response

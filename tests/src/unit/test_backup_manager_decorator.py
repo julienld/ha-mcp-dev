@@ -13,6 +13,7 @@ tool's own decorator is what captures, so those tests call the tool.
 
 from __future__ import annotations
 
+import ast
 import json
 from pathlib import Path
 from typing import Any
@@ -185,14 +186,33 @@ def test_destructive_tools_carry_the_auto_backup_decorator() -> None:
     ]
     for fname, func, domain, key, mandatory in checks:
         src = (TOOLS / fname).read_text(encoding="utf-8")
-        idx = src.index(f"async def {func}(")
-        head = src[max(0, idx - 600) : idx]  # the decorator block above the def
-        assert "with_auto_backup(" in head, f"{func} lost @with_auto_backup"
-        assert f'domain="{domain}"' in head, f"{func} wrong/missing backup domain"
+        declaration = next(
+            node
+            for node in ast.walk(ast.parse(src))
+            if (isinstance(node, ast.AsyncFunctionDef) and node.name == func)
+            or (
+                isinstance(node, ast.Assign)
+                and any(isinstance(t, ast.Name) and t.id == func for t in node.targets)
+            )
+        )
+        capture = next(
+            (
+                node
+                for node in ast.walk(declaration)
+                if isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "with_auto_backup"
+            ),
+            None,
+        )
+        assert capture is not None, f"{func} lost @with_auto_backup"
+        options = {kw.arg: ast.unparse(kw.value) for kw in capture.keywords}
+        assert ast.literal_eval(options["domain"]) == domain
         if key is not None:
-            assert key in head, f"{func} wrong/missing {key}"
+            name, expected = key.split("=", 1)
+            assert options[name] == ast.unparse(ast.parse(expected, mode="eval").body)
         if mandatory:
-            assert "mandatory=True" in head, f"{func} lost mandatory=True"
+            assert options["mandatory"] == "True", f"{func} lost mandatory=True"
 
 
 def _error_code(exc: ToolError) -> str:

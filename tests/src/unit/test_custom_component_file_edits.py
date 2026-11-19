@@ -11,7 +11,7 @@ from unittest.mock import MagicMock
 import pytest
 
 import custom_components.ha_mcp_tools as component
-from custom_components.ha_mcp_tools import file_ops
+from custom_components.ha_mcp_tools import file_access, file_ops
 from custom_components.ha_mcp_tools.file_ops import (
     build_edit_file_handler,
     edit_file_sync,
@@ -343,8 +343,8 @@ class TestEditFileService:
         undoing the write or delete while both report success."""
         monkeypatch.setattr(component, "_caller_token_ok", lambda *_: True)
         monkeypatch.setattr(component, "_write_denied", lambda *_: None)
-        monkeypatch.setattr(component, "_current_extra_dirs", lambda _: [])
-        monkeypatch.setattr(component, "_is_path_allowed_for_dir", lambda *_: True)
+        monkeypatch.setattr(file_access, "_current_extra_dirs", lambda _: [])
+        monkeypatch.setattr(file_access, "_is_path_allowed_for_dir", lambda *_: True)
         _file(tmp_path, b"one\n")
         hass = _Hass(tmp_path)
         other = getattr(component, build_other)(hass)
