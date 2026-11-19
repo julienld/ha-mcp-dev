@@ -2,6 +2,7 @@
 within that test, so its ``finally`` does not run while a later test runs."""
 
 import re
+import signal
 import textwrap
 from pathlib import Path
 
@@ -10,6 +11,10 @@ import pytest
 from tests.src import timed_out_task
 
 from ._pytest_subprocess import run_pytest
+
+requires_sigalrm = pytest.mark.skipif(
+    not hasattr(signal, "SIGALRM"), reason="requires POSIX SIGALRM"
+)
 
 
 def _run(
@@ -21,15 +26,16 @@ def _run(
 ) -> tuple[str, list[str]]:
     # Mirrors the asyncio and timeout settings in pyproject.toml, with 0.5s for
     # the timeout and, by default, for each cancellation to keep the run fast.
+    timeout_method = "signal" if hasattr(signal, "SIGALRM") else "thread"
     (tmp_path / "pytest.ini").write_text(
         textwrap.dedent(
-            """\
+            f"""\
             [pytest]
             asyncio_mode = auto
             asyncio_default_fixture_loop_scope = session
             asyncio_default_test_loop_scope = session
             timeout = 0.5
-            timeout_method = signal
+            timeout_method = {timeout_method}
             timeout_func_only = true
             """
         ),
@@ -86,6 +92,7 @@ def test_suite_conftest_registers_the_hook(pytestconfig: pytest.Config) -> None:
     assert any(impl.function is timed_out_task.pytest_runtest_call for impl in impls)
 
 
+@requires_sigalrm
 def test_timed_out_test_finishes_its_cleanup_before_the_next_test_starts(tmp_path):
     output, order = _run(
         tmp_path,
@@ -111,6 +118,7 @@ def test_timed_out_test_finishes_its_cleanup_before_the_next_test_starts(tmp_pat
     assert re.search(r"Captured stdout call -+\na-cleanup-output", output), output
 
 
+@requires_sigalrm
 def test_hook_logs_nothing_for_a_task_that_ends_without_an_error(tmp_path):
     output, _ = _run(
         tmp_path,
@@ -133,6 +141,7 @@ def test_hook_logs_nothing_for_a_task_that_ends_without_an_error(tmp_path):
     assert "ERROR    tests.src.timed_out_task" not in output, output
 
 
+@requires_sigalrm
 def test_cleanup_step_cancelled_by_the_hook_lets_the_next_step_run(tmp_path):
     output, order = _run(
         tmp_path,
@@ -239,6 +248,7 @@ def test_timeout_does_not_fire_while_the_hook_ends_the_task(tmp_path):
     assert order == ["a-cleanup-start", "a-cleanup-done", "b-start"], output
 
 
+@requires_sigalrm
 def test_hung_cleanup_is_cancelled_and_logged_before_the_next_test(tmp_path):
     output, order = _run(
         tmp_path,
@@ -265,6 +275,7 @@ def test_hung_cleanup_is_cancelled_and_logged_before_the_next_test(tmp_path):
     assert order == ["a-cleanup-start", "b-start", "b-end"], output
 
 
+@requires_sigalrm
 def test_cleanup_error_after_a_timeout_is_logged(tmp_path):
     output, _ = _run(
         tmp_path,
@@ -280,6 +291,7 @@ def test_cleanup_error_after_a_timeout_is_logged(tmp_path):
     assert "RuntimeError: cleanup-error" in output, output
 
 
+@requires_sigalrm
 def test_task_that_swallows_cancellation_is_left_pending_after_the_limit(tmp_path):
     output, order = _run(
         tmp_path,

@@ -46,6 +46,15 @@ from ..client.rest_client import (
     HomeAssistantConnectionError,
 )
 from ..client.websocket_client import get_websocket_client, websocket_manager
+from ..runtime.component_messages import (
+    COMPONENT_INSTALL_HINT as COMPONENT_INSTALL_HINT,
+)
+from ..runtime.component_messages import (
+    COMPONENT_VIA_HACS as COMPONENT_VIA_HACS,
+)
+from ..runtime.component_messages import (
+    REST_LAST_REPORTED_WARNING as REST_LAST_REPORTED_WARNING,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -606,24 +615,7 @@ def webhook_auth(info: InfoResult | None) -> str | None:
     return auth if isinstance(auth, str) else None
 
 
-COMPONENT_VIA_HACS = (
-    "via HACS (the Marketplace on Home Assistant 2026.11+) and restart Home Assistant."
-)
 # Said wherever a response is poorer for want of a component command.
-COMPONENT_INSTALL_HINT = (
-    f"Install or update the ha_mcp_tools component {COMPONENT_VIA_HACS}"
-)
-
-
-# Said where a state's last_reported comes from REST rather than the component.
-REST_LAST_REPORTED_WARNING = (
-    "last_reported comes from Home Assistant's REST API, which can keep an "
-    "older time while an entity reports an unchanged state "
-    "(home-assistant/core#181392); the ha_mcp_tools component serves the live "
-    f"value. {COMPONENT_INSTALL_HINT}"
-)
-
-
 def component_unusable_warning(caps: ComponentCaps | None, without: str) -> str:
     """Why a read came without the component's part, and how to get it.
 

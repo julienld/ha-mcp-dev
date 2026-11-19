@@ -22,9 +22,9 @@ def executor_jobs(hass: HomeAssistant) -> Iterator[MagicMock]:
 
 
 def jobs_from(spy: MagicMock, module: str) -> int:
-    """How many executor jobs ran a function of the component module ``module``."""
-    return sum(
-        call.args[0].__module__
-        == f"custom_components.ha_mcp_tools.websocket_api.{module}"
-        for call in spy.call_args_list
-    )
+    """Count jobs from the canonical owner behind a WebSocket operation."""
+    owner = {
+        "secrets": "custom_components.ha_mcp_tools.core_secrets",
+        "lookups": "custom_components.ha_mcp_tools.blueprint_files",
+    }.get(module, f"custom_components.ha_mcp_tools.websocket_api.{module}")
+    return sum(call.args[0].__module__ == owner for call in spy.call_args_list)

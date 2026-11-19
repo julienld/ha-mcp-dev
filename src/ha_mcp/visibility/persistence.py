@@ -15,7 +15,7 @@ VISIBILITY_FILENAME = "entity_visibility.json"
 
 # Parsed-config memo keyed by resolved path, invalidated whenever the file's
 # ``(mtime_ns, size)`` changes. ``ha_search`` loads this config up to 3x per
-# call (visibility_filter_active / device_registry_needed_for_visibility /
+# call (visibility_state_and_wire / device_registry_needed_for_visibility /
 # load_hidden_set); the memo turns the repeat reads into one stat() each. A
 # concurrent double-parse across ``asyncio.to_thread`` workers is benign (both
 # compute the same value; last write wins).
