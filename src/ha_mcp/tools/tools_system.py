@@ -17,13 +17,15 @@ from pydantic import Field
 
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp._vendor.fastmcp.tools import tool
+from ha_mcp.backends.legacy import legacy_errors
+from ha_mcp.backends.legacy_system import LegacySystemActions
+from ha_mcp.runtime.health_results import HealthResults
+from ha_mcp.runtime.health_tools import HealthFacade
+from ha_mcp.runtime.system_actions import SystemActionsFacade
 
 from ..client.rest_client import (
-    HomeAssistantAPIError,
     HomeAssistantCommandError,
-    HomeAssistantCommandNotSent,
     HomeAssistantCommandTimeout,
-    HomeAssistantConnectionError,
 )
 from ..client.websocket_client import get_websocket_client
 from ..errors import ErrorCode, create_error_response
@@ -37,10 +39,8 @@ from .helpers import (
     exception_to_structured_error,
     get_connected_ws_client,
     log_tool_usage,
-    raise_core_refusal,
     raise_tool_error,
     register_tool_methods,
-    validate_identifier_not_empty,
 )
 from .system_health_sections import (
     add_health_labels,
@@ -52,7 +52,6 @@ from .system_health_sections import (
     read_system_health,
     reraise_if_fatal,
 )
-from .system_restart import restart_home_assistant
 from .tool_hints import read_only_hints, write_hints
 from .util_helpers import filter_active_repairs
 
@@ -106,33 +105,12 @@ def _build_system_snapshot_slices(
     )
 
 
-# Core's reloads that are not named ``<domain>.reload``. ``all`` is Core's own
-# sweep: every ``<domain>.reload`` but notify's, the core config, themes and
-# custom templates, refused while the configuration does not check out.
-NAMED_RELOADS = {
-    "all": ("homeassistant", "reload_all"),
-    "core": ("homeassistant", "reload_core_config"),
-    "themes": ("frontend", "reload_themes"),
-    "custom_templates": ("homeassistant", "reload_custom_templates"),
-}
-# Core's reload-all runs the configuration check and then every reload inside
-# one call, so it gets longer than the client's default wait for one command.
-RELOAD_WAIT_SECONDS = 120.0
-RELOAD_ALL_FAILED_HINT = (
-    "A failed configuration check stops reload-all before anything reloads. "
-    "Any other failure is one integration's: the other reloads were started "
-    "too and may have finished, still be running or have failed, so check "
-    "Home Assistant's log before reloading again"
-)
-
-
-class SystemTools:
-    """System management tools for Home Assistant."""
-
+class SystemTools(HealthFacade, HealthResults, LegacySystemActions):
     def __init__(self, client: Any) -> None:
         self._client = client
+        super().__init__(self._get_system_health)
 
-    @tool(
+    ha_restart = tool(
         name="ha_restart",
         tags={"System"},
         annotations=write_hints(
@@ -141,43 +119,9 @@ class SystemTools:
             idempotent=False,
             open_world=False,
         ),
-    )
-    @log_tool_usage
-    async def ha_restart(
-        self,
-        confirm: Annotated[
-            bool, Field(description="Must be True to confirm the restart.")
-        ] = False,
-        safe_mode: Annotated[
-            bool,
-            Field(
-                description=(
-                    "Restart in safe mode: no custom integrations or custom "
-                    "frontend resources load until the next normal restart."
-                )
-            ),
-        ] = False,
-    ) -> dict[str, Any]:
-        """Execute a Home Assistant restart.
+    )(log_tool_usage(legacy_errors(SystemActionsFacade.ha_restart)))
 
-        WARNING: restarts the entire Home Assistant instance; all automations
-        are unavailable during the restart, which typically takes 1-5 minutes.
-        Config is validated automatically before the restart proceeds (to
-        pre-check, call ha_get_system_health(include="config_check")). For
-        configuration changes, consider ha_reload_core() instead, which reloads
-        specific components without a full restart. When this server runs
-        inside Home Assistant (embedded), it replies before the restart starts
-        and is unreachable until Home Assistant is back; with safe_mode it
-        stays down until Home Assistant is next restarted normally, because it
-        is itself a custom integration.
-
-        EXAMPLE: ha_restart(confirm=True)
-        """
-        return await restart_home_assistant(
-            self._client, confirm=confirm, safe_mode=safe_mode
-        )
-
-    @tool(
+    ha_reload_core = tool(
         name="ha_reload_core",
         tags={"System"},
         annotations=write_hints(
@@ -186,267 +130,18 @@ class SystemTools:
             idempotent=False,
             open_world=False,
         ),
-    )
-    @log_tool_usage
-    async def ha_reload_core(
-        self,
-        target: Annotated[
-            str,
-            Field(
-                description=(
-                    "What to reload: 'all' (Home Assistant's own reload-all: "
-                    "every integration that can reload its YAML but notify, the "
-                    "core config, themes and custom templates), 'core' (customize, "
-                    "packages), 'themes', 'custom_templates', or the domain of "
-                    "an integration that has a reload service, such as "
-                    "'automation', 'script', 'scene', 'template', 'group', "
-                    "'input_boolean' or 'mqtt'. Any other target, an "
-                    "integration that is not loaded yet included, is refused "
-                    "with the domains this Home Assistant can reload."
-                )
-            ),
-        ] = "all",
-        entry_id: Annotated[
-            str | None,
-            Field(
-                description=(
-                    "Reload a SINGLE config entry (one integration instance) "
-                    "instead of sweeping subsystems — the fast path after editing "
-                    "a custom component on disk. Pass it alone (leave target at "
-                    "'all'); combining it with an explicit target is a validation "
-                    "error. Find the id via ha_get_integration."
-                )
-            ),
-        ] = None,
-    ) -> dict[str, Any]:
-        """Execute a Home Assistant configuration reload without a full restart.
+    )(log_tool_usage(legacy_errors(SystemActionsFacade.ha_reload_core)))
 
-        WHEN NOT TO USE: an integration that is not loaded yet has nothing to
-        reload; a YAML block added for one needs ha_restart.
-
-        Use it after editing automation/script YAML, adding YAML helpers, or
-        changing customize.yaml or themes.
-
-        Reload-all checks the configuration first and refuses, with the
-        reason, when the check fails. A single integration's reload does not
-        check first: some (template is one) log a configuration they reject
-        and keep running, so read the result back.
-
-        EXAMPLES:
-        - ha_reload_core(target="automation")
-        - ha_reload_core(entry_id="abc123")
-        """
-        target = target.lower().strip()
-
-        # Single config-entry reload (issue #1813 fold-in): reload just the
-        # integration instance identified by ``entry_id`` rather than sweeping
-        # every reloadable subsystem — the fast path after editing a custom
-        # component on disk. ``target`` defaults to "all" (meaning "no subsystem
-        # chosen"), so entry_id + the default is an entry-only reload; entry_id
-        # paired with an explicit subsystem target is contradictory.
-        if entry_id is not None:
-            entry_id = validate_identifier_not_empty(
-                entry_id,
-                "entry_id",
-                suggestions=[
-                    "Find the entry_id via ha_get_integration",
-                    "Omit entry_id to reload a whole subsystem via target",
-                ],
-            )
-            if target != "all":
-                raise_tool_error(
-                    create_error_response(
-                        ErrorCode.VALIDATION_INVALID_PARAMETER,
-                        "entry_id cannot be combined with a specific reload "
-                        f"target ('{target}')",
-                        context={"entry_id": entry_id, "target": target},
-                        suggestions=[
-                            "Pass entry_id alone to reload one config entry",
-                            f"Omit entry_id to reload the '{target}' subsystem",
-                        ],
-                    )
-                )
-            return await self._reload_config_entry(entry_id)
-
-        try:
-            domain, service = NAMED_RELOADS.get(target) or (
-                await self._reloadable_domain(target),
-                "reload",
-            )
-            await self._call_reload(target, domain, service)
-        except ToolError:
-            raise
-        except Exception as e:  # noqa: BLE001
-            exception_to_structured_error(
-                e,
-                context={"target": target},
-                suggestions=["Check Home Assistant logs for details"],
-            )
-        return {
-            "success": True,
-            "message": f"Home Assistant ran {domain}.{service}",
-            "target": target,
-            "service": f"{domain}.{service}",
-        }
-
-    async def _reloadable_domain(self, target: str) -> str:
-        """``target`` when Core has a ``<target>.reload`` service; refused otherwise.
-
-        Core registers it while the integration is loaded, so what can be
-        reloaded is read from Core, not listed here.
-        """
-        reloadable = sorted(
-            entry["domain"]
-            for entry in await self._client.get_services()
-            if "reload" in entry["services"]
-        )
-        if target in reloadable:
-            return target
-        valid_targets = [*NAMED_RELOADS, *reloadable]
-        domain = target.removesuffix("s")
-        raise_tool_error(
-            create_error_response(
-                ErrorCode.VALIDATION_INVALID_PARAMETER,
-                f"Invalid reload target: Home Assistant has no '{target}.reload' "
-                "service"
-                + (f". Did you mean '{domain}'?" if domain in reloadable else ""),
-                context={"target": target, "valid_targets": valid_targets},
-                suggestions=[
-                    f"Use one of: {', '.join(valid_targets)}",
-                    "An integration that is not loaded has no reload service: "
-                    "restart Home Assistant (ha_restart) to load its first "
-                    "YAML block",
-                ],
-            )
-        )
-
-    async def _call_reload(self, target: str, domain: str, service: str) -> None:
-        """Call the reload over WebSocket, where Core's refusal keeps its error
-        code as well as its text; REST drops the code."""
-        wait = max(float(self._client.timeout), RELOAD_WAIT_SECONDS)
-        try:
-            reply = await self._client.send_websocket_message(
-                {
-                    "type": "call_service",
-                    "domain": domain,
-                    "service": service,
-                    "_wait_timeout": wait,
-                }
-            )
-        except HomeAssistantCommandNotSent:
-            raise
-        except HomeAssistantConnectionError as e:
-            raise_tool_error(
-                create_error_response(
-                    ErrorCode.SERVICE_CALL_FAILED,
-                    f"{domain}.{service} got no answer, so whether Home Assistant "
-                    f"reloaded is unknown: {e}",
-                    context={"target": target, "write_outcome_unknown": True},
-                    suggestions=[
-                        "Home Assistant may still be reloading: check its log "
-                        "before reloading again"
-                    ],
-                )
-            )
-        if reply.get("success"):
-            return
-        suggestions = [
-            "Fix what Home Assistant reported, then reload again",
-            "Check Home Assistant logs for details",
-        ]
-        if target == "all":
-            suggestions.append(RELOAD_ALL_FAILED_HINT)
-        raise_core_refusal(
-            f"{domain}.{service} failed", reply, {"target": target}, suggestions
-        )
-
-    async def _reload_config_entry(self, entry_id: str) -> dict[str, Any]:
-        """Reload a single config entry via the REST config-entries endpoint.
-
-        POSTs to ``/config/config_entries/entry/{entry_id}/reload`` through the
-        REST client's generic request method — the ``/entry/`` path segment the
-        hand-rolled workaround in issue #1813 was easy to get wrong. A 404
-        surfaces as a not-found error naming the ``entry_id``; other failures
-        route through the shared exception classifier. Returns the tool's
-        standard envelope plus ``reloaded``/``entry_id``.
-        """
-        try:
-            resp = await self._client._request(
-                "POST", f"/config/config_entries/entry/{entry_id}/reload"
-            )
-        except ToolError:
-            raise
-        except Exception as e:  # noqa: BLE001
-            if isinstance(e, HomeAssistantAPIError) and e.status_code == 404:
-                raise_tool_error(
-                    create_error_response(
-                        ErrorCode.RESOURCE_NOT_FOUND,
-                        f"Config entry not found: {entry_id}",
-                        context={"entry_id": entry_id},
-                        suggestions=[
-                            "Verify the entry_id via ha_get_integration",
-                        ],
-                    )
-                )
-            if isinstance(e, HomeAssistantAPIError) and e.status_code == 403:
-                # Core returns 403 "Entry cannot be reloaded" for
-                # OperationNotAllowed — an entry whose integration does not
-                # support reload — not an auth problem.
-                raise_tool_error(
-                    create_error_response(
-                        ErrorCode.SERVICE_CALL_FAILED,
-                        f"Config entry {entry_id} cannot be reloaded "
-                        "(the integration does not support reload)",
-                        context={"entry_id": entry_id},
-                        suggestions=[
-                            "Restart Home Assistant (ha_restart) to apply "
-                            "changes to this integration",
-                        ],
-                    )
-                )
-            exception_to_structured_error(
-                e,
-                context={"entry_id": entry_id},
-                suggestions=[
-                    "Verify the entry_id via ha_get_integration",
-                    "Check Home Assistant logs for details",
-                ],
-            )
-
-        # Core reports require_restart=True when the entry could not be
-        # hot-reloaded (its state is not recoverable) — a success response
-        # that still needs a restart to take effect.
-        require_restart = isinstance(resp, dict) and bool(resp.get("require_restart"))
-        if require_restart:
-            return {
-                "success": True,
-                "message": (
-                    f"Config entry {entry_id} cannot be hot-reloaded; "
-                    "a Home Assistant restart is required for changes to "
-                    "take effect"
-                ),
-                "reloaded": False,
-                "require_restart": True,
-                "entry_id": entry_id,
-            }
-        return {
-            "success": True,
-            "message": f"Reloaded config entry {entry_id}",
-            "reloaded": True,
-            "require_restart": False,
-            "entry_id": entry_id,
-        }
-
-    @tool(
+    ha_get_system_health = tool(
         name="ha_get_system_health",
         tags={"System", "Zigbee", "Z-Wave", "Thread", "Matter", "Integrations"},
         annotations=read_only_hints(
             "Get System Health (incl. ZHA/Z-Wave/Thread/Matter networks)",
             open_world=True,
         ),
-    )
-    @log_tool_usage
-    async def ha_get_system_health(
+    )(log_tool_usage(legacy_errors(HealthFacade.ha_get_system_health)))
+
+    async def _get_system_health(
         self,
         include: Annotated[
             str | None,
@@ -689,36 +384,6 @@ class SystemTools:
             await self._safe_disconnect(ws_client)
 
     @staticmethod
-    def _warn_unknown_includes(result: dict[str, Any], includes: set[str]) -> None:
-        """Append a warning to ``result`` for any unrecognized include sections.
-
-        Extracted verbatim from ``ha_get_system_health``.
-        """
-        VALID_INCLUDES = {
-            "repairs",
-            "zha_network",
-            "zha_network_full",
-            "zwave_network",
-            "thread_network",
-            "matter_network",
-            "integration_startup",
-            "supervisor",
-            "config_check",
-            "dead_entities",
-        }
-        unknown = includes - VALID_INCLUDES
-        if unknown:
-            result.setdefault("warnings", []).append(
-                f"Unknown include sections ignored: {', '.join(sorted(unknown))}"
-            )
-        for section, replacement in (
-            ("diagnostics", "ha_get_integration(include_diagnostics=True)"),
-            ("themes", "ha_manage_theme(action='list')"),
-        ):
-            if section in unknown:
-                result["warnings"].append(f"'{section}' moved to {replacement}")
-
-    @staticmethod
     def _stub_ws_unavailable(
         result: dict[str, Any],
         includes: set[str],
@@ -902,13 +567,6 @@ class SystemTools:
         if section_warnings:
             result.setdefault("warnings", []).extend(section_warnings)
         result["dead_entities"] = dead_section
-
-    @staticmethod
-    def _parse_includes(include: str | None) -> set[str]:
-        """Parse the comma-separated include parameter into a set of section names."""
-        if not include:
-            return set()
-        return {s.strip().lower() for s in include.split(",") if s.strip()}
 
     @staticmethod
     async def _safe_disconnect(ws_client: Any) -> None:
@@ -1408,65 +1066,6 @@ class SystemTools:
             if isinstance(s, dict) and s.get("entity_id")
         }
         return state_by_id, registry, live_entry_ids
-
-    @staticmethod
-    def _classify_registry_entries(
-        registry: list[dict[str, Any]],
-        state_by_id: dict[str, Any],
-        live_entry_ids: set[str] | None,
-    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        """Classify registry entries into ``(orphans, stale_restored)`` buckets.
-
-        Extracted verbatim from ``_fetch_dead_entities``' classification loop.
-        """
-        orphans: list[dict[str, Any]] = []
-        stale: list[dict[str, Any]] = []
-        for entry in registry:
-            if not isinstance(entry, dict):
-                continue
-            eid = entry.get("entity_id")
-            if not eid:
-                continue
-            cfg = entry.get("config_entry_id")
-            disabled_by = entry.get("disabled_by")
-
-            # Tier 1 — config-entry orphan (only when the live set loaded).
-            # Covers disabled leftovers too: a disabled entity whose config
-            # entry is gone is still dead cruft (disabled_by is surfaced on
-            # the item so the client sees why it lingered).
-            if live_entry_ids is not None and cfg and cfg not in live_entry_ids:
-                orphans.append(
-                    {
-                        "entity_id": eid,
-                        "platform": entry.get("platform"),
-                        "config_entry_id": cfg,
-                        "disabled_by": disabled_by,
-                        "has_state": eid in state_by_id,
-                    }
-                )
-                continue
-
-            # Tier 2 — stale restored. Skip intentionally-disabled entries
-            # (they normally have no state object anyway).
-            if disabled_by is not None:
-                continue
-            state_obj = state_by_id.get(eid)
-            if state_obj is None:
-                continue
-            attrs = state_obj.get("attributes")
-            if (
-                state_obj.get("state") == "unavailable"
-                and isinstance(attrs, dict)
-                and attrs.get("restored")
-            ):
-                stale.append(
-                    {
-                        "entity_id": eid,
-                        "platform": entry.get("platform"),
-                        "config_entry_id": cfg,
-                    }
-                )
-        return orphans, stale
 
     async def _fetch_dead_entities(
         self,

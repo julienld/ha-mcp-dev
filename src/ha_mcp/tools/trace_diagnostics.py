@@ -4,6 +4,7 @@ import logging
 from typing import Any
 
 from ..client.rest_client import HomeAssistantError
+from ..runtime.trace_results import _diagnostic_suggestion as _diagnostic_suggestion
 from .automation_registry_details import registry_details
 from .component_automation import automation_lookup
 
@@ -123,49 +124,3 @@ async def _is_trace_storage_enabled(
         return int(stored_traces) > 0
     except TypeError, ValueError:
         return None
-
-
-def _diagnostic_suggestion(diagnostics: dict[str, Any], domain: str) -> str:
-    """Describe the first Core-provided reason no trace is available."""
-    if not diagnostics.get("entity_exists"):
-        return f"Could not find {domain} entity. Verify the entity_id with ha_search()."
-    validation = diagnostics.get("validation")
-    if isinstance(validation, dict) and validation.get("status") not in {
-        None,
-        "ok",
-    }:
-        error = validation.get("error")
-        return (
-            f"Core reports this {domain} did not load ({validation.get('status')}): "
-            f"{error or 'see the repair issue'}"
-        )
-    if diagnostics.get("trace_storage_enabled") is False:
-        return (
-            f"Trace storage is disabled for this {domain} (stored_traces: 0); "
-            "enable it in the automation/script trace settings."
-        )
-    if not diagnostics.get("trace_key_available"):
-        return (
-            "This item has no registry unique_id, so Core has no key under "
-            "which to store a trace (common for YAML automations without an id)."
-        )
-    if diagnostics.get("loaded") is False:
-        return (
-            "Core reports this automation is not loaded. Check its validation "
-            "or repair issue; automation.trigger can still execute a disabled "
-            "automation."
-        )
-    if diagnostics.get("entity_state") == "unavailable":
-        return (
-            f"The {domain} is unavailable, so Home Assistant cannot run it. "
-            "Check the integration that provides it and the Home Assistant logs."
-        )
-    if domain == "automation" and diagnostics.get("entity_state") == "off":
-        return (
-            "This automation is disabled (state off). automation.trigger can "
-            "still execute it and record a trace."
-        )
-    return (
-        "No stored trace is available yet. Run the automation/script once, "
-        "then list traces again."
-    )
