@@ -19,7 +19,7 @@ from homeassistant.helpers import category_registry as cr
 from homeassistant.helpers import floor_registry as fr
 from homeassistant.helpers import label_registry as lr
 
-from custom_components.ha_mcp_tools.websocket_api import registries
+from custom_components.ha_mcp_tools import core_registry_fields as registries
 from custom_components.ha_mcp_tools.websocket_api.constants import WS_REGISTRY_FIELDS
 from ha_mcp.backup_manager import BackupManager, BackupRestoreError
 from ha_mcp.client.rest_client import (
@@ -421,7 +421,7 @@ async def test_a_second_restore_does_not_take_an_area_whose_ordered_list_differs
     order is not the one the snapshot holds: the restore is Core's name refusal,
     naming the area that holds the name."""
     monkeypatch.setattr(
-        "custom_components.ha_mcp_tools.websocket_api.registries.declared_fields",
+        "custom_components.ha_mcp_tools.core_registry_fields.declared_fields",
         lambda entry: (),
     )
     snapshot = await _second_restore_with_lists_reversed(
