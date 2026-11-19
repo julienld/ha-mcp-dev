@@ -29,7 +29,7 @@ import httpx
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
 
 from ..errors import ErrorCode, create_error_response
-from ..tools.helpers import raise_tool_error
+from ..utils.tool_errors import raise_tool_error, tool_error_from_response
 from .theme_guard import EngineCredential, addon_credential_from_options
 
 logger = logging.getLogger(__name__)
@@ -354,7 +354,7 @@ async def _discover_engine_via_supervisor(
         raise
     except (httpx.HTTPError, KeyError, ValueError) as e:
         logger.warning("Screenshot engine discovery via Supervisor failed: %s", e)
-        raise_tool_error(
+        raise tool_error_from_response(
             create_error_response(
                 ErrorCode.CONNECTION_FAILED,
                 "Could not query the Supervisor to locate the screenshot engine app.",
@@ -364,4 +364,4 @@ async def _discover_engine_via_supervisor(
                     "Or set HAMCP_DASHBOARD_SCREENSHOT_ENGINE_URL explicitly",
                 ],
             )
-        )
+        ) from e

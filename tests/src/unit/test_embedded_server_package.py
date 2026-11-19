@@ -210,7 +210,7 @@ _REASONS: list[Any] = [
         {STABLE: "8.6.0"},
         {OPT_PIP_SPEC: WHEEL},
         {},
-        "is a direct URL, which always installs",
+        "is a direct URL without matching paired-wheel evidence",
         id="direct url",
     ),
     pytest.param(
