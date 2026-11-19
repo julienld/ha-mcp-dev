@@ -513,13 +513,13 @@ class SceneWriteTools(SceneConfigTools):
             "python_expression": python_transform,
             "message": f"Scene {resolved_id} updated via Python transform",
         }
+        merge_validation_meta(response, references)
         await self.attach_skill_content(
             response,
             MandatoryBPS=MandatoryBPS,
             canonical_files=_SCENE_SKILL_FILES,
             referenced_files=None,
         )
-        merge_validation_meta(response, references)
         return response
 
     async def _run_scene_config_replace(

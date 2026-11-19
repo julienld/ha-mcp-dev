@@ -38,6 +38,7 @@ from .automation_runtime import (
 from .blueprint_substitute import validate_write_modes
 from .config_reload import config_reload_waiter
 from .config_reload_status import note_reload_outcome
+from .config_reference_rules import ValidationMeta
 from .config_write_context import merge_validation_meta
 from .errors import raise_classified, raise_failure
 from .validation import reject_malformed_list_fields
@@ -376,6 +377,7 @@ class AutomationWriteTools(AutomationRuntimeTools):
                 wait,
                 bp_warnings,
                 MandatoryBPS,
+                validation_meta,
                 conflict_warnings,
                 resolved_id,
                 detached_blueprint,
@@ -383,7 +385,6 @@ class AutomationWriteTools(AutomationRuntimeTools):
                 run_actions=run_actions,
                 verified=verified,
             )
-            merge_validation_meta(response, validation_meta)
             return response
         except ToolFailure as failure:
             raise await self._augment_failure(failure, bp_warnings) from None
@@ -537,13 +538,13 @@ class AutomationWriteTools(AutomationRuntimeTools):
         }
         if bp_warnings:
             response["best_practice_warnings"] = list(bp_warnings)
+        merge_validation_meta(response, references)
         await self.attach_skill_content(
             response,
             MandatoryBPS=MandatoryBPS,
             canonical_files=_AUTOMATION_SKILL_FILES,
             referenced_files=bp_warnings.referenced_files,
         )
-        merge_validation_meta(response, references)
         return response, bp_warnings
 
     async def _read_back_config_hash(
@@ -568,6 +569,7 @@ class AutomationWriteTools(AutomationRuntimeTools):
         wait: bool,
         bp_warnings: BestPracticeCheckResult,
         MandatoryBPS: bool,
+        validation_meta: ValidationMeta,
         conflict_warnings: list[str] | None = None,
         resolved_id: str | None = None,
         detached_blueprint: str | None = None,
@@ -684,6 +686,7 @@ class AutomationWriteTools(AutomationRuntimeTools):
         }
         if detached_blueprint:
             response["took_control_of_blueprint"] = detached_blueprint
+        merge_validation_meta(response, validation_meta)
         # attach AFTER the outer dict is built so attach_skill_content's
         # reorder puts skill_content_hint at position 0 of the FINAL
         # response — building the outer dict via spread otherwise pushes

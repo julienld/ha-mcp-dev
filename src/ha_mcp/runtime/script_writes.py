@@ -484,13 +484,13 @@ class ScriptWriteTools(ScriptConfigTools):
         }
         if bp_warnings:
             response["best_practice_warnings"] = list(bp_warnings)
+        merge_validation_meta(response, references)
         await self.attach_skill_content(
             response,
             MandatoryBPS=MandatoryBPS,
             canonical_files=_SCRIPT_SKILL_FILES,
             referenced_files=bp_warnings.referenced_files,
         )
-        merge_validation_meta(response, references)
         return response
 
     async def _commit_script_config(

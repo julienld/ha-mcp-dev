@@ -53,12 +53,6 @@ def redact_addon_info(
     )
 
 
-def redact_addon_options(options: Any, schema: Any, slug: str = "") -> Any:
-    return _shared_redaction.redact_addon_options(
-        options, schema, slug, option_keys=app_option_keys()
-    )
-
-
 def collect_addon_secret_values(options: Any, schema: Any, slug: str = "") -> set[str]:
     return _shared_redaction.collect_addon_secret_values(
         options, schema, slug, option_keys=app_option_keys()
@@ -124,7 +118,6 @@ __all__ = [
     "is_password_flow_field",
     "is_sentinel",
     "placeholder_option_keys",
-    "redact_addon_options",
     "redact_flow_schema",
     "redact_options_by_flow_schema",
     "redaction_enabled",

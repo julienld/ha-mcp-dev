@@ -15,7 +15,6 @@ import pytest
 
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp.read_only import (
-    _ADDON_CONFIG_WRITE_PARAMS,
     READ_ONLY_EXEMPT_TOOLS,
     ReadOnlyMiddleware,
     ReadOnlyToolsTransform,
@@ -747,9 +746,9 @@ _EXEMPT_INSPECTED_ARGS = {
     "ha_manage_blueprints": {"action"},
 }
 
-# The subset of the addon manifest that ``_addon_write`` iterates as
-# "config-change" parameters. Pinned independently so dropping one from
-# the production constant fails here rather than silently passing.
+# The ha_manage_app parameters that each make a call an app (add-on) config
+# change. Pinned here, so one the read-only predicate stops checking fails
+# below rather than silently passing.
 _ADDON_CONFIG_WRITE_PARAMS_MANIFEST = (
     "options",
     "network",
@@ -943,26 +942,20 @@ class TestExemptPredicateSchemaDrift:
                 f"a write as a read."
             )
 
-    def test_addon_config_write_params_manifest_matches_constant(self):
-        """The production ``_ADDON_CONFIG_WRITE_PARAMS`` must equal the
-        independent manifest above. Deleting a param from the constant
-        (which would let that add-on config write slip through as a read)
-        fails this test until the manifest is updated to match."""
-        assert (
-            tuple(_ADDON_CONFIG_WRITE_PARAMS) == _ADDON_CONFIG_WRITE_PARAMS_MANIFEST
-        ), (
-            "_ADDON_CONFIG_WRITE_PARAMS drifted from the independent manifest "
-            "in this test. If you intentionally changed which add-on params "
-            "count as a config write, update the manifest AND re-confirm the "
-            "read-only classification is still correct."
-        )
+    @pytest.mark.parametrize("param", _ADDON_CONFIG_WRITE_PARAMS_MANIFEST)
+    def test_each_addon_config_write_param_is_blocked(self, param):
+        """Each config-change parameter alone makes ha_manage_app a write,
+        at any value but None, even False: one the predicate stops checking would let that
+        app (add-on) config change slip through as a read."""
+        rule = READ_ONLY_EXEMPT_TOOLS["ha_manage_app"].blocked_write
+        assert rule({"slug": "x", param: False}) is not None
 
     def test_addon_config_write_params_are_real_tool_args(self):
         module_path = _SRC_TOOLS_DIR / _EXEMPT_TOOL_MODULES["ha_manage_app"]
         real_params = _decorated_tool_param_names(module_path, "ha_manage_app")
-        for arg in _ADDON_CONFIG_WRITE_PARAMS:
+        for arg in _ADDON_CONFIG_WRITE_PARAMS_MANIFEST:
             assert arg in real_params, (
-                f"_ADDON_CONFIG_WRITE_PARAMS lists {arg!r}, absent from "
+                f"the config-write manifest lists {arg!r}, absent from "
                 f"ha_manage_app's signature ({module_path.name})"
             )
 
