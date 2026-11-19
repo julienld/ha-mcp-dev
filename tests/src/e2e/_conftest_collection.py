@@ -20,6 +20,7 @@ from haos_runtime import (
 )
 
 from ._conftest_embedded import _is_embedded_backend_selected
+from ._conftest_native_runtime import native_runtime_selected
 from ._conftest_topology import order_topologies
 from .utilities.topology import component_surface_available, item_tools_entry_absent
 
@@ -121,6 +122,16 @@ def _apply_embedded_only_skip(
         item.add_marker(skip_marker)
 
 
+def _apply_legacy_runtime_only_skip(item: Any, native_selected: bool) -> None:
+    """Raw transport contracts remain covered on all compatible legacy lanes."""
+    if native_selected and "legacy_runtime_only" in item.keywords:
+        item.add_marker(
+            pytest.mark.skip(
+                reason="legacy raw transport contract; native uses dedicated Core tools"
+            )
+        )
+
+
 def _apply_beta_haos_only_skip(
     item: Any, beta_selected: bool, skip_marker: Any
 ) -> None:
@@ -147,6 +158,12 @@ def _apply_no_tools_entry_skips(
         item.add_marker(skip_requires_tools_entry)
     if not no_tools_entry and "no_tools_only" in item.keywords:
         item.add_marker(skip_no_tools_only)
+
+
+def _backend_keywords(item: Any) -> Any:
+    if "haos_only" in str(item.fspath):
+        item.add_marker(pytest.mark.haos_only)
+    return item.keywords
 
 
 def pytest_collection_modifyitems(session, config, items):
@@ -249,6 +266,7 @@ def pytest_collection_modifyitems(session, config, items):
     skip_beta_haos_only = pytest.mark.skip(
         reason="beta HAOS image expectations are not configured"
     )
+    native_selected = native_runtime_selected()
     skip_requires_tools_entry = pytest.mark.skip(
         reason="File & YAML Tools entry not installed in this lane "
         "(E2E_NO_TOOLS_ENTRY=1; #2292)"
@@ -272,9 +290,7 @@ def pytest_collection_modifyitems(session, config, items):
     for item in items:
         no_tools_entry = item_tools_entry_absent(item)
         component_surface = component_surface_available(no_tools_entry=no_tools_entry)
-        if "haos_only" in str(item.fspath):
-            item.add_marker(pytest.mark.haos_only)
-        keywords = item.keywords
+        keywords = _backend_keywords(item)
         if "haos_only" in keywords and not haos:
             item.add_marker(skip_haos)
         elif "container_only" in keywords and haos:
@@ -285,6 +301,7 @@ def pytest_collection_modifyitems(session, config, items):
         if "haos_stdio_only" in keywords and not haos_stdio:
             item.add_marker(skip_haos_stdio_only)
         _apply_haos_tls_skip(item, haos_embedded, skip_haos_tls)
+        _apply_legacy_runtime_only_skip(item, native_selected)
         _apply_haos_embedded_only_skip(item, haos_embedded, skip_haos_embedded_only)
         _apply_beta_haos_only_skip(item, beta_haos, skip_beta_haos_only)
         _apply_no_tools_entry_skips(

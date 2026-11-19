@@ -332,7 +332,7 @@ def opened_flows(
     A test that continues a flow by ``flow_id`` seeds it here, as
     ``drive_flow`` would have when it opened the flow.
     """
-    from ha_mcp.tools import integration_flow_steps
+    from ha_mcp.runtime import integration_flow_steps
 
     flows: dict[str, tuple[str, str | None]] = {}
     monkeypatch.setattr(integration_flow_steps, "_opened_flows", flows)

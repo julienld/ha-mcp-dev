@@ -497,7 +497,7 @@ async def test_a_reorder_core_applied_succeeds_when_the_order_cannot_be_read_bac
     assert result["previous_order"] == [ground.floor_id, attic.floor_id]
     assert result["order"] is None
     assert len(result["warnings"]) == 2
-    (logged,) = [r for r in caplog.records if r.name == "ha_mcp.tools.area_reorder"]
+    (logged,) = [r for r in caplog.records if r.name == "ha_mcp.runtime.area_reorder"]
     assert (logged.levelname, bool(logged.exc_info)) == ("WARNING", True)
     assert [f.floor_id for f in floors.async_list_floors()] == [
         attic.floor_id,

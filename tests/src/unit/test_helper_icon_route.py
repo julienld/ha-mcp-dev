@@ -12,7 +12,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.setup import async_setup_component
 
 from ha_mcp.client.rest_client import HomeAssistantClient
-from ha_mcp.tools.config_helpers import icon_route
+from ha_mcp.tools import component_helper_collections
 from ha_mcp.tools.config_helpers.icon_route import icon_targets
 
 
@@ -98,7 +98,9 @@ async def test_no_icon_reads_and_writes_nothing(
     await _set_up(hass, "zone")
 
     with patch.object(
-        icon_route, "fetch_helper_schemas", wraps=icon_route.fetch_helper_schemas
+        component_helper_collections,
+        "fetch_helper_schemas",
+        wraps=component_helper_collections.fetch_helper_schemas,
     ) as fetch:
         targets = await icon_targets(component_core_client, "zone", "update", icon)
 
