@@ -302,7 +302,9 @@ def test_download_wheel_refuses_a_digest_mismatch(tmp_path, monkeypatch):
         vendor.main(*_vendor_paths(tmp_path))
 
 
-def test_download_wheel_refuses_a_release_without_a_pure_python_wheel(tmp_path, monkeypatch):
+def test_download_wheel_refuses_a_release_without_a_pure_python_wheel(
+    tmp_path, monkeypatch
+):
     release = _Release(
         [
             {

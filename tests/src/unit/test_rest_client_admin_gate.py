@@ -652,7 +652,7 @@ async def test_generic_unauthorized_handler_text_is_not_an_authentication_failur
 
 
 async def test_core_rejects_invalid_websocket_token_before_service_dispatch(
-    hass: HomeAssistant, core_client: HomeAssistantClient
+    hass: HomeAssistant, core_client: HomeAssistantClient, sockets: dict[str, int]
 ) -> None:
     """Core's real auth refusal is terminal before any service command."""
     events = async_capture_events(hass, "call_service")
@@ -663,4 +663,6 @@ async def test_core_rejects_invalid_websocket_token_before_service_dispatch(
             await denied.send_websocket_message(
                 {"type": "call_service", "domain": "light", "service": "turn_on"}
             )
+    await until(lambda: sockets["closed"] >= 1)
+    assert sockets == {"opened": 0, "closed": 1}
     assert events == []
