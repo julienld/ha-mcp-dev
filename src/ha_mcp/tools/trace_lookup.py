@@ -354,15 +354,3 @@ def _raise_context_not_found(
             suggestions=suggestions,
         )
     )
-
-
-def _requested_sections(sections: str | None) -> set[str]:
-    """Return the lower-cased section names requested by the caller."""
-    requested: set[str] = set()
-    if not sections:
-        return requested
-    for section in sections.split(","):
-        normalized = section.strip().lower()
-        if normalized:
-            requested.add(normalized)
-    return requested

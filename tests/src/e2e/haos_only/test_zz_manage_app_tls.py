@@ -35,6 +35,8 @@ from tests.src.haos_runtime import (
 )
 
 from .._conftest_embedded import _wait_for_embedded_webhook_ready
+from .._conftest_haos import _dump_haos_session_logs
+from .._conftest_readiness import _wait_for_core_state_running
 from ..utilities.assertions import MCPAssertions, safe_call_tool
 from ..utilities.cleanup import CleanupSteps
 from .test_manage_addon_modes import (
@@ -126,6 +128,10 @@ async def _set_front_door(
 
 @pytest.mark.haos_tls
 @pytest.mark.timeout(2400)
+# This scenario deliberately uses its run-local DNS-only certificate via the IP.
+@pytest.mark.filterwarnings(
+    r"ignore:Unverified HTTPS request is being made to host '127\.0\.0\.1'\.:urllib3.exceptions.InsecureRequestWarning"
+)
 async def test_manage_app_reproduces_legacy_tls_failure_then_uses_fix(  # noqa: PLR0915
     ha_container_with_fresh_config: dict[str, Any], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -161,6 +167,7 @@ async def test_manage_app_reproduces_legacy_tls_failure_then_uses_fix(  # noqa: 
     https_webhook_url = f"{https_base_url}/api/webhook/{HA_MCP_SERVER_WEBHOOK_ID}"
     tls_requested = False
     https_ready = False
+    slug: str | None = None
 
     try:
         tls_requested = True
@@ -168,6 +175,14 @@ async def test_manage_app_reproduces_legacy_tls_failure_then_uses_fix(  # noqa: 
             "Core did not schedule the HTTP-to-HTTPS restart"
         )
         _wait_http_ok(f"{https_base_url}/manifest.json", timeout=300, verify_ssl=False)
+        running = await asyncio.to_thread(
+            _wait_for_core_state_running,
+            https_base_url,
+            {"Authorization": f"Bearer {token}"},
+            300,
+            verify_ssl=False,
+        )
+        assert running[0], f"Core did not finish its TLS restart: {running[2]}"
         assert _wait_for_embedded_webhook_ready(
             https_webhook_url, timeout=180, verify=False
         ), "Embedded MCP webhook did not return after the Core TLS restart"
@@ -290,6 +305,18 @@ async def test_manage_app_reproduces_legacy_tls_failure_then_uses_fix(  # noqa: 
     finally:
         with CleanupSteps() as cleanup:
             with cleanup.step():
+                if https_ready:
+                    # Capture the actual TLS worker before restoration can make
+                    # the original HTTP diagnostic endpoint unreachable.
+                    await asyncio.to_thread(
+                        _dump_haos_session_logs,
+                        https_base_url,
+                        token,
+                        False,
+                        verify_ssl=False,
+                        extra_apps=(slug,) if slug else (),
+                    )
+            with cleanup.step():
                 # If the configure socket closed while Core accepted the command, the
                 # assignment above may not have observed readiness. Probe briefly; if
                 # HTTPS never came up, wait for Core's five-minute trial auto-revert so
@@ -317,6 +344,15 @@ async def test_manage_app_reproduces_legacy_tls_failure_then_uses_fix(  # noqa: 
                         verify_ssl=False,
                     ), "Core did not schedule the HTTPS-to-HTTP restoration restart"
                     _wait_http_ok(f"{http_base_url}/manifest.json", timeout=300)
+                    running = await asyncio.to_thread(
+                        _wait_for_core_state_running,
+                        http_base_url,
+                        {"Authorization": f"Bearer {token}"},
+                        300,
+                    )
+                    assert running[0], (
+                        f"Core did not finish its HTTP restoration: {running[2]}"
+                    )
                     restored = get_home_assistant_http_config(http_base_url, token)
                     # A failure before TLS promotion restores the already-stable HTTP
                     # config by clearing pending, so promote only when one remains.

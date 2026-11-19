@@ -127,18 +127,18 @@ async def test_embedded_lost_reply_logs_one_line(
 
     (record,) = _restart_records(caplog)
     assert record.levelno == logging.WARNING
-    assert "dispatched" in record.getMessage()
+    assert "outcome is unknown" in record.getMessage()
     assert record.exc_info is None
 
 
 @pytest.mark.usefixtures("embedded")
-async def test_embedded_refused_restart_keeps_traceback(
+async def test_embedded_core_error_keeps_traceback_without_assuming_outcome(
     hass: HomeAssistant,
     core_client: HomeAssistantClient,
     restarts: list[bool],
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """A deferred restart Core refuses never happened; the log keeps why."""
+    """Core refuses the restart, while the client can only classify HTTP 500."""
     with caplog.at_level(logging.WARNING, logger=system_restart.__name__):
         await SystemTools(core_client).ha_restart(confirm=True)
         # The configuration breaks between the reply and the restart, so
@@ -147,7 +147,7 @@ async def test_embedded_refused_restart_keeps_traceback(
         await _deferred_restart()
 
     (record,) = _restart_records(caplog)
-    assert "failed" in record.getMessage()
+    assert "outcome is unknown" in record.getMessage()
     assert record.exc_info is not None
     assert restarts == []
 

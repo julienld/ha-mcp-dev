@@ -158,28 +158,25 @@ def test_stage_package_refuses_path_traversal(tmp_path):
 
 
 def test_promote_restores_every_tree_when_a_swap_fails(tmp_path, monkeypatch):
-    live_a, live_b = tmp_path / "a", tmp_path / "b"
-    for live in (live_a, live_b):
-        live.mkdir()
+    vendor_dir = tmp_path / "_vendor"
+    live_trees = [vendor_dir / spec.package for spec in vendor.PACKAGES]
+    for live in live_trees:
+        live.mkdir(parents=True)
         (live / "old").write_text("old")
-        staged = live.with_name(live.name + ".incoming")
-        staged.mkdir()
-        (staged / "new").write_text("new")
+    names = [entry.name for entry in live_trees]
+    failed = vendor_dir / f"{names[1]}.incoming"
     real_rename = Path.rename
 
     def failing_rename(self, target):
-        if self == tmp_path / "b.incoming":
+        if self == failed:
             raise OSError("simulated")
         return real_rename(self, target)
 
     monkeypatch.setattr(Path, "rename", failing_rename)
-    with pytest.raises(OSError):
-        vendor._promote(
-            {live_a: tmp_path / "a.incoming", live_b: tmp_path / "b.incoming"}
-        )
-    monkeypatch.undo()
-    assert (live_a / "old").is_file() and not (live_a / "new").exists()
-    assert (live_b / "old").is_file()
+    with pytest.raises(OSError, match="simulated"):
+        _sync(tmp_path, monkeypatch, _project("authlib>=1.9.5"), {})
+    assert all([file.name for file in live.iterdir()] == ["old"] for live in live_trees)
+    assert not list(vendor_dir.glob("*.incoming"))
 
 
 def test_rewrite_handles_a_backslash_continued_from_import():
@@ -210,11 +207,36 @@ def test_patch_fails_loudly_when_traceback_suppression_changes_shape():
         vendor.patch_package("fastmcp", "utilities/logging.py", "x = 1\n", _PINS)
 
 
-def test_stage_package_refuses_an_unpatched_package_lookup(tmp_path):
+def test_rich_unicode_loader_uses_private_tables_and_rejects_source_drift() -> None:
+    source = 'return import_module(module_name, "rich._unicode_data")\n'
+    patched = vendor.patch_package("rich", "_unicode_data/__init__.py", source, _PINS)
+    assert (
+        patched
+        == 'return import_module(module_name, "ha_mcp._vendor.rich._unicode_data")\n'
+    )
+    with pytest.raises(SystemExit, match="unicode table loader changed shape"):
+        vendor.patch_package("rich", "_unicode_data/__init__.py", "changed\n", _PINS)
+
+
+def test_rich_absolute_and_dynamic_imports_stay_private() -> None:
+    source = (
+        'from rich.console import Console\nimport rich\nimport_module("rich.cells")\n'
+    )
+    rewritten = vendor.rewrite_imports(source)
+    assert rewritten == (
+        "from ha_mcp._vendor.rich.console import Console\n"
+        "from ha_mcp._vendor import rich\n"
+        'import_module("ha_mcp._vendor.rich.cells")\n'
+    )
+    assert vendor.remaining_vendored_imports(rewritten) == []
+
+
+@pytest.mark.parametrize("lookup", ["mcp", "rich"])
+def test_stage_package_refuses_an_unpatched_package_lookup(tmp_path, lookup):
     spec = vendor.VendoredPackage("mcp", "mcp")
     wheel = _wheel(
         {
-            "mcp/__init__.py": 'import importlib.util\nimportlib.util.find_spec("mcp")\n',
+            "mcp/__init__.py": f'import importlib.util\nimportlib.util.find_spec("{lookup}")\n',
             "mcp-8.8.8.dist-info/METADATA": "",
         }
     )
@@ -254,7 +276,17 @@ class _Release:
         return b"wheel-bytes"
 
 
-def test_download_wheel_refuses_a_digest_mismatch(monkeypatch):
+def _vendor_paths(tmp_path):
+    vendor_dir = tmp_path / "_vendor"
+    vendor_dir.mkdir(exist_ok=True)
+    (vendor_dir / "requirements.txt").write_text(
+        "fastmcp-slim==9.9.9\nmcp==8.8.8\nmcp-types==8.8.8\nrich==15.0.0\n",
+        encoding="utf-8",
+    )
+    return vendor_dir, tmp_path / "pyproject.toml"
+
+
+def test_download_wheel_refuses_a_digest_mismatch(tmp_path, monkeypatch):
     release = _Release(
         [
             {
@@ -267,10 +299,12 @@ def test_download_wheel_refuses_a_digest_mismatch(monkeypatch):
     )
     monkeypatch.setattr(vendor, "_download", release.download)
     with pytest.raises(SystemExit, match="sha256 mismatch"):
-        vendor._download_wheel("mcp", "8.8.8")
+        vendor.main(*_vendor_paths(tmp_path))
 
 
-def test_download_wheel_refuses_a_release_without_a_pure_python_wheel(monkeypatch):
+def test_download_wheel_refuses_a_release_without_a_pure_python_wheel(
+    tmp_path, monkeypatch
+):
     release = _Release(
         [
             {
@@ -282,14 +316,15 @@ def test_download_wheel_refuses_a_release_without_a_pure_python_wheel(monkeypatc
     )
     monkeypatch.setattr(vendor, "_download", release.download)
     with pytest.raises(SystemExit, match="no pure-Python wheel"):
-        vendor._download_wheel("mcp", "8.8.8")
+        vendor.main(*_vendor_paths(tmp_path))
 
 
 def test_main_leaves_live_trees_untouched_when_a_download_fails(tmp_path, monkeypatch):
     vendor_dir = tmp_path / "_vendor"
-    vendor_dir.mkdir()
+    vendor_dir.mkdir(exist_ok=True)
     (vendor_dir / "requirements.txt").write_text(
-        "fastmcp-slim==9.9.9\nmcp==8.8.8\nmcp-types==8.8.8\n", encoding="utf-8"
+        "fastmcp-slim==9.9.9\nmcp==8.8.8\nmcp-types==8.8.8\nrich==15.0.0\n",
+        encoding="utf-8",
     )
     for spec in vendor.PACKAGES:
         (vendor_dir / spec.package).mkdir()
@@ -306,6 +341,14 @@ def test_main_leaves_live_trees_untouched_when_a_download_fails(tmp_path, monkey
     def download_wheel(distribution, version):
         if distribution == "mcp":
             raise SystemExit("network down")
+        if distribution == "rich":
+            return _wheel(
+                {
+                    "rich/__init__.py": "",
+                    "rich-15.0.0.dist-info/METADATA": "",
+                    "rich-15.0.0.dist-info/licenses/LICENSE": "MIT",
+                }
+            )
         return good
 
     monkeypatch.setattr(vendor, "_download_wheel", download_wheel)
@@ -343,9 +386,10 @@ def _project(*entries: str, dev: tuple[str, ...] | None = None) -> str:
 def _sync(tmp_path, monkeypatch, pyproject_text, requires_by_distribution):
     """Run the sync with each distribution's wheel declaring the given needs."""
     vendor_dir = tmp_path / "_vendor"
-    vendor_dir.mkdir()
+    vendor_dir.mkdir(exist_ok=True)
     (vendor_dir / "requirements.txt").write_text(
-        "fastmcp-slim==9.9.9\nmcp==8.8.8\nmcp-types==8.8.8\n", encoding="utf-8"
+        "fastmcp-slim==9.9.9\nmcp==8.8.8\nmcp-types==8.8.8\nrich==15.0.0\n",
+        encoding="utf-8",
     )
     pyproject = tmp_path / "pyproject.toml"
     pyproject.write_text(pyproject_text, encoding="utf-8")
@@ -357,6 +401,7 @@ def _sync(tmp_path, monkeypatch, pyproject_text, requires_by_distribution):
                 "fastmcp/__init__.py": _FASTMCP_INIT,
                 "mcp/__init__.py": "",
                 "mcp_types/__init__.py": "",
+                "rich/__init__.py": "",
                 "pkg-9.9.9.dist-info/METADATA": "".join(
                     f"Requires-Dist: {need}\n" for need in needs
                 ),

@@ -22,19 +22,17 @@ if sys.version_info < (3, 14):
     )
     sys.exit(1)
 
-# Must be imported before anything that reaches fastmcp (``.auth`` below does),
-# because fastmcp configures rich logging at import time and dies on a rich
-# older than 13.9.4. Importing this module applies the shim. See #2186.
-from . import rich_compat as rich_compat
+# MCP logging uses its own private Rich copy; importing this library must not
+# patch Home Assistant's shared RichHandler.
 from ._version import get_version
 
 __version__ = get_version()
 __author__ = "Julien"
 __license__ = "MIT"
 
-from .auth import HomeAssistantOAuthProvider
-from .client.rest_client import HomeAssistantClient
-from .config import Settings
+from typing import TYPE_CHECKING, Any
+
+from ._lazy_exports import resolve_export
 from .errors import (
     ErrorCode,
     create_auth_error,
@@ -50,7 +48,30 @@ from .errors import (
     get_error_message,
     is_error_response,
 )
-from .server import HomeAssistantSmartMCPServer
+
+if TYPE_CHECKING:
+    from .auth import HomeAssistantOAuthProvider
+    from .client.rest_client import HomeAssistantClient
+    from .config import Settings
+    from .server import HomeAssistantSmartMCPServer
+
+# The integration imports the tool API without constructing the standalone
+# transport stack. Keep the historical package exports available on demand.
+_LAZY_EXPORTS = {
+    "Settings": (".config", "Settings"),
+    "HomeAssistantClient": (".client.rest_client", "HomeAssistantClient"),
+    "HomeAssistantSmartMCPServer": (".server", "HomeAssistantSmartMCPServer"),
+    "HomeAssistantOAuthProvider": (".auth", "HomeAssistantOAuthProvider"),
+}
+
+
+def __getattr__(name: str) -> Any:
+    return resolve_export(__name__, globals(), _LAZY_EXPORTS, name)
+
+
+def __dir__() -> list[str]:
+    return sorted(set(globals()) | _LAZY_EXPORTS.keys())
+
 
 __all__ = [
     "Settings",

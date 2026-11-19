@@ -354,6 +354,7 @@ async def test_capture_through_the_component_carries_options_but_not_subentries(
     )
 
     snapshot = await fetch_integration(component_core_client, entry.entry_id)
+    assert snapshot is not None
 
     assert snapshot["options"] == dict(entry.options)
     assert snapshot["unique_id"] == entry.unique_id
@@ -368,6 +369,7 @@ async def test_capture_without_the_component_keeps_cores_row_and_says_why_no_opt
     entry = _entry(hass)
 
     snapshot = await fetch_integration(core_client, entry.entry_id)
+    assert snapshot is not None
 
     assert snapshot["entry_id"] == entry.entry_id
     assert snapshot["domain"] == _DOMAIN
@@ -385,6 +387,7 @@ async def test_capture_whose_component_read_got_no_answer_says_the_read_failed(
 
     with dropped(hass, WS_CONFIG_ENTRIES, socket):
         snapshot = await fetch_integration(component_core_client, entry.entry_id)
+    assert snapshot is not None
 
     assert snapshot["entry_id"] == entry.entry_id
     assert snapshot["options_unavailable"] == "component_read_failed"
@@ -421,6 +424,7 @@ async def test_options_that_cannot_be_captured_are_left_out_with_the_reason(
     entry = _entry(hass, options=options)
 
     snapshot = await fetch_integration(component_core_client, entry.entry_id)
+    assert snapshot is not None
 
     assert "options" not in snapshot
     assert snapshot["options_unavailable"] == reason

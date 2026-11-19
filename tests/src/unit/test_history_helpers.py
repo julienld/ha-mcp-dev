@@ -13,6 +13,7 @@ from homeassistant.setup import async_setup_component
 
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp.client.rest_client import HomeAssistantClient
+from ha_mcp.runtime import history_policy
 from ha_mcp.tools import tools_history
 from ha_mcp.tools.tools_history import RELATIVE_TIME_UNIT_SECONDS, parse_relative_time
 
@@ -25,6 +26,7 @@ NOW = datetime(2026, 10, 16, 20, 0, tzinfo=UTC)
 def frozen_now(monkeypatch: pytest.MonkeyPatch) -> None:
     """Make the history module's current time NOW."""
     set_module_clock(monkeypatch, tools_history, NOW)
+    set_module_clock(monkeypatch, history_policy, NOW)
 
 
 async def _window_sent_to_core(

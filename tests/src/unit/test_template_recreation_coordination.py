@@ -17,7 +17,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
 from ha_mcp import backup_manager as bm
-from ha_mcp.tools import config_entry_flow
+from ha_mcp.runtime import snapshot_flow_restore as config_entry_flow
 
 from ._held_command import held_command
 from ._template_backup_core import manager as manager

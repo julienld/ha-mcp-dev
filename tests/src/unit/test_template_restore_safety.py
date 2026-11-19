@@ -24,7 +24,7 @@ from homeassistant.helpers import label_registry as lr
 from ha_mcp import backup_manager as bm
 from ha_mcp import config
 from ha_mcp.client.rest_client import HomeAssistantClient, HomeAssistantConnectionError
-from ha_mcp.tools import config_entry_flow
+from ha_mcp.runtime import snapshot_flow_restore as config_entry_flow
 
 from ._backup_core import SnapshotClock, add_label, snapshot_of
 from ._backup_core import backup_settings as backup_settings

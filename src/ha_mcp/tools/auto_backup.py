@@ -45,10 +45,10 @@ from ..client.rest_client import HomeAssistantAuthError
 from ..config import get_global_settings
 from ..errors import TOOL_ERROR_LOG_LEVEL, ErrorCode, create_error_response
 from ..utils.registry_update_lock import registry_update_lock
+from ..utils.tool_errors import tool_error_from_response
 from .helpers import (
     exception_to_structured_error,
     raise_tool_error,
-    tool_error_from_response,
 )
 from .resource_patch import resource_write_lock
 

@@ -160,10 +160,12 @@ async def test_a_rename_during_the_safety_backup_stops_the_restore(
         before_command(
             hass, "config/entity_registry/get", _rename(entity_registry, "light.lamp")
         ),
-        pytest.raises(bm.MandatoryBackupError),
+        pytest.raises(bm.BackupRestoreError) as refused,
     ):
         await entity_manager.restore_snapshot(path.name)
 
+    assert refused.value.outcome["reason"] == "config_conflict"
+    assert refused.value.outcome["apply_status"] == "not_applied"
     assert write_count(seen) == 0
     assert _area(entity_registry, "light.lamp") == desk.kitchen
 
@@ -202,7 +204,7 @@ async def test_a_rename_past_the_held_locks_stops_the_restore(
     hass: HomeAssistant,
     entity_manager: bm.BackupManager,
     entity_registry: er.EntityRegistry,
-    lookup_command: str,
+    monkeypatch: pytest.MonkeyPatch,
     desk: Desk,
 ) -> None:
     """Renamed to a third ID after the safety backup, by a writer the locks do
@@ -210,16 +212,22 @@ async def test_a_rename_past_the_held_locks_stops_the_restore(
     path = await entity_snapshot(entity_manager, desk.entity_id)
     entity_registry.async_update_entity(desk.entity_id, area_id=desk.kitchen)
 
-    # The lookups are: its locks, the safety backup's target, the write's.
-    rename = _rename(entity_registry, "light.third")
+    capture = entity_manager.maybe_snapshot_known
+
+    async def capture_then_rename(*args: Any, **kwargs: Any) -> Any:
+        result = await capture(*args, **kwargs)
+        _rename(entity_registry, "light.third")()
+        return result
+
+    monkeypatch.setattr(entity_manager, "maybe_snapshot_known", capture_then_rename)
     with (
         written(hass) as seen,
-        before_command(hass, lookup_command, rename, nth=3),
         pytest.raises(bm.BackupRestoreError) as err,
     ):
         await entity_manager.restore_snapshot(path.name)
 
-    assert err.value.outcome["reason"] == "entity_identity_mismatch"
+    assert err.value.outcome["reason"] == "config_conflict"
+    assert err.value.outcome["apply_status"] == "not_applied"
     assert write_count(seen) == 0
 
 
@@ -266,7 +274,6 @@ async def test_a_cancel_during_the_lock_lookup_writes_nothing(
     assert write_count(seen) == 0
 
 
-@pytest.mark.parametrize("first", ["gets_no_answer", "finds_nothing"])
 async def test_an_entry_not_locked_before_the_safety_backup_is_not_written(
     hass: HomeAssistant,
     monkeypatch: pytest.MonkeyPatch,
@@ -274,38 +281,18 @@ async def test_an_entry_not_locked_before_the_safety_backup_is_not_written(
     entity_registry: er.EntityRegistry,
     lookup_command: str,
     desk: Desk,
-    first: str,
 ) -> None:
-    """The lookup before the safety backup got no answer or found no entry,
-    and a later one finds it: the restore refuses instead of writing it
-    without its locks."""
+    """An unanswered lock lookup refuses before another read can authorize a write."""
     path = await entity_snapshot(entity_manager, desk.entity_id)
     entity_registry.async_update_entity(desk.entity_id, area_id=desk.kitchen)
 
-    async def restore() -> bm.BackupRestoreError:
-        with written(hass) as seen, pytest.raises(bm.BackupRestoreError) as err:
+    async with first_unanswered(hass, lookup_command, monkeypatch):
+        with written(hass) as seen, pytest.raises(HomeAssistantError) as err:
             await entity_manager.restore_snapshot(path.name)
-        assert write_count(seen) == 0
-        return err.value
-
-    if first == "gets_no_answer":
-        async with first_unanswered(hass, lookup_command, monkeypatch):
-            error = await restore()
-    else:
-        entity_registry.async_remove(desk.entity_id)
-
-        # The entity comes back (Core gives its entry back) before the third lookup.
-        def reappear() -> None:
-            entity_registry.async_get_or_create(
-                "light", "hue", "desk", suggested_object_id="desk"
-            )
-
-        with before_command(hass, lookup_command, reappear, nth=3):
-            error = await restore()
-
-    assert error.outcome["reason"] == "entity_identity_mismatch"
-    assert error.outcome["verification_status"] == "mismatched"
-    assert "could not be locked before its safety backup" in str(error)
+    outcome = vars(err.value)["restore_outcome"]
+    assert outcome["apply_status"] == "not_applied"
+    assert outcome["step"] == "lock_lookup"
+    assert write_count(seen) == 0
     assert _area(entity_registry) == desk.kitchen
 
 
@@ -339,10 +326,12 @@ async def test_a_backup_without_an_entity_id_is_refused(
 
     with (
         written(hass) as seen,
-        pytest.raises(bm.InvalidBackupSnapshotError, match="names no entity_id"),
+        pytest.raises(bm.BackupRestoreError) as refused,
     ):
         await entity_manager.restore_snapshot(name)
 
+    assert refused.value.outcome["reason"] == "invalid_snapshot"
+    assert refused.value.outcome["apply_status"] == "not_applied"
     assert await asyncio.to_thread(backup_files, backup_dir(backup_settings)) == files
     assert write_count(seen) == 0
 

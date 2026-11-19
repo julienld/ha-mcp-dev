@@ -22,7 +22,8 @@ from pytest_homeassistant.common import setup_test_component_platform
 
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp.client.rest_client import HomeAssistantClient, HomeAssistantConnectionError
-from ha_mcp.tools import response_helpers, tools_camera
+from ha_mcp.runtime import projection as response_helpers
+from ha_mcp.tools import tools_camera
 from ha_mcp.tools.tools_camera import CameraTools
 
 from ._module_clock import set_module_clock

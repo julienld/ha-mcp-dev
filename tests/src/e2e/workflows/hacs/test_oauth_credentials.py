@@ -11,6 +11,7 @@ from ha_mcp._vendor.fastmcp.client.transports import StreamableHttpTransport
 from ha_mcp.client.rest_client import HomeAssistantAuthError, HomeAssistantClient
 from ha_mcp.client.websocket_client import HomeAssistantWebSocketClient
 from ha_mcp.config import OAUTH_MODE_TOKEN
+from ha_mcp.errors import HomeAssistantAuthNotSent
 
 from ...conftest import TEST_TOKEN
 from ...utilities.assertions import MCPAssertions
@@ -90,6 +91,12 @@ async def test_rejected_websocket_token_surfaces_auth_error_not_timeout(
     ha_container_with_fresh_config: dict,
 ) -> None:
     """HA's auth_invalid followed by close must retain its failure classification."""
+    async with HomeAssistantClient(
+        ha_container_with_fresh_config["base_url"], OAUTH_MODE_TOKEN
+    ) as denied:
+        with pytest.raises(HomeAssistantAuthNotSent, match="Invalid token"):
+            await denied.send_websocket_message({"type": "get_states"})
+
     client = HomeAssistantWebSocketClient(
         ha_container_with_fresh_config["base_url"], OAUTH_MODE_TOKEN
     )

@@ -99,7 +99,13 @@ class TestFullMode:
         self, hass: HomeAssistant, caplog: pytest.LogCaptureFixture
     ) -> None:
         tools = [
-            ServedTool("ha_bad", input_schema={"type": "not-a-json-schema-type"}),
+            ServedTool(
+                "ha_bad",
+                input_schema={
+                    "type": "object",
+                    "properties": {"bad": {"type": "not-a-json-schema-type"}},
+                },
+            ),
             ServedTool("ha_good"),
         ]
         async with serve(tools) as srv:

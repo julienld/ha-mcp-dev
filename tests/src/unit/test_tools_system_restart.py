@@ -7,8 +7,9 @@ Behind a reverse proxy, Home Assistant going down mid-request reaches the
 server as the proxy's own error (#612, #1666): ``_gateway`` is that proxy.
 """
 
+import json
 from pathlib import Path
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import aiohttp
 import pytest
@@ -19,7 +20,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.setup import async_setup_component
 
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
-from ha_mcp.client.rest_client import HomeAssistantClient, HomeAssistantConnectionError
+from ha_mcp.client.rest_client import HomeAssistantClient
 from ha_mcp.tools.tools_system import SystemTools
 
 from ._gateway import Gateway
@@ -79,32 +80,17 @@ def restart_answer_lost(
 
 @pytest.mark.parametrize("status", [502, 503, 504])
 @pytest.mark.usefixtures("restart_answer_lost")
-async def test_a_gateway_error_after_core_got_the_restart_is_reported_as_restarting(
+async def test_a_gateway_error_after_core_got_the_restart_has_an_unknown_outcome(
     stops: list[bool], gateway_client: HomeAssistantClient
 ) -> None:
-    """The restart happened: the user is told to wait for it, not that it failed."""
-    result = await SystemTools(gateway_client).ha_restart(confirm=True)
+    """A proxy's reply cannot confirm whether Core completed its restart."""
+    with pytest.raises(ToolError) as failure:
+        await SystemTools(gateway_client).ha_restart(confirm=True)
 
     assert stops == [True]
-    assert result["success"] is True
-    assert any("Wait 1-5 minutes" in w for w in result["warnings"])
-
-
-@pytest.mark.parametrize(
-    "message", ["Proxy returned: Bad Gateway", "Upstream Service Unavailable"]
-)
-async def test_a_lost_connection_naming_the_gateway_is_reported_as_restarting(
-    core_client: HomeAssistantClient, stops: list[bool], message: str
-) -> None:
-    with patch.object(
-        core_client,
-        "call_service",
-        AsyncMock(side_effect=HomeAssistantConnectionError(message)),
-    ):
-        result = await SystemTools(core_client).ha_restart(confirm=True)
-
-    assert result["success"] is True
-    assert any("Wait 1-5 minutes" in w for w in result["warnings"])
+    result = json.loads(str(failure.value))
+    assert result["execution_status"] == "outcome_unknown"
+    assert result["write_outcome_unknown"] is True
 
 
 async def test_a_gateway_error_before_the_restart_was_sent_fails(

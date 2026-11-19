@@ -56,6 +56,10 @@ class TestEntityCaptureRestore:
                     predicate=lambda d: d["entity_entry"]["hidden_by"] is None,
                     description=f"{entity_id} in the entity registry",
                 )
+                original = await mcp.call_tool_success(
+                    "ha_get_entity", {"entity_id": entity_id}
+                )
+                registry_id = original["entity_entry"]["id"]
                 exposed = _exposed_to_assist(
                     await mcp.call_tool_success(
                         "ha_get_entity", {"entity_id": entity_id}
@@ -98,6 +102,7 @@ class TestEntityCaptureRestore:
                     "ha_get_entity", {"entity_id": entity_id}
                 )
                 assert restored["entity_entry"]["hidden_by"] is None
+                assert restored["entity_entry"]["id"] == registry_id
                 assert _exposed_to_assist(restored) is exposed
             finally:
                 for target in (entity_id, renamed):

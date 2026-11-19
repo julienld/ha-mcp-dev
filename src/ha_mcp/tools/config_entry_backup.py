@@ -13,9 +13,8 @@ from ..backup_manager import (
     _FlowHelperReadError,
     _is_flow_helper_domain,
 )
-from ..errors import ErrorCode, create_error_response
+from ..runtime.helper_removal_entries import removal_helper_type as removal_helper_type
 from .helper_flows import helper_flow_types, listed_helper_flows
-from .helpers import raise_tool_error
 
 
 def helper_backup_id(kwargs: dict[str, Any]) -> str:
@@ -28,30 +27,6 @@ def helper_backup_id(kwargs: dict[str, Any]) -> str:
         entry_id, subentry_id = kwargs.get("entry_id"), kwargs.get("subentry_id")
         return f"{entry_id}/{subentry_id}" if entry_id and subentry_id else ""
     return str(kwargs.get("helper_id") or kwargs.get("entry_id") or "")
-
-
-def removal_helper_type(kwargs: dict[str, Any]) -> str | None:
-    """The helper type of a removal. A ``subentry_id`` names one subentry, also
-    when the caller left ``helper_type`` out: never its whole parent entry, and
-    never the helper another ``helper_type`` names, which is refused."""
-    helper_type: str | None = kwargs.get("helper_type")
-    subentry_id = kwargs.get("subentry_id")
-    if subentry_id is None or helper_type == "config_subentry":
-        return helper_type
-    if helper_type is None:
-        return "config_subentry"
-    raise_tool_error(
-        create_error_response(
-            ErrorCode.VALIDATION_INVALID_PARAMETER,
-            "subentry_id names a config subentry, which helper_type "
-            f"'{helper_type}' does not have",
-            context={"helper_type": helper_type, "subentry_id": subentry_id},
-            suggestions=[
-                "Omit helper_type to remove that subentry",
-                "Omit subentry_id to remove the helper",
-            ],
-        )
-    )
 
 
 def removal_backup_domain(kwargs: dict[str, Any]) -> str:

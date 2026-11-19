@@ -20,7 +20,7 @@ from homeassistant.setup import async_setup_component
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
 from ha_mcp.client.rest_client import HomeAssistantClient, HomeAssistantConnectionError
 from ha_mcp.config import reset_global_settings
-from ha_mcp.tools import response_helpers
+from ha_mcp.runtime import projection as response_helpers
 from ha_mcp.tools.tools_history import HistoryTools
 
 from ._recorded_history import import_statistic, record_states, statistics

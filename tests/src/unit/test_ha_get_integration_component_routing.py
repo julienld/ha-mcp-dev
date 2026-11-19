@@ -798,6 +798,8 @@ async def test_a_schema_read_under_redact_secrets_opens_the_options_flow_once(
 
     assert spies.start_flow.await_count == 1
     assert resp["entry"]["options"] == {"api_key": REDACTED_SET, "host": "1.2.3.4"}
+    fields = {field["name"]: field for field in resp["options_schema"]["fields"]}
+    assert fields["api_key"]["current"] == REDACTED_SET
 
 
 # --- a degraded secrets scrub is surfaced, not passed off as scrubbed ----------------
@@ -827,3 +829,34 @@ async def test_a_clean_secret_scrub_adds_no_warning(
     resp = await _get(client, entry_id=entry.entry_id)
 
     assert not any("secrets.yaml" in w for w in resp.get("warnings", []))
+
+
+async def test_subentries_are_read_without_the_optional_component(
+    hass: HomeAssistant, core: None, core_client: HomeAssistantClient
+) -> None:
+    entry = _entry(
+        hass,
+        subentries_data=[
+            ConfigSubentryDataWithId(
+                data={},
+                subentry_id="sub1",
+                subentry_type="device",
+                title="Sub One",
+                unique_id="u1",
+            )
+        ],
+    )
+    with _spies(core_client) as spies:
+        response = await _get(
+            core_client, entry_id=entry.entry_id, include_subentries=True
+        )
+
+    assert response["subentry_count"] == 1
+    (subentry,) = response["subentries"]
+    assert (subentry["subentry_id"], subentry["subentry_type"], subentry["title"]) == (
+        "sub1",
+        "device",
+        "Sub One",
+    )
+    spies.subentries.assert_awaited_once_with(entry.entry_id)
+    spies.start_flow.assert_not_awaited()

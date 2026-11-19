@@ -398,9 +398,8 @@ class TestRestart:
         running_entry: MockConfigEntry,
         dev_log: pytest.LogCaptureFixture,
     ) -> None:
-        """Losing the reply is how a successful self-restart ends: the reload
-        stops the worker owning the client, so the answer never arrives.
-        Logged at WARNING, which Home Assistant shows for this package."""
+        """A lost reply remains uncertain through service-error wrapping,
+        without replay. WARNING is visible for this package in Core."""
 
         @callback
         def drop_the_connection(event: Event) -> None:
@@ -413,7 +412,7 @@ class TestRestart:
         hass.bus.async_listen(EVENT_CALL_SERVICE, drop_the_connection)
         await DevTools(core_client).ha_dev_manage_server(action="restart")
 
-        await until(lambda: _logged(dev_log, "tore down this"))
+        await until(lambda: _logged(dev_log, "outcome is unknown"))
         await hass.async_block_till_done()
         assert [r.levelno for r in _dev_records(dev_log, logging.WARNING)] == [
             logging.WARNING
