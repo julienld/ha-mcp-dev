@@ -19,6 +19,7 @@ from ._conftest_readiness import (
     _wait_for_entries_loaded,
     _wait_for_ha_api_ready,
 )
+from ._conftest_seed import pair_component_library
 from .utilities.topology import (
     combined_topologies,
     component_surface_available,
@@ -207,7 +208,11 @@ def install_tools_entry(env: dict[str, Any]) -> None:
                 / "custom_components"
                 / "ha_mcp_tools"
             )
+            wheel_name = env.get("component_wheel_name")
+            if not wheel_name:
+                raise RuntimeError("The tools-entry phase needs the checkout wheel")
             shutil.copytree(source, target)
+            pair_component_library(Path(config_path), wheel_name)
             # Core discovered the initial custom-component directory before
             # these files existed. Restart before opening the new flow.
             _restart_core(env)

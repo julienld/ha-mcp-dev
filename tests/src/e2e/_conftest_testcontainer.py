@@ -62,6 +62,9 @@ from ._conftest_seed import (
 logger = logging.getLogger(__name__)
 
 
+from .utilities.topology import combined_topologies
+
+
 # Boot budgets for paths with the component's checkout library. Its wheel is
 # preinstalled in the container entrypoint BEFORE HA's /init (so bring-up is
 # fast + deterministic), which delays /api/ liveness by the pip window — hence a
@@ -240,6 +243,11 @@ def prepare_testcontainer_config(
             "HA-MCP File & YAML Tools",
             seed_entry=not no_tools_entry,
         )
+
+    # The combined external lane installs the component only after its absent
+    # phase. Core still needs the checkout library before loading that flow.
+    if no_tools_entry and not embedded and combined_topologies():
+        embedded_wheel_name = _build_embedded_server_wheel(config_path).name
 
     # The component imports shared ha_mcp code even when MCP runs externally.
     # Pair its source with the checkout library, never the published manifest

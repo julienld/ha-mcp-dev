@@ -655,6 +655,7 @@ async def test_core_rejects_invalid_websocket_token_before_service_dispatch(
     hass: HomeAssistant,
     aiohttp_client: ClientSessionGenerator,
     sockets: dict[str, int],
+    socket_enabled: None,
 ) -> None:
     """Core's real auth refusal is terminal before any service command."""
     assert await async_setup_component(hass, "websocket_api", {})

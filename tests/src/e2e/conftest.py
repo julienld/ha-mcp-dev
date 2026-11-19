@@ -353,6 +353,7 @@ def ha_container_with_fresh_config(request, in_process_data_dir):  # noqa: PLR09
             "port": host_port,
             "base_url": base_url,
             "config_path": str(config_path),
+            "component_wheel_name": embedded_wheel_name,
             "blueprint_server": local_blueprint,
             "token": TEST_TOKEN,
             # ``embedded`` reuses the whole testcontainer path but swaps the
