@@ -28,7 +28,10 @@ from pytest_homeassistant.common import MockConfigEntry
 from pytest_homeassistant.test_util.aiohttp import AiohttpClientMocker
 
 from custom_components.ha_mcp_tools import store_records
-from custom_components.ha_mcp_tools.const import DOMAIN, ISSUE_STORE_RECORDS_CONFLICT
+from custom_components.ha_mcp_tools.const import (
+    DOMAIN,
+    ISSUE_STORE_RECORDS_CONFLICT,
+)
 
 from ._hacs_marketplace import REPOSITORIES_KEY, add_marketplace
 from ._marketplace_records import (

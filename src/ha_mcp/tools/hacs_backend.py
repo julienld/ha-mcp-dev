@@ -9,6 +9,9 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, NoReturn
 
+from ha_mcp.runtime.hacs_values import CATEGORY_HELP as CATEGORY_HELP
+from ha_mcp.runtime.hacs_values import MARKETPLACE_WARNING_GUIDANCE
+
 from ..client.rest_client import (
     HomeAssistantCommandError,
     HomeAssistantCommandTimeout,
@@ -46,10 +49,6 @@ _REPOSITORY_SIGNAL = {
 }
 # HA-MCP's older name for what both stores call "plugin".
 _CATEGORY_ALIASES = {"lovelace": "plugin"}
-CATEGORY_HELP = (
-    "One of the categories the store reports (search's store.categories); "
-    "'lovelace' means 'plugin' (dashboard cards)."
-)
 
 # The Marketplace refuses these until the calling user acts; the message Core
 # sends is already user-facing, the suggestions add the step.
@@ -57,11 +56,7 @@ _GATE_SUGGESTIONS = {
     # Core keeps the acceptance per user, and the server's user is often one
     # nobody logs in as (Supervisor for the app), so the UI cannot reach it.
     "warning_not_accepted": [
-        "The Marketplace's first-run warning is accepted per user, and the user "
-        "this server connects as has not accepted it (an acceptance in the UI "
-        "under another account does not count). Ask the user whether they have "
-        "read the warning in Settings > Marketplace and accept it; if they do, "
-        "call ha_manage_hacs(action='accept_warning', confirm=True) and retry.",
+        MARKETPLACE_WARNING_GUIDANCE,
     ],
     "github_not_connected": [
         "Open Settings > Marketplace and select Connect GitHub (a device "
@@ -345,3 +340,15 @@ async def fetch_releases(
     if warnings:
         out["warnings"] = warnings
     return out
+
+
+__all__ = [
+    "CATEGORY_HELP",
+    "HACS_API",
+    "STORE_APIS",
+    "StoreApi",
+    "accept_warning",
+    "detect_store_api",
+    "fetch_releases",
+    "raise_store_error",
+]
