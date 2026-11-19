@@ -37,7 +37,7 @@ from pytest_homeassistant.common import (
 from testcontainers.core.config import ConnectionMode, testcontainers_config
 from yarl import URL
 
-from tests.src.e2e import _conftest_knobs
+from tests.src.e2e import _conftest_knobs, _conftest_testcontainer
 from tests.src.e2e import conftest as e2e_conftest
 
 # Every variable the fixture writes for the in-process client.
@@ -146,6 +146,7 @@ def plain_container_session(
     monkeypatch.setenv(_conftest_knobs.BASE_HOST_ENV_VAR, "127.0.0.1")
     monkeypatch.setattr(e2e_conftest, "TEST_TOKEN", token)
     monkeypatch.setattr(urllib.request, "urlopen", _offline)
+    monkeypatch.setattr(_conftest_testcontainer, "_ensure_hacs_frontend", lambda _: None)
     monkeypatch.setattr(tempfile, "tempdir", str(tmp_path))
 
     client = MagicMock(name="docker_client")

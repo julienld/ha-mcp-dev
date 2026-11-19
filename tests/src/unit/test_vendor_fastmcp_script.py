@@ -279,7 +279,17 @@ class _Release:
         return b"wheel-bytes"
 
 
-def test_download_wheel_refuses_a_digest_mismatch(monkeypatch):
+def _vendor_paths(tmp_path):
+    vendor_dir = tmp_path / "_vendor"
+    vendor_dir.mkdir()
+    (vendor_dir / "requirements.txt").write_text(
+        "fastmcp-slim==9.9.9\nmcp==8.8.8\nmcp-types==8.8.8\nrich==15.0.0\n",
+        encoding="utf-8",
+    )
+    return vendor_dir, tmp_path / "pyproject.toml"
+
+
+def test_download_wheel_refuses_a_digest_mismatch(tmp_path, monkeypatch):
     release = _Release(
         [
             {
@@ -292,10 +302,10 @@ def test_download_wheel_refuses_a_digest_mismatch(monkeypatch):
     )
     monkeypatch.setattr(vendor, "_download", release.download)
     with pytest.raises(SystemExit, match="sha256 mismatch"):
-        vendor._download_wheel("mcp", "8.8.8")
+        vendor.main(*_vendor_paths(tmp_path))
 
 
-def test_download_wheel_refuses_a_release_without_a_pure_python_wheel(monkeypatch):
+def test_download_wheel_refuses_a_release_without_a_pure_python_wheel(tmp_path, monkeypatch):
     release = _Release(
         [
             {
@@ -307,7 +317,7 @@ def test_download_wheel_refuses_a_release_without_a_pure_python_wheel(monkeypatc
     )
     monkeypatch.setattr(vendor, "_download", release.download)
     with pytest.raises(SystemExit, match="no pure-Python wheel"):
-        vendor._download_wheel("mcp", "8.8.8")
+        vendor.main(*_vendor_paths(tmp_path))
 
 
 def test_main_leaves_live_trees_untouched_when_a_download_fails(tmp_path, monkeypatch):

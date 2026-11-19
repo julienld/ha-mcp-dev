@@ -545,8 +545,7 @@ async def test_ha_search_combined_surface_populated(mcp_client):
     depends on the test-container HA having pre-existing automations
     matching the query term.
     """
-    from ..utilities.seeded_search_area import seeded_search_area
-from ..utilities.wait_helpers import wait_for_tool_result
+    from ..utilities.wait_helpers import wait_for_tool_result
 
     fixture_query = "combined_surface_fixture"
     automation_config = {

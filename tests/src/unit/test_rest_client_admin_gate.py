@@ -12,6 +12,7 @@ probe, as when Home Assistant cannot be asked.
 import asyncio
 import logging
 from collections.abc import AsyncIterator, Callable
+from unittest.mock import patch
 
 import pytest
 from homeassistant.auth.const import GROUP_ID_USER
@@ -32,6 +33,7 @@ from pytest_homeassistant.common import MockUser, async_capture_events
 from pytest_homeassistant.typing import ClientSessionGenerator
 
 from ha_mcp._vendor.fastmcp.exceptions import ToolError
+from ha_mcp.client import rest_client
 from ha_mcp.client.admin_routes import is_admin_only_route
 from ha_mcp.client.rest_client import (
     NON_ADMIN_TOKEN_WARNING,
@@ -41,6 +43,7 @@ from ha_mcp.client.rest_client import (
     HomeAssistantClient,
 )
 from ha_mcp.errors import (
+    HomeAssistantAuthNotSent,
     HomeAssistantServiceAuthOutcomeUnknown,
     HomeAssistantWebSocketServiceError,
 )
@@ -648,3 +651,24 @@ async def test_generic_unauthorized_handler_text_is_not_an_authentication_failur
     assert not isinstance(error.value, HomeAssistantAdminRequiredError)
     assert "Unauthorized word" in str(error.value)
     assert len(calls) == 1
+
+
+async def test_core_rejects_invalid_websocket_token_before_service_dispatch(
+    hass: HomeAssistant, core_client: HomeAssistantClient
+) -> None:
+    """Core's real auth refusal is terminal before any service command."""
+    events = async_capture_events(hass, "call_service")
+    async with HomeAssistantClient(
+        core_client.base_url, "invalid-token", verify_ssl=False
+    ) as denied:
+        with (
+            patch.object(
+                rest_client, "get_websocket_client", wraps=rest_client.get_websocket_client
+            ) as acquire,
+            pytest.raises(HomeAssistantAuthNotSent),
+        ):
+            await denied.send_websocket_message(
+                {"type": "call_service", "domain": "light", "service": "turn_on"}
+            )
+    acquire.assert_awaited_once()
+    assert events == []

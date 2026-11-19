@@ -10,6 +10,20 @@ changes. The 6 November compatibility pass below restores the installation
 floor and automatic entity-history contracts; historical audit entries remain
 evidence of their original candidate, rather than current behavior.
 
+## Upstream integration on 18 November 2026
+
+The candidate incorporates Main dbfe16885fbf6d8f692ef52549a80b627fe5f6c0 at this point in the history.
+FastMCP 4.1.8 is generated in the private SDK namespace alongside Rich 15.0.0
+and MCP/mcp-types 2.3.0. The dependency lock and required floors follow Main
+while retaining the seven-day dependency policy and Native's dependency bounds.
+
+The automatic E2E workflows inherit the upstream combined tool-entry phases.
+The Native collection marker and separate qualification workflows continue
+to describe their own runtimes. The paired HAOS install still uses artifacts
+built from the checkout. The scheduled suites use Main's topology and the stdio
+lane is on manual dispatch. The SDK 4.1.6 protocol campaign keeps its original
+reference and receipts. This candidate requires a fresh matched-SDK campaign.
+
 ## Core conversions and dependency floors integrated on 17 November 2026
 
 The integration target is Main `d46b3c8491a97064748f04d6f36368aafc5a31dd`.
